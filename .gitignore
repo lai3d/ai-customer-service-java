@@ -34,3 +34,7 @@ Thumbs.db
 logs/
 *.log
 onnx-model-cache/
+
+# --- Kubernetes: a filled-in copy of k8s/secret.example.yaml ---
+k8s/secret.yaml
+k8s/*.secret.yaml

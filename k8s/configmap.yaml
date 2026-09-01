@@ -1,0 +1,35 @@
+# Non-secret configuration. Every key here is a Spring relaxed-binding environment
+# variable, so it overrides the matching property in src/main/resources/application.yml
+# without the image having to be rebuilt.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-customer-service-config
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: app
+data:
+  # Where Postgres lives. These manifests deliberately do NOT ship a Postgres of their
+  # own: this app stores business data *and* the pgvector embeddings in the same
+  # database, so it wants a real managed instance (RDS/Cloud SQL/CNPG) with backups,
+  # not a StatefulSet nobody owns. Point this at that instance.
+  #
+  # The database must have the `vector` extension available -- see
+  # docker/postgres/init/01-extensions.sql for what the local image creates.
+  POSTGRES_HOST: "postgres.ai-customer-service.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "csagent"
+
+  # Graceful shutdown. Without this a rolling update kills in-flight Claude calls, which
+  # are long (tens of seconds) because the model is streaming. Spring stops accepting new
+  # requests, drains, then exits; terminationGracePeriodSeconds in the Deployment is set
+  # above this value so the kubelet does not SIGKILL mid-drain.
+  SERVER_SHUTDOWN: "graceful"
+  SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: "30s"
+
+  # The FAQ corpus is re-ingested into pgvector on every startup. It is idempotent
+  # (documents are keyed "faq:<slug>", not random UUIDs) so several replicas starting at
+  # once converge on the same rows. Set to "false" if you would rather ingest once from a
+  # Job and keep pod startup lean.
+  APP_RAG_INGEST_ON_STARTUP: "true"
