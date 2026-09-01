@@ -1,8 +1,23 @@
-# Local development dependencies. The application itself runs from your IDE or
-# `./mvnw spring-boot:run` against these services.
+# Two workflows share this file.
 #
-#   docker compose up -d
+# 1. Full stack -- Postgres + the application, one command:
 #
+#      export ANTHROPIC_API_KEY=sk-ant-...   # or put it in .env (git-ignored)
+#      docker compose up --build
+#      curl localhost:8080/actuator/health
+#
+# 2. Dependencies only -- run the app yourself from an IDE or ./mvnw spring-boot:run:
+#
+#      docker compose up -d postgres
+#
+#    Naming the service explicitly starts nothing else, so this still works with no
+#    ANTHROPIC_API_KEY set anywhere. That is why the key is passed through by name below
+#    rather than interpolated with `${ANTHROPIC_API_KEY:?...}` -- Compose interpolates
+#    the whole file before it looks at which service you asked for, so a `:?` guard here
+#    would break workflow 2 for anyone without a key.
+#
+# See docs/deployment.md.
+
 name: ai-customer-service
 
 services:
@@ -24,6 +39,57 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-ai-customer-service-java:local}
+    container_name: csagent-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Name-only entry: the value is taken from the shell environment or .env at run
+      # time and is never written into this file. Compose renders it as unset (not empty)
+      # when it is absent everywhere.
+      #
+      # Careful: if it is unset, the app still starts and still reports healthy. Spring's
+      # configuration-property Binder ignores unresolvable placeholders, so
+      # spring.ai.anthropic.api-key binds to the literal string "${ANTHROPIC_API_KEY}"
+      # and the failure only surfaces as a 401 on the first chat request. Verified, not
+      # assumed -- see docs/deployment.md.
+      - ANTHROPIC_API_KEY
+      # Container-to-container: always the compose network alias on the internal port,
+      # never POSTGRES_PORT -- that variable controls the *host* publish above and may
+      # have been moved to dodge a port clash.
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-csagent}
+      - POSTGRES_USER=${POSTGRES_USER:-csagent}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-csagent}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    restart: unless-stopped
+    # The image carries its own HEALTHCHECK (curl /actuator/health/readiness), so
+    # `docker compose ps` reports real readiness without repeating it here.
+    #
+    # Hardened the same way as the Kubernetes pod, so the read-only-filesystem
+    # assumption is exercised locally rather than discovered in a cluster. /tmp is the
+    # only writable path the app needs, and it stays around 14 MB: Tomcat's work
+    # directory, ONNX Runtime's unpacked native library, the (empty) Spring AI resource
+    # cache directory, and any heap dump.
+    read_only: true
+    # `exec` is load-bearing, not boilerplate. Docker mounts tmpfs `noexec` by default,
+    # and ONNX Runtime extracts libonnxruntime.so into java.io.tmpdir and System.load()s
+    # it. Without `exec` the app dies at startup with
+    #   UnsatisfiedLinkError: ... failed to map segment from shared object
+    # 256m is comfortable for ~14 MB of real usage; do not shrink it to the observed
+    # size, a heap dump lands here too.
+    tmpfs:
+      - /tmp:mode=1777,exec,size=256m
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pgdata:

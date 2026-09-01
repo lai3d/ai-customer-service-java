@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-customer-service
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: app
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-customer-service-java
+      app.kubernetes.io/component: app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-customer-service-java
+        app.kubernetes.io/component: app
+      annotations:
+        # Micrometer's Prometheus registry is already on the classpath and the endpoint
+        # is exposed in application.yml, so a scrape annotation costs nothing.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      # Longer than SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE (30s) in the ConfigMap,
+      # so a draining pod finishes its in-flight Claude calls before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        # Matches the `app` user baked into the image. Asserting the numeric id here
+        # means the pod is rejected if someone rebuilds the image as root.
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # Replace with your registry path and an immutable tag or digest. `:latest`
+          # plus imagePullPolicy: Always is how you end up unable to say what is running.
+          image: ghcr.io/lai3d/ai-customer-service-java:0.1.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ai-customer-service-config
+            - secretRef:
+                name: ai-customer-service-secrets
+          resources:
+            # The JVM sizes its heap from the *limit* via -XX:MaxRAMPercentage=70 in the
+            # image, so 2Gi here means ~1.4Gi of heap and ~600Mi left for everything
+            # native. That headroom is not generous padding -- this app loads a 90 MB
+            # ONNX model and an onnxruntime session outside the heap. Lower the limit
+            # and you will OOM-kill in the embedding path, not in Java.
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              # No CPU limit on purpose: startup is CPU-hungry (JIT plus the ONNX session
+              # plus ingesting 18 documents) and throttling it just makes the startup
+              # probe flap. The request reserves the floor; add a limit only if you have
+              # a noisy-neighbour problem you can actually point at.
+              memory: "2Gi"
+          # Startup is slow and variable: Spring context, ONNX session, pgvector schema
+          # creation, then ingesting the FAQ corpus. The startup probe absorbs all of
+          # that (30 x 5s = up to 150s) so the liveness probe can stay tight afterwards
+          # without ever killing a pod that is merely still booting.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness includes the datasource health indicator, so a pod that loses
+          # Postgres drops out of the Service instead of serving 500s.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # readOnlyRootFilesystem: true means the app needs one writable path. /tmp
+            # covers Tomcat's work directory, ONNX Runtime's unpacked native library,
+            # the (empty, see Dockerfile) Spring AI resource cache directory, and
+            # -XX:HeapDumpPath. Measured usage is ~14 MB; 256Mi leaves room for a dump.
+            #
+            # This emptyDir must be exec-capable. Do NOT set `medium: Memory` on a
+            # cluster whose runtime mounts memory-backed emptyDirs noexec, and do not let
+            # a policy add noexec here: ONNX Runtime System.load()s libonnxruntime.so out
+            # of this directory, and a noexec mount fails startup with
+            #   UnsatisfiedLinkError: ... failed to map segment from shared object
+            # (verified locally -- the equivalent Docker tmpfs needs an explicit `exec`).
+            #
+            # Note what is NOT here: no volume for the embedding model. It is baked into
+            # the image at /opt/onnx, so a fresh pod does not re-download 87 MB and needs
+            # no egress to githubusercontent.com. See docs/deployment.md.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

@@ -1,0 +1,62 @@
+# Keep the build context small. Everything the image needs is:
+#   pom.xml  mvnw  mvnw.cmd  .mvn/  src/
+# Anything else here is either rebuilt inside the image or must never leave the host.
+
+# --- Build output: rebuilt inside the image, and `target/` alone is ~100 MB ---
+target/
+build/
+out/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# --- The 87 MB ONNX cache. Baked into the image at build time instead (see Dockerfile) ---
+onnx-model-cache/
+
+# --- Secrets: never copy these into a layer ---
+.env
+*.env
+!.env.example
+application-local.yml
+application-local.properties
+*.pem
+*.key
+
+# --- VCS ---
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# --- IDE / editor ---
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+nbproject/
+*.swp
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Runtime / local data ---
+logs/
+*.log
+
+# --- Deployment assets: not needed to build the app image ---
+Dockerfile
+.dockerignore
+docker-compose*.yml
+docker/
+k8s/
+docs/
+README.md
+LICENSE
+
+# --- Agent scratch ---
+.claude/
