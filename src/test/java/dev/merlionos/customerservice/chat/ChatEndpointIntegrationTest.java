@@ -71,7 +71,8 @@ class ChatEndpointIntegrationTest {
     @Test
     @DisplayName("the streaming endpoint emits SSE events")
     void streamsAsServerSentEvents() {
-        given(chatService.stream(any(), any())).willReturn(Flux.just("It ", "shipped ", "on Monday."));
+        given(chatService.stream(any(), any())).willReturn(
+                Flux.just("It ", "shipped ", "on Monday.").map(TurnEvent.Token::new));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -87,9 +88,8 @@ class ChatEndpointIntegrationTest {
         assertThat(response.getHeaders().getFirst(ChatController.CONVERSATION_ID_HEADER)).isNotBlank();
         assertThat(response.getBody())
                 .contains("event:" + ChatController.TOKEN_EVENT)
-                .contains("data:It ")
-                .contains("data:shipped ")
-                .contains("data:on Monday.")
+                .contains("\"text\":\"It \"")
+                .contains("\"text\":\"on Monday.\"")
                 .doesNotContain("event:" + ChatController.ERROR_EVENT);
     }
 
@@ -97,7 +97,8 @@ class ChatEndpointIntegrationTest {
     @DisplayName("a mid-stream failure arrives as a named error event, not as an answer")
     void reportsMidStreamFailureAsErrorEvent() {
         given(chatService.stream(any(), any())).willReturn(
-                Flux.just("It ").concatWith(Flux.error(new IllegalStateException("upstream died"))));
+                Flux.<TurnEvent>just(new TurnEvent.Token("It "))
+                        .concatWith(Flux.error(new IllegalStateException("upstream died"))));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -111,7 +112,7 @@ class ChatEndpointIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody())
                 .contains("event:" + ChatController.TOKEN_EVENT)
-                .contains("data:It ")
+                .contains("\"text\":\"It \"")
                 .contains("event:" + ChatController.ERROR_EVENT);
     }
 

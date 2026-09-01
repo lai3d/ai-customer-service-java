@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.tools;
 
+import dev.merlionos.customerservice.chat.TurnEventBus;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +17,7 @@ class SupportTicketToolsTest {
     private static final String CONVERSATION = "conversation-7";
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final SupportTicketTools tools = new SupportTicketTools(meterRegistry);
+    private final SupportTicketTools tools = new SupportTicketTools(meterRegistry, new TurnEventBus());
 
     private static ToolContext context(String conversationId) {
         return new ToolContext(Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId));

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import reactor.core.publisher.Flux;
@@ -34,16 +35,20 @@ class ChatServiceStreamTest {
     void setUp() {
         chatMemory = new RecordingChatMemory();
         meterRegistry = new SimpleMeterRegistry();
-        chatService = new ChatService(Mockito.mock(ChatClient.class), chatMemory, meterRegistry);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<io.micrometer.tracing.Tracer> noTracer = Mockito.mock(ObjectProvider.class);
+        chatService = new ChatService(Mockito.mock(ChatClient.class), chatMemory,
+                new TurnEventBus(), noTracer, meterRegistry);
     }
 
     @Test
     @DisplayName("a stream that completes leaves persistence to the memory advisor")
     void completedStreamDoesNotDoubleWrite() {
-        Flux<String> tokens = Flux.just("Your ", "order ", "shipped.");
+        Flux<TurnEvent> tokens = tokens("Your ", "order ", "shipped.");
 
         StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, tokens))
-                .expectNext("Your ", "order ", "shipped.")
+                .expectNext(new TurnEvent.Token("Your "), new TurnEvent.Token("order "),
+                        new TurnEvent.Token("shipped."))
                 .verifyComplete();
 
         assertThat(chatMemory.added)
@@ -55,10 +60,10 @@ class ChatServiceStreamTest {
     @Test
     @DisplayName("a cancelled stream persists the partial reply, so history stays well-formed")
     void cancelledStreamPersistsPartialReply() {
-        Flux<String> tokens = Flux.just("Your ", "order ", "shipped.");
+        Flux<TurnEvent> tokens = tokens("Your ", "order ", "shipped.");
 
         StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, tokens), 2)
-                .expectNext("Your ", "order ")
+                .expectNext(new TurnEvent.Token("Your "), new TurnEvent.Token("order "))
                 .thenCancel()
                 .verify();
 
@@ -73,11 +78,11 @@ class ChatServiceStreamTest {
     @Test
     @DisplayName("a failed stream persists what was generated before the error")
     void failedStreamPersistsPartialReply() {
-        Flux<String> tokens = Flux.just("Your ", "order ")
+        Flux<TurnEvent> tokens = tokens("Your ", "order ")
                 .concatWith(Flux.error(new IllegalStateException("upstream died")));
 
         StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, tokens))
-                .expectNext("Your ", "order ")
+                .expectNext(new TurnEvent.Token("Your "), new TurnEvent.Token("order "))
                 .verifyError(IllegalStateException.class);
 
         assertThat(chatMemory.added).singleElement()
@@ -98,6 +103,10 @@ class ChatServiceStreamTest {
 
         assertThat(chatMemory.added).isEmpty();
         assertThat(terminations("cancelled")).isEqualTo(1.0);
+    }
+
+    private static Flux<TurnEvent> tokens(String... texts) {
+        return Flux.fromArray(texts).map(TurnEvent.Token::new);
     }
 
     private double terminations(String outcome) {

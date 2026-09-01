@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.merlionos.customerservice.chat.TurnEventBus;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ToolDefinitionTest {
 
     private final Map<String, ToolCallback> callbacks = Arrays.stream(ToolCallbacks.from(
-                    new OrderTools(new MockOrderRepository(), new SimpleMeterRegistry()),
-                    new SupportTicketTools(new SimpleMeterRegistry())))
+                    new OrderTools(new MockOrderRepository(), new SimpleMeterRegistry(), new TurnEventBus()),
+                    new SupportTicketTools(new SimpleMeterRegistry(), new TurnEventBus())))
             .collect(Collectors.toMap(callback -> callback.getToolDefinition().name(), Function.identity()));
 
     private final ObjectMapper objectMapper = new ObjectMapper();

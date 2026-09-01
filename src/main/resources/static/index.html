@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Customer Service — demo</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
+    --line: #e3e3e8; --accent: #2f6f4f; --accent-soft: #eaf3ee;
+    --user: #edeef2; --warn: #a4402c; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e24; --ink: #e9e9ee; --muted: #9a9aa6;
+      --line: #2e2e37; --accent: #7fc0a0; --accent-soft: #23302a;
+      --user: #2a2a33; --warn: #e08a76;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  button {
+    font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: calc(100vh - 53px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } }
+
+  #chat { display: flex; flex-direction: column; min-width: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+  #empty { margin: auto; max-width: 46ch; text-align: center; color: var(--muted); }
+  #empty strong { display: block; color: var(--ink); font-size: 17px; margin-bottom: 6px; }
+  #empty p { margin: 0 0 18px; font-size: 14px; }
+  #empty .starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  #empty .starters button { font-size: 13px; }
+  .msg { max-width: 68ch; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); }
+  .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
+  .msg.err { align-self: flex-start; background: transparent; border: 1px dashed var(--warn); color: var(--warn); }
+  .cursor::after { content: "▍"; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #starters { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 24px 12px; }
+  #starters button { font-size: 13px; color: var(--muted); }
+  form { display: flex; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+  input[type=text] {
+    flex: 1; font: inherit; color: inherit; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form button { background: var(--accent); color: #fff; border-color: var(--accent); padding: 5px 16px; }
+  form button:disabled { opacity: .45; cursor: default; }
+
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 18px 18px 40px; }
+  @media (max-width: 900px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 4px; }
+  aside .hint { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  .turn { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+  .turn:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  .turn .q { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .card { margin-bottom: 12px; }
+  .card .label { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 12px; padding: 2px 0; }
+  .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lang { color: var(--muted); }
+  .bar { height: 3px; background: var(--accent); border-radius: 2px; margin-top: 2px; opacity: .5; }
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    background: var(--accent-soft); border: 1px solid var(--line); border-radius: 20px; padding: 2px 9px; margin: 0 4px 4px 0;
+  }
+  a { color: var(--accent); }
+  footer { padding: 16px 24px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">AI Customer Service</h1>
+  <span class="sub" id="subtitle">Everything the assistant did, on the right.</span>
+  <span class="spacer"></span>
+  <button id="lang-en" aria-pressed="true">English</button>
+  <button id="lang-zh" aria-pressed="false">中文</button>
+  <button id="reset">New conversation</button>
+</header>
+
+<main>
+  <section id="chat">
+    <div id="log">
+      <div id="empty">
+        <strong id="empty-title">Ask the assistant something</strong>
+        <p id="empty-body">It answers from an 18-entry FAQ and two mock tools. Every passage it
+          retrieves, every tool it calls and every token it spends appears on the right.</p>
+        <div class="starters" id="starters"></div>
+      </div>
+    </div>
+    <form id="form" autocomplete="off">
+      <input type="text" id="input" placeholder="Ask about an order, a return, a payment…">
+      <button type="submit" id="send">Send</button>
+    </form>
+  </section>
+
+  <aside>
+    <h2 id="inspector-title">Inside the request</h2>
+    <p class="hint" id="inspector-hint">Retrieved passages, tool calls and token cost for each turn.</p>
+    <div id="inspector"></div>
+  </aside>
+</main>
+
+<script>
+const TEXT = {
+  en: {
+    title: "AI Customer Service", subtitle: "Everything the assistant did, on the right.",
+    placeholder: "Ask about an order, a return, a payment…", send: "Send", reset: "New conversation",
+    inspector: "Inside the request",
+    hint: "Retrieved passages, tool calls and token cost for each turn.",
+    emptyTitle: "Ask the assistant something",
+    emptyBody: "It answers from an 18-entry FAQ and two mock tools. Every passage it retrieves, every tool it calls and every token it spends appears on the right.",
+    retrieval: "Retrieved", tools: "Tools",
+    relative: "Bars are relative within this set — e5 similarity compresses into a narrow band.", cost: "Cost", trace: "View this trace in Jaeger",
+    tokensIn: "in", tokensOut: "out", noAnswer: "The assistant was interrupted. Please try again.",
+    starters: ["Where is my order ORD-10042?", "How long do I have to return something?",
+               "My card was declined", "I want to speak to a person"]
+  },
+  zh: {
+    title: "AI 智能客服", subtitle: "助手做了什么，右侧全部可见。",
+    placeholder: "问问订单、退货、付款…", send: "发送", reset: "新会话",
+    inspector: "请求内部",
+    hint: "每一轮检索到的段落、调用的工具、消耗的 token。",
+    emptyTitle: "问点什么",
+    emptyBody: "助手依据 18 条 FAQ 和两个模拟工具作答。它检索到的每一段、调用的每个工具、花掉的每个 token，右侧全部可见。",
+    retrieval: "检索", tools: "工具",
+    relative: "条形为本组内的相对排名 —— e5 的相似度分布被压缩在很窄的区间。", cost: "开销", trace: "在 Jaeger 中查看这条 trace",
+    tokensIn: "输入", tokensOut: "输出", noAnswer: "回复中断了，请重试。",
+    starters: ["我的订单 ORD-10042 到哪了？", "退货有时间限制吗？",
+               "刷卡付款失败了", "我要找人工客服"]
+  }
+};
+
+let lang = "en";
+let conversationId = null;
+let busy = false;
+
+const $ = (id) => document.getElementById(id);
+const log = $("log"), inspector = $("inspector"), input = $("input"), form = $("form");
+
+function applyLanguage() {
+  const t = TEXT[lang];
+  $("title").textContent = t.title;
+  $("subtitle").textContent = t.subtitle;
+  $("inspector-title").textContent = t.inspector;
+  $("inspector-hint").textContent = t.hint;
+  $("send").textContent = t.send;
+  if ($("empty-title")) {
+    $("empty-title").textContent = t.emptyTitle;
+    $("empty-body").textContent = t.emptyBody;
+  }
+  $("reset").textContent = t.reset;
+  input.placeholder = t.placeholder;
+  $("lang-en").setAttribute("aria-pressed", lang === "en");
+  $("lang-zh").setAttribute("aria-pressed", lang === "zh");
+  renderStarters();
+}
+
+function renderStarters() {
+  const box = $("starters");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const s of TEXT[lang].starters) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = s;
+    b.onclick = () => { input.value = s; form.requestSubmit(); };
+    box.appendChild(b);
+  }
+}
+
+function bubble(cls, text) {
+  const empty = $("empty");
+  if (empty) empty.remove();
+  const el = document.createElement("div");
+  el.className = "msg " + cls;
+  el.textContent = text || "";
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+function turnPanel(question) {
+  const el = document.createElement("div");
+  el.className = "turn";
+  const q = document.createElement("div");
+  q.className = "q";
+  q.textContent = question;
+  el.appendChild(q);
+  inspector.prepend(el);
+  return el;
+}
+
+function card(panel, label) {
+  const c = document.createElement("div");
+  c.className = "card";
+  const l = document.createElement("div");
+  l.className = "label";
+  l.textContent = label;
+  c.appendChild(l);
+  panel.appendChild(c);
+  return c;
+}
+
+/**
+ * The endpoint is a POST, so EventSource is out -- it only speaks GET. Reading the body as a
+ * stream and splitting on blank lines is the whole of SSE parsing.
+ */
+async function* sse(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) >= 0) {
+      const chunk = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      let name = "message", data = "";
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).replace(/^ /, "");
+      }
+      if (data) yield { name, data };
+    }
+  }
+}
+
+async function send(question) {
+  if (busy || !question.trim()) return;
+  busy = true;
+  $("send").disabled = true;
+  input.value = "";
+
+  bubble("user", question);
+  const answer = bubble("bot", "");
+  answer.classList.add("cursor");
+  const panel = turnPanel(question);
+  const t = TEXT[lang];
+
+  try {
+    const response = await fetch("/api/v1/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+      body: JSON.stringify({ conversationId, message: question })
+    });
+    conversationId = response.headers.get("X-Conversation-Id") || conversationId;
+    if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+
+    let toolCard = null;
+    for await (const event of sse(response)) {
+      let payload;
+      try { payload = JSON.parse(event.data); } catch { payload = { text: event.data }; }
+
+      if (event.name === "message") {
+        answer.textContent += payload.text ?? "";
+        log.scrollTop = log.scrollHeight;
+      } else if (event.name === "retrieval") {
+        const c = card(panel, `${t.retrieval} · ${payload.passages.length}`);
+        // Bars are normalised within this result set. e5 compresses cosine similarity into a
+        // narrow high band, so drawing width from the raw score makes every bar look full and
+        // says nothing. Relative width shows the ranking, which is the part that is reliable.
+        const scores = payload.passages.map(p => p.score);
+        const lo = Math.min(...scores), hi = Math.max(...scores);
+        for (const p of payload.passages) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `<span class="name">${p.entryId} <span class="lang">${p.language}</span></span>`
+                        + `<span>${p.score.toFixed(3)}</span>`;
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.style.width = (hi === lo ? 100 : 18 + 82 * (p.score - lo) / (hi - lo)) + "%";
+          c.appendChild(row);
+          c.appendChild(bar);
+        }
+        const note = document.createElement("div");
+        note.className = "label";
+        note.style.marginTop = "6px";
+        note.textContent = t.relative;
+        c.appendChild(note);
+      } else if (event.name === "tool") {
+        toolCard = toolCard || card(panel, t.tools);
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = `${payload.tool} → ${payload.outcome}`;
+        toolCard.appendChild(pill);
+      } else if (event.name === "usage") {
+        const c = card(panel, t.cost);
+        const row = document.createElement("div");
+        row.className = "row";
+        const tokens = payload.inputTokens == null
+          ? "—"
+          : `${payload.inputTokens} ${t.tokensIn} / ${payload.outputTokens} ${t.tokensOut}`;
+        row.innerHTML = `<span class="name">${tokens}</span><span>${payload.millis}ms</span>`;
+        c.appendChild(row);
+        if (payload.traceId) {
+          const a = document.createElement("a");
+          a.href = `http://localhost:16686/trace/${payload.traceId}`;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.style.fontSize = "12px";
+          a.textContent = t.trace;
+          c.appendChild(a);
+        }
+      } else if (event.name === "error") {
+        answer.classList.remove("cursor");
+        bubble("err", payload.message || t.noAnswer);
+      }
+    }
+    if (!answer.textContent) answer.remove();
+  } catch (e) {
+    bubble("err", `${t.noAnswer} (${e.message})`);
+  } finally {
+    answer.classList.remove("cursor");
+    busy = false;
+    $("send").disabled = false;
+    input.focus();
+  }
+}
+
+form.onsubmit = (e) => { e.preventDefault(); send(input.value); };
+$("lang-en").onclick = () => { lang = "en"; applyLanguage(); };
+$("lang-zh").onclick = () => { lang = "zh"; applyLanguage(); };
+$("reset").onclick = () => {
+  conversationId = null;
+  inspector.innerHTML = "";
+  log.innerHTML = `<div id="empty">
+      <strong id="empty-title"></strong><p id="empty-body"></p>
+      <div class="starters" id="starters"></div>
+    </div>`;
+  applyLanguage();
+  input.focus();
+};
+
+applyLanguage();
+input.focus();
+</script>
+</body>
+</html>

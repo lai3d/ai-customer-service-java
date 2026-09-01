@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.tools;
 
+import dev.merlionos.customerservice.chat.TurnEvent;
+import dev.merlionos.customerservice.chat.TurnEventBus;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,9 +38,11 @@ public class SupportTicketTools {
     private final Map<String, SupportTicket> ticketsByDeduplicationKey = new ConcurrentHashMap<>();
     private final AtomicInteger sequence = new AtomicInteger(4700);
     private final MeterRegistry meterRegistry;
+    private final TurnEventBus turnEventBus;
 
-    SupportTicketTools(MeterRegistry meterRegistry) {
+    SupportTicketTools(MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
         this.meterRegistry = meterRegistry;
+        this.turnEventBus = turnEventBus;
     }
 
     @Tool(name = "create_support_ticket", description = """
@@ -63,7 +67,7 @@ public class SupportTicketTools {
 
         SupportTicket existing = ticketsByDeduplicationKey.get(deduplicationKey);
         if (existing != null) {
-            count("duplicate_suppressed");
+            report(conversationId, "duplicate_suppressed");
             log.info("Suppressed duplicate ticket for conversation {}; returning {}",
                     conversationId, existing.ticketNumber());
             return new SupportTicket(existing.ticketNumber(), existing.conversationId(),
@@ -83,12 +87,12 @@ public class SupportTicketTools {
         // putIfAbsent, not put: two tool calls for the same conversation can land concurrently.
         SupportTicket raced = ticketsByDeduplicationKey.putIfAbsent(deduplicationKey, ticket);
         if (raced != null) {
-            count("duplicate_suppressed");
+            report(conversationId, "duplicate_suppressed");
             return new SupportTicket(raced.ticketNumber(), raced.conversationId(), raced.category(),
                     raced.summary(), raced.orderNumber(), raced.createdAt(), true);
         }
 
-        count("created");
+        report(conversationId, "created");
         log.info("Created {} for conversation {} in category {}",
                 ticket.ticketNumber(), conversationId, ticket.category());
         return ticket;
@@ -101,7 +105,8 @@ public class SupportTicketTools {
                 .toList();
     }
 
-    private static String conversationIdFrom(ToolContext toolContext) {
+    /** Shared with {@link OrderTools}: every tool needs the conversation it is serving. */
+    static String conversationIdFrom(ToolContext toolContext) {
         Assert.notNull(toolContext, "tool context is required to attribute a ticket");
         Object conversationId = toolContext.getContext().get(CONVERSATION_ID_KEY);
         Assert.isTrue(conversationId instanceof String value && !value.isBlank(),
@@ -123,5 +128,10 @@ public class SupportTicketTools {
     private void count(String outcome) {
         meterRegistry.counter("chat.tool.invocations",
                 "tool", "create_support_ticket", "outcome", outcome).increment();
+    }
+
+    private void report(String conversationId, String outcome) {
+        count(outcome);
+        turnEventBus.publish(conversationId, new TurnEvent.ToolCall("create_support_ticket", outcome));
     }
 }

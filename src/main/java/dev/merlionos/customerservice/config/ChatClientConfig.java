@@ -8,6 +8,7 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import dev.merlionos.customerservice.chat.RetrievalReportingAdvisor;
 import dev.merlionos.customerservice.rag.RagProperties;
 import dev.merlionos.customerservice.tools.OrderTools;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
@@ -72,7 +73,8 @@ class ChatClientConfig {
     @Bean
     ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
                           VectorStore vectorStore, RagProperties ragProperties,
-                          OrderTools orderTools, SupportTicketTools supportTicketTools) {
+                          OrderTools orderTools, SupportTicketTools supportTicketTools,
+                          RetrievalReportingAdvisor retrievalReporting) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .topK(ragProperties.topK())
                 .similarityThreshold(ragProperties.similarityThreshold())
@@ -82,7 +84,8 @@ class ChatClientConfig {
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        QuestionAnswerAdvisor.builder(vectorStore).searchRequest(searchRequest).build())
+                        QuestionAnswerAdvisor.builder(vectorStore).searchRequest(searchRequest).build(),
+                        retrievalReporting)
                 .defaultTools(orderTools, supportTicketTools)
                 .build();
     }

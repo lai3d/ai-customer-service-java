@@ -22,6 +22,8 @@ class ChatController {
     static final String CONVERSATION_ID_HEADER = "X-Conversation-Id";
     static final String TOKEN_EVENT = "message";
     static final String ERROR_EVENT = "error";
+    static final String RETRIEVAL_EVENT = "retrieval";
+    static final String USAGE_EVENT = "usage";
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
@@ -44,6 +46,11 @@ class ChatController {
      * {@code Flux} appears here and nowhere else: it is the return type Spring MVC needs to
      * write an SSE stream. The request itself is still served on a virtual thread.
      *
+     * <p>Every event carries a JSON body and a name -- {@code retrieval}, {@code tool},
+     * {@code message}, {@code usage}, {@code error} -- so a client can decide what to render.
+     * A chat widget would use {@code message} and {@code error} and ignore the rest; the demo
+     * UI shows all of them, because the point of this project is the part a widget hides.
+     *
      * <p>Once the first byte is written the status code is settled, so a mid-stream failure
      * cannot be reported the way {@link ChatExceptionHandler} reports one on the blocking
      * endpoint. It is emitted as a terminal {@code error} event instead -- without a named
@@ -51,21 +58,24 @@ class ChatController {
      */
     @PostMapping(path = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    ResponseEntity<Flux<ServerSentEvent<String>>> stream(@Valid @RequestBody ChatRequest request) {
+    ResponseEntity<Flux<ServerSentEvent<TurnEvent>>> stream(@Valid @RequestBody ChatRequest request) {
         String conversationId = resolveConversationId(request);
 
-        Flux<ServerSentEvent<String>> events = chatService.stream(conversationId, request.message())
-                .map(token -> ServerSentEvent.builder(token).event(TOKEN_EVENT).build())
+        Flux<ServerSentEvent<TurnEvent>> events = chatService.stream(conversationId, request.message())
+                .map(ChatController::toServerSentEvent)
                 .onErrorResume(error -> {
                     log.error("Streamed chat failed for conversation {}", conversationId, error);
-                    return Flux.just(ServerSentEvent.builder("The assistant was interrupted. Please try again.")
-                            .event(ERROR_EVENT)
-                            .build());
+                    return Flux.just(toServerSentEvent(new TurnEvent.Failure(
+                            "The assistant was interrupted. Please try again.")));
                 });
 
         return ResponseEntity.ok()
                 .header(CONVERSATION_ID_HEADER, conversationId)
                 .body(events);
+    }
+
+    private static ServerSentEvent<TurnEvent> toServerSentEvent(TurnEvent event) {
+        return ServerSentEvent.builder(event).event(event.name()).build();
     }
 
     private static String resolveConversationId(ChatRequest request) {

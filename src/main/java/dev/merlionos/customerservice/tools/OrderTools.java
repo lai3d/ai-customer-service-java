@@ -1,8 +1,11 @@
 package dev.merlionos.customerservice.tools;
 
+import dev.merlionos.customerservice.chat.TurnEvent;
+import dev.merlionos.customerservice.chat.TurnEventBus;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -17,12 +20,16 @@ public class OrderTools {
 
     private static final Logger log = LoggerFactory.getLogger(OrderTools.class);
 
+    private static final String TOOL_NAME = "lookup_order_status";
+
     private final MockOrderRepository orders;
     private final MeterRegistry meterRegistry;
+    private final TurnEventBus turnEventBus;
 
-    OrderTools(MockOrderRepository orders, MeterRegistry meterRegistry) {
+    OrderTools(MockOrderRepository orders, MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
         this.orders = orders;
         this.meterRegistry = meterRegistry;
+        this.turnEventBus = turnEventBus;
     }
 
     @Tool(name = "lookup_order_status", description = """
@@ -34,16 +41,17 @@ public class OrderTools {
             rather than told the order does not exist.
             """)
     public OrderLookupResult lookupOrderStatus(
-            @ToolParam(description = "The order number, for example ORD-10042") String orderNumber) {
+            @ToolParam(description = "The order number, for example ORD-10042") String orderNumber,
+            ToolContext toolContext) {
 
         return orders.findByOrderNumber(orderNumber)
                 .map(order -> {
-                    count("lookup_order_status", "found");
+                    report(toolContext, "found");
                     log.debug("Order lookup hit for {}", order.orderNumber());
                     return OrderLookupResult.found(order);
                 })
                 .orElseGet(() -> {
-                    count("lookup_order_status", "not_found");
+                    report(toolContext, "not_found");
                     log.debug("Order lookup miss for {}", orderNumber);
                     return OrderLookupResult.notFound(
                             "No order matches that number. It may have been mistyped, or it may "
@@ -51,7 +59,14 @@ public class OrderTools {
                 });
     }
 
-    private void count(String tool, String outcome) {
-        meterRegistry.counter("chat.tool.invocations", "tool", tool, "outcome", outcome).increment();
+    /**
+     * Counts the invocation and, when a stream is listening, tells it -- a tool call is
+     * otherwise invisible to the client until the assistant happens to mention it.
+     */
+    private void report(ToolContext toolContext, String outcome) {
+        meterRegistry.counter("chat.tool.invocations",
+                "tool", TOOL_NAME, "outcome", outcome).increment();
+        turnEventBus.publish(SupportTicketTools.conversationIdFrom(toolContext),
+                new TurnEvent.ToolCall(TOOL_NAME, outcome));
     }
 }
