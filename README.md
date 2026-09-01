@@ -29,7 +29,7 @@ flowchart LR
     subgraph Chain["Advisor chain"]
         direction TB
         Mem["MessageChatMemoryAdvisor"]
-        QA["QuestionAnswerAdvisor<br/>item 2"]
+        QA["QuestionAnswerAdvisor"]
         Mem --> QA
     end
 
@@ -42,6 +42,8 @@ flowchart LR
         VS[("vector_store")]
     end
 
+    Ingest["FaqIngestionService<br/>replace-on-boot"]
+    Corpus[/"faq.json<br/>18 entries"/]
     Embed["ONNX all-MiniLM-L6-v2<br/>in-process · 384-dim"]
     Prom["/actuator/prometheus<br/>model calls · stream outcomes"]
 
@@ -55,13 +57,15 @@ flowchart LR
 
     Mem --> CM
     QA --> VS
+    Corpus --> Ingest
+    Ingest --> Embed
     Embed --> VS
     Svc -.->|"partial reply<br/>on disconnect"| CM
     Svc -.-> Prom
     CC -.-> Prom
 
     classDef pending stroke-dasharray: 4 3;
-    class QA,Tools pending;
+    class Tools pending;
 ```
 
 Dashed components are Phase 1 items not yet built.
@@ -218,15 +222,65 @@ data: shipped on Monday.
 
 ---
 
+## Retrieval
+
+The FAQ corpus lives in [`src/main/resources/faq/faq.json`](src/main/resources/faq/faq.json) —
+18 entries across returns, shipping, payment, account, and support. **It is sample data.**
+Replace it with your own before this answers anything real.
+
+Ingestion runs at startup and *replaces* what it wrote last time rather than appending.
+Appending on every boot would duplicate the corpus, and duplicates do not merely waste space:
+they crowd out distinct passages in the top-k window, so the model sees one answer four times
+instead of four different ones. Re-embedding everything on each start is affordable only
+because the corpus is small and the embedding model is in-process — 18 documents in under
+300 ms. A larger corpus would want per-document change detection instead.
+
+No text splitter sits in the pipeline, deliberately. Splitters cut long prose into retrievable
+pieces; an FAQ entry is already the unit a customer's question should match, and splitting one
+would separate a question from its answer. A corpus of long-form policy documents would need
+one.
+
+### The similarity threshold is measured, not guessed
+
+Below `app.rag.similarity-threshold` a passage is dropped rather than handed to the model as
+fact. The value comes from running paraphrased questions — never the corpus wording — against
+the real embedding model:
+
+| Query | Top hit | Score |
+| --- | --- | --- |
+| "I want to send something back, is it too late after three weeks?" | `returns-window` | 0.56 |
+| "how much do I pay for delivery" | `shipping-cost` | 0.63 |
+| "my card was rejected at checkout" | `payment-declined` | 0.61 |
+| "when can I talk to a real person" | `support-hours` | **0.34** |
+| "what is the capital of France" | *(unrelated)* | 0.11 |
+
+Correct matches span 0.34 to 0.63; unrelated questions peak at 0.11; near misses sit around
+0.27 to 0.29. `0.3` clears the near misses while keeping the weakest true match. A plausible-
+looking `0.4` would silently stop answering "when can I talk to a real person".
+
+The threshold is a property of *this corpus and this embedding model*, not a universal
+constant — `FaqRetrievalIntegrationTest` re-measures it on every build, against real pgvector
+and the real ONNX model, so a regression surfaces as a red build rather than as vaguer answers
+in production.
+
+### Language
+
+`all-MiniLM-L6-v2` is English-trained. Retrieval over a Chinese or multilingual corpus will be
+noticeably worse. Switching to a multilingual model (`bge-m3` via Ollama, for instance) is a
+configuration change plus a `dimensions` update and a rebuilt index — the retrieval code itself
+does not change.
+
+---
+
 ## Roadmap
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
 
 - [x] **0 · Foundation** — project skeleton, Postgres + pgvector via Compose, actuator/Prometheus, CI
 - [x] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
-- [ ] **2 · RAG** — FAQ ingestion pipeline (read → split → embed → store) and grounded answers
+- [x] **2 · RAG** — FAQ ingestion pipeline and grounded answers, with retrieval quality under test
 - [ ] **3 · Tool calling** — order status lookup and support ticket creation
-- [ ] **4 · Deployment** — Dockerfile, Kubernetes Deployment / Service / ConfigMap
+- [ ] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes Deployment / Service / ConfigMap
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 

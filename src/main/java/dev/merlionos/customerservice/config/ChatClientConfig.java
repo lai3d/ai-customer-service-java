@@ -5,6 +5,10 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import dev.merlionos.customerservice.rag.RagProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -41,11 +45,32 @@ class ChatClientConfig {
                 .build();
     }
 
+    /**
+     * The advisor chain. Order is not cosmetic here: the memory advisor must run first.
+     *
+     * <p>{@code QuestionAnswerAdvisor} rewrites the user message to carry the retrieved
+     * passages, and {@code MessageChatMemoryAdvisor} stores whatever user message it sees.
+     * Run the other way round, every retrieved passage would be written into the customer's
+     * conversation history and re-sent on each subsequent turn.
+     *
+     * <p>Spring AI's defaults already order them correctly -- the memory advisor sits at
+     * {@code Advisor.DEFAULT_CHAT_MEMORY_PRECEDENCE_ORDER} and the QA advisor at 0 -- so this
+     * method relies on them rather than restating the numbers. {@code AdvisorChainOrderTest}
+     * fails if that ever stops being true.
+     */
     @Bean
-    ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory) {
+    ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
+                          VectorStore vectorStore, RagProperties ragProperties) {
+        SearchRequest searchRequest = SearchRequest.builder()
+                .topK(ragProperties.topK())
+                .similarityThreshold(ragProperties.similarityThreshold())
+                .build();
+
         return builder
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .defaultAdvisors(
+                        MessageChatMemoryAdvisor.builder(chatMemory).build(),
+                        QuestionAnswerAdvisor.builder(vectorStore).searchRequest(searchRequest).build())
                 .build();
     }
 }

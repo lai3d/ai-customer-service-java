@@ -6,3 +6,9 @@ spring:
     anthropic:
       # Tests never reach the Anthropic API; this only has to satisfy startup.
       api-key: test-key-not-used
+
+app:
+  rag:
+    # Off by default so unrelated tests do not pay for embedding the corpus.
+    # FaqRetrievalIntegrationTest turns it back on.
+    ingest-on-startup: false

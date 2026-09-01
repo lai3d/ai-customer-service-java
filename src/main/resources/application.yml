@@ -43,6 +43,10 @@ spring:
         # Must match the embedding model's output width (all-MiniLM-L6-v2 = 384).
         dimensions: 384
         index-type: hnsw
+        # Readable primary keys: documents are keyed "faq:returns-window" rather than an
+        # opaque UUID, so a row in vector_store can be traced to its corpus entry by eye.
+        # Changing this after the table exists requires recreating it.
+        id-type: text
         distance-type: cosine-distance
         table-name: vector_store
 
@@ -52,6 +56,21 @@ spring:
           jdbc:
             # Defaults to `embedded`, which is a no-op against a real Postgres.
             initialize-schema: always
+
+app:
+  rag:
+    corpus-location: classpath:/faq/faq.json
+    ingest-on-startup: true
+    # Passages per question. Each one is re-sent on every turn it informs, so this trades
+    # recall against tokens.
+    top-k: 4
+    # Below this similarity a passage is dropped rather than shown to the model as fact.
+    # Measured against the sample corpus (see FaqRetrievalIntegrationTest): correct answers
+    # to paraphrased questions score 0.34 to 0.63, unrelated questions peak at 0.11, and
+    # near-miss passages sit around 0.27 to 0.29. 0.3 clears the near misses while keeping
+    # the weakest true match. Retune this whenever the corpus or the embedding model changes
+    # -- it is a property of both, not a universal constant.
+    similarity-threshold: 0.3
 
 management:
   endpoints:
