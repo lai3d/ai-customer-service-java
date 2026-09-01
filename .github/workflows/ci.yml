@@ -26,13 +26,20 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # The ONNX embedding model is downloaded on first use; caching it keeps
-      # subsequent runs from re-fetching ~90 MB.
+      # The ONNX embedding model is downloaded on first use. The key is derived from the
+      # configured model URI, so switching models invalidates the cache instead of pinning
+      # it to a stale entry that never saves the new weights.
+      - name: Resolve embedding model cache key
+        id: embedding-model
+        run: |
+          key=$(grep -oE 'model-uri: .*' src/main/resources/application.yml | sha256sum | cut -c1-16)
+          echo "key=onnx-$key" >> "$GITHUB_OUTPUT"
+
       - name: Cache ONNX embedding model
         uses: actions/cache@v4
         with:
           path: onnx-model-cache
-          key: onnx-all-minilm-l6-v2
+          key: ${{ steps.embedding-model.outputs.key }}
 
       # Testcontainers provisions Postgres itself; the runner only needs a daemon,
       # which ubuntu-latest already has.
