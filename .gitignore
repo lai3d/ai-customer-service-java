@@ -15,6 +15,9 @@ target/
 build/
 out/
 
+# --- Agent scratch space (git worktrees live here; never part of the project) ---
+.claude/
+
 # --- IDE ---
 .idea/
 *.iml
