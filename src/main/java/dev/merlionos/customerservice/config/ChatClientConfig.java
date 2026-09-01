@@ -9,6 +9,12 @@ import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvi
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import dev.merlionos.customerservice.rag.RagProperties;
+import dev.merlionos.customerservice.tools.OrderTools;
+import dev.merlionos.customerservice.tools.SupportTicketTools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.tool.execution.ToolExecutionException;
+import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -60,7 +66,8 @@ class ChatClientConfig {
      */
     @Bean
     ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
-                          VectorStore vectorStore, RagProperties ragProperties) {
+                          VectorStore vectorStore, RagProperties ragProperties,
+                          OrderTools orderTools, SupportTicketTools supportTicketTools) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .topK(ragProperties.topK())
                 .similarityThreshold(ragProperties.similarityThreshold())
@@ -71,6 +78,27 @@ class ChatClientConfig {
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         QuestionAnswerAdvisor.builder(vectorStore).searchRequest(searchRequest).build())
+                .defaultTools(orderTools, supportTicketTools)
                 .build();
+    }
+
+    /**
+     * Stops internal failure detail from reaching the customer.
+     *
+     * <p>Spring AI's default processor hands a thrown tool exception's message back to the
+     * model as the tool result. That message then informs a customer-facing answer, so a
+     * connection string, a stack frame, or an internal id in an exception becomes something the
+     * assistant can repeat. Tools here return failures as values instead; anything that still
+     * throws is unexpected, and the model is told only that the tool failed.
+     */
+    @Bean
+    ToolExecutionExceptionProcessor toolExecutionExceptionProcessor() {
+        Logger log = LoggerFactory.getLogger(ChatClientConfig.class);
+
+        return (ToolExecutionException exception) -> {
+            log.error("Tool '{}' failed", exception.getToolDefinition().name(), exception);
+            return "The tool failed to run. Tell the customer you could not complete that step "
+                    + "and offer to raise a support ticket.";
+        };
     }
 }

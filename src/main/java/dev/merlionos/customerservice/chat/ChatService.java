@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import dev.merlionos.customerservice.tools.SupportTicketTools;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -46,14 +48,26 @@ public class ChatService {
         return chatClient.prompt()
                 .user(message)
                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
+                .toolContext(toolContext(conversationId))
                 .call()
                 .content();
+    }
+
+    /**
+     * Tools that take a {@code ToolContext} parameter fail outright when the context is absent
+     * or empty -- Spring AI raises {@code IllegalArgumentException} before the tool body runs.
+     * Every path that reaches the model therefore has to supply this, which is what
+     * {@code ChatServiceToolContextTest} checks.
+     */
+    private static Map<String, Object> toolContext(String conversationId) {
+        return Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId);
     }
 
     public Flux<String> stream(String conversationId, String message) {
         Flux<String> tokens = chatClient.prompt()
                 .user(message)
                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
+                .toolContext(toolContext(conversationId))
                 .stream()
                 .content();
 
