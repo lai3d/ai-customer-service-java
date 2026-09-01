@@ -20,6 +20,11 @@ import org.springframework.stereotype.Component;
  * {@code AnthropicApi.ChatCompletionRequest} is annotated {@code @JsonInclude(NON_NULL)},
  * nulling the fields keeps them out of the serialised request entirely.
  *
+ * <p>This is the one piece of provider-specific configuration in the codebase, and it stays
+ * inert under any other provider: the type check simply never matches when Anthropic's
+ * auto-configuration has not run. OpenAI and Gemini still accept sampling parameters, so there
+ * is nothing to strip there.
+ *
  * <p>Delete this class once Spring AI stops seeding a default temperature, or if the
  * configured model is rolled back to one that still accepts sampling parameters.
  * {@code AnthropicChatOptionsTest} guards the behaviour either way.

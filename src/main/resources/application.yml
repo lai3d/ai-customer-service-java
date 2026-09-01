@@ -16,6 +16,24 @@ spring:
       maximum-pool-size: 20
 
   ai:
+    model:
+      # Mandatory now that more than one chat starter is on the classpath. Each provider's
+      # auto-configuration matches when this is absent, so leaving it unset builds several
+      # ChatModel beans and the context fails to start. It fails loudly at boot, which is the
+      # good version of this problem.
+      chat: ${CHAT_PROVIDER:anthropic}
+      # Pinned for the same reason: google-genai also ships an embedding auto-configuration.
+      embedding: transformers
+      # A provider starter brings every model type that provider supports, not just chat --
+      # the OpenAI one adds speech, transcription, image, and moderation auto-configurations,
+      # each of which builds by default and throws for want of an API key. Switching them off
+      # is not tidying: without it the application does not start.
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+
     anthropic:
       # The binder ignores an unresolvable placeholder rather than raising, so this alone
       # does NOT fail startup -- it binds to the literal "${ANTHROPIC_API_KEY}" and the
@@ -32,6 +50,29 @@ spring:
           # Claude Opus 5 rejects them with HTTP 400. They cannot be switched off from
           # here -- see config/AnthropicSamplingParameterStripper for why, and
           # AnthropicChatOptionsTest for the guard.
+
+    # --- Alternative providers -------------------------------------------------------
+    # Selected with CHAT_PROVIDER. Nothing in src/main/java changes between them: the advisor
+    # chain, the tools, streaming, and the metrics are all written against Spring AI's
+    # ChatModel interface. Model ids below are the ones Spring AI 1.1.8 knows about; a newer
+    # model just goes in the environment variable.
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      # Also the seam for any OpenAI-compatible API. xAI's Grok is reached by pointing this at
+      # https://api.x.ai and setting OPENAI_CHAT_MODEL to a Grok model -- there is no xAI
+      # starter in Spring AI, so it rides on the OpenAI client. That is a compatibility layer,
+      # not first-class support: xAI-only features are not reachable through it.
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-5}
+
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}
+        chat:
+          options:
+            model: ${GEMINI_CHAT_MODEL:gemini-3-pro-preview}
 
     embedding:
       transformer:

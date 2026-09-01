@@ -9,7 +9,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class AnthropicApiKeyValidatorTest {
+class ChatProviderCredentialsValidatorTest {
 
     @ParameterizedTest
     @NullAndEmptySource
@@ -18,15 +18,26 @@ class AnthropicApiKeyValidatorTest {
     void rejectsUnusableKeys(String apiKey) {
         // "${ANTHROPIC_API_KEY}" is what the binder actually produces when the environment
         // variable is absent -- it ignores unresolvable placeholders instead of raising.
-        assertThatThrownBy(() -> AnthropicApiKeyValidator.validate(apiKey))
+        assertThatThrownBy(() -> ChatProviderCredentialsValidator
+                .validate("anthropic", apiKey, "ANTHROPIC_API_KEY"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ANTHROPIC_API_KEY");
     }
 
     @Test
+    @DisplayName("the message names the provider that is actually selected")
+    void messageNamesTheSelectedProvider() {
+        assertThatThrownBy(() -> ChatProviderCredentialsValidator
+                .validate("openai", null, "OPENAI_API_KEY"))
+                .hasMessageContaining("openai")
+                .hasMessageContaining("OPENAI_API_KEY");
+    }
+
+    @Test
     @DisplayName("a real key is accepted")
     void acceptsConfiguredKey() {
-        assertThatCode(() -> AnthropicApiKeyValidator.validate("sk-ant-something"))
+        assertThatCode(() -> ChatProviderCredentialsValidator
+                .validate("anthropic", "sk-ant-something", "ANTHROPIC_API_KEY"))
                 .doesNotThrowAnyException();
     }
 }
