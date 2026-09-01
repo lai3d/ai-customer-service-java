@@ -122,7 +122,7 @@ sequenceDiagram
 
 | Decision | Reason |
 | --- | --- |
-| Virtual threads, no WebFlux | LLM calls are I/O-bound and long-lived. Loom gives the concurrency without forcing a reactive programming model on the whole codebase. `Flux` appears only as an SSE controller return type. |
+| Virtual threads, no WebFlux | LLM calls are I/O-bound and long-lived. Loom gives the concurrency without forcing a reactive programming model on the whole codebase — [measured](#does-the-virtual-thread-choice-pay-off) at 3x the throughput of platform threads, holding 1000 in-flight requests on 2 platform threads instead of 202. `Flux` appears only as an SSE controller return type. |
 | Advisor chain, never hand-built prompts | Memory and retrieval are cross-cutting concerns. Composing them as advisors keeps them testable and independently switchable. |
 | pgvector in the business database | One database to run, back up, and reason about. Transactional consistency between a ticket and the conversation that created it comes for free. |
 | Local ONNX embeddings | Anthropic offers no embedding API. An in-process ONNX model (`multilingual-e5-small`, 384-dim) means the RAG path needs no second vendor, no second API key, and costs nothing per query — and it handles English and Chinese. |
@@ -585,6 +585,65 @@ an internal error. It is a `400` now. Found because a test used a descriptive id
 
 ---
 
+## Does the virtual-thread choice pay off?
+
+The brief specifies `spring.threads.virtual.enabled=true` and no WebFlux, reasoning that an LLM
+call is a long blocking wait. That was a claim with no evidence behind it, so here is the
+measurement: the same real endpoint, the same load, the setting flipped.
+
+```
+./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'
+```
+
+**1000 concurrent requests, 1000 ms stubbed model delay** — Apple M5 Max (18 cores), JDK 21.0.12:
+
+| threads | wall | req/s | p50 | p95 | p99 | Tomcat platform threads | all platform threads |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| platform | 6254 ms | 160 | 4037 ms | 6118 ms | 6174 ms | **202** | 246 |
+| virtual | 2000 ms | 500 | 1616 ms | 1955 ms | 1986 ms | **2** | 52 |
+
+Three times the throughput, and the median customer waits 1.6 seconds instead of 4.0 for an
+operation that takes 1.0. But the thread column is the real result: with virtual threads the
+server holds a thousand in-flight requests on **two** platform threads — Tomcat's acceptor and
+poller. With platform threads it pins 200, hits the pool ceiling, and queues the remaining 800
+into four more waves.
+
+The model is stubbed with a fixed delay; an LLM call is mostly waiting, and a real one would add
+cost, network variance and rate limits to a measurement about thread scheduling. Everything else
+is the production path — validation, chat memory in Postgres, query embedding on the CPU, a
+pgvector search, tool definitions, metrics and spans. That is why the virtual run takes 2.0
+seconds rather than the 1.0 the arithmetic suggests: the retrieval work is real work.
+
+### Where the extra second goes — a guess, then a measurement
+
+The obvious suspect was the connection pool: 20 connections against a thousand concurrent
+requests. Raising it to 100 was worth about 7% (2503 ms → 2338 ms on a matched pair of runs), so
+that guess was mostly wrong. What remains is dominated by the per-request work itself, the
+CPU-bound query embedding in particular. It was not isolated further.
+
+The interesting part is that virtual threads did not make the work cheaper — they moved the
+bottleneck off thread scheduling and onto the work the service actually does, which is where a
+bottleneck belongs.
+
+### Two measurement mistakes, both worth knowing about
+
+**Whole-JVM peak thread count was useless.** It made the virtual run look *worse* — 263 threads
+against 245. The load driver shares the JVM and its own carrier threads land in the same total,
+and under JDK 21 a virtual thread blocking inside `synchronized` pins its carrier and the
+scheduler compensates by adding more. Counting Tomcat's request-handling platform threads
+specifically is what produced the 202-versus-2 result above.
+
+**Spring's test context cache kept both servers alive.** With two contexts in the cache, the idle
+one's 200-thread pool was counted against whichever run happened to go second — which is why
+both rows once read 202. `@DirtiesContext` closes each server before the next starts.
+
+The benchmark is committed and reproducible but tagged `benchmark` and excluded from the normal
+build: it measures a machine rather than asserting a behaviour, and the numbers above are from
+one laptop with the load generator sharing its JVM. Run-to-run variance is a few hundred
+milliseconds. Treat the ratio and the thread counts as the findings, not the absolute timings.
+
+---
+
 ## Roadmap
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
@@ -599,6 +658,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini, and OpenAI-compatible APIs by configuration
 - [x] **8 · Demo UI** — a glass-box page showing retrieval, tool calls and token cost per turn
 - [x] **9 · Cost and failure** — per-conversation token budget, HTTP timeouts, bounded retry, cost metrics
+- [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 
