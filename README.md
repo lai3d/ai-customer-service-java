@@ -16,27 +16,98 @@ Dockerfile and Kubernetes manifests.
 
 ```mermaid
 flowchart LR
-    Client["Client<br/>(SSE)"] --> Ctl["ChatController<br/>Flux&lt;String&gt;"]
-    Ctl --> CC["ChatClient"]
+    Client["Client"]
+    Ctl["ChatController<br/>SSE · conversation ids"]
+    Svc["ChatService<br/>partial-reply persistence"]
+    CC["ChatClient"]
 
-    subgraph Advisors["Advisor chain"]
+    subgraph Chain["Advisor chain"]
         direction TB
-        Mem["MessageChatMemoryAdvisor"] --> QA["QuestionAnswerAdvisor"]
+        Mem["MessageChatMemoryAdvisor"]
+        QA["QuestionAnswerAdvisor<br/>item 2"]
+        Mem --> QA
     end
 
-    CC --> Advisors
-    Advisors --> Claude["Anthropic Claude"]
-    Claude -.->|tool_use| Tools["@Tool<br/>order lookup · create ticket"]
+    Claude["Anthropic Claude<br/>claude-opus-5"]
+    Tools["@Tool<br/>order lookup · ticket<br/>item 3"]
+
+    subgraph PG["Postgres · one instance"]
+        direction TB
+        CM[("spring_ai_chat_memory")]
+        VS[("vector_store")]
+    end
+
+    Embed["ONNX all-MiniLM-L6-v2<br/>in-process · 384-dim"]
+    Prom["/actuator/prometheus<br/>model calls · stream outcomes"]
+
+    Client -->|"POST /api/v1/chat<br/>POST /api/v1/chat/stream"| Ctl
+    Ctl --> Svc
+    Svc --> CC
+    CC --> Chain
+    Chain --> Claude
+    Claude -.->|"tool_use"| Tools
     Tools -.-> Claude
 
-    QA <--> VS[("pgvector<br/>vector_store")]
-    Mem <--> CM[("Postgres<br/>chat memory")]
-    Embed["ONNX all-MiniLM-L6-v2<br/>(in-process)"] --> VS
+    Mem --> CM
+    QA --> VS
+    Embed --> VS
+    Svc -.->|"partial reply<br/>on disconnect"| CM
+    Svc -.-> Prom
+    CC -.-> Prom
 
-    CC -.->|observations| Prom["/actuator/prometheus"]
+    classDef pending stroke-dasharray: 4 3;
+    class QA,Tools pending;
+```
 
-    VS -.- PG[("Single Postgres instance")]
-    CM -.- PG
+Dashed components are Phase 1 items not yet built.
+
+### A streaming turn
+
+The interesting part is what happens when a client disconnects mid-answer. Spring AI writes
+the user message to memory up front but writes the assistant message from an aggregator that
+only hooks `doOnComplete` — so an interrupted stream would leave an orphaned user message
+behind, and the next turn would send two consecutive user messages to the model.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Client
+    participant Ctl as ChatController
+    participant S as ChatService
+    participant A as MessageChatMemoryAdvisor
+    participant M as ChatMemory
+    participant L as Claude
+
+    C->>Ctl: POST /api/v1/chat/stream
+    Ctl->>S: stream(conversationId, message)
+    S->>A: subscribe
+
+    A->>M: get(conversationId)
+    M-->>A: prior messages
+    A->>M: add(user message)
+    A->>L: streaming request
+
+    loop per token
+        L-->>A: token
+        A-->>S: token
+        S->>S: buffer token
+        S-->>Ctl: token
+        Ctl-->>C: event: message
+    end
+
+    alt stream completes
+        A->>M: add(assistant message)
+        S->>S: count outcome=completed
+    else client disconnects
+        Note over A,M: aggregator hooks doOnComplete only,<br/>so nothing is written here
+        S->>M: add(buffered partial reply)
+        S->>S: count outcome=cancelled
+        Note over C,Ctl: nothing can be sent —<br/>the client is already gone
+    else upstream fails
+        S->>M: add(buffered partial reply)
+        S->>S: count outcome=failed
+        Ctl-->>C: event: error
+    end
 ```
 
 **Why these pieces:**
@@ -104,12 +175,50 @@ Run the tests (Testcontainers starts its own Postgres; no `docker compose` neede
 
 ---
 
+## API
+
+Both endpoints take the same body. Omit `conversationId` to start a new conversation; the
+assigned id comes back in the `X-Conversation-Id` header of every response.
+
+```bash
+# Blocking: one JSON response
+curl -sS localhost:8080/api/v1/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Where is my order?"}' | jq
+
+# Streaming: server-sent events
+curl -N localhost:8080/api/v1/chat/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"conversationId": "abc-123", "message": "And the second one?"}'
+```
+
+The stream emits two event types. Tokens arrive as `event: message`; a failure after the
+response has been committed arrives as a terminal `event: error`, so a client never has to
+guess whether an apology came from the model or from the transport.
+
+```
+event:message
+data:Your order
+
+event:message
+data: shipped on Monday.
+```
+
+| Failure | Response |
+| --- | --- |
+| Blank or oversized message | `400` before any model call |
+| Rate limited or provider overloaded | `503` with a `ProblemDetail` body — retry is worthwhile |
+| Bad credentials, rejected request | `502` with a `ProblemDetail` body — retry is not |
+| Failure after streaming began | `200`, terminated by an `error` event |
+
+---
+
 ## Roadmap
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
 
 - [x] **0 · Foundation** — project skeleton, Postgres + pgvector via Compose, actuator/Prometheus, CI
-- [ ] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
+- [x] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
 - [ ] **2 · RAG** — FAQ ingestion pipeline (read → split → embed → store) and grounded answers
 - [ ] **3 · Tool calling** — order status lookup and support ticket creation
 - [ ] **4 · Deployment** — Dockerfile, Kubernetes Deployment / Service / ConfigMap
