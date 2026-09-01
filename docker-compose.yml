@@ -49,6 +49,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     environment:
       # Name-only entry: the value is taken from the shell environment or .env at run
       # time and is never written into this file. Compose renders it as unset (not empty)
@@ -90,6 +92,16 @@ services:
       - /tmp:mode=1777,exec,size=256m
     security_opt:
       - no-new-privileges:true
+
+  # Jaeger ingests OTLP natively, so no separate collector is needed for local work.
+  # A real deployment would put an OpenTelemetry Collector in front of it.
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    container_name: csagent-jaeger
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"   # web UI
+      - "${OTLP_HTTP_PORT:-4318}:4318"     # OTLP/HTTP, what the app exports to
+    restart: unless-stopped
 
 volumes:
   pgdata:

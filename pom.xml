@@ -57,6 +57,18 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Distributed tracing. Spring AI's observations already carry OpenTelemetry's
+             GenAI semantic-convention attributes (gen_ai.usage.input_tokens and friends);
+             these two turn them into exported spans. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+
         <!-- Chat model: Anthropic Claude -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -107,6 +119,11 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -76,6 +76,14 @@ spring:
             initialize-schema: always
 
 app:
+  observability:
+    # Spring AI attaches the search query to the vector-store span unconditionally -- there is
+    # no property for it, unlike log-prompt / log-completion / log-query-response, which all
+    # default to off. For a support assistant the query is often the most sensitive thing in
+    # the request, and traces get retained and read widely. Off unless you are debugging
+    # retrieval and understand where those spans end up.
+    include-query-content: ${TRACE_INCLUDE_QUERY_CONTENT:false}
+
   rag:
     corpus-location: classpath:/faq/faq.json
     ingest-on-startup: true
@@ -114,6 +122,28 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+
+  # --- Distributed tracing ---
+  #
+  # Spring AI's observations already use OpenTelemetry's GenAI semantic conventions
+  # (gen_ai.usage.input_tokens, gen_ai.request.model, ...), so this exports spans rather than
+  # inventing a vocabulary. It matters more here than in an ordinary service: one chat turn is
+  # retrieval, then a model call, then possibly a tool call and a second model call. Metrics
+  # can say a turn took eight seconds; only a trace says which of those four spans it was.
+  tracing:
+    sampling:
+      # Spring Boot's default is 0.1. At that rate nine out of ten conversations produce no
+      # trace at all, which reads as "tracing is broken" rather than "tracing is sampled".
+      # 1.0 for a demo; lower this deliberately under real traffic.
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        # Off unless a collector is actually running, otherwise `./mvnw spring-boot:run` on its
+        # own fills the log with export failures. `docker compose up` turns it on, because that
+        # brings Jaeger up alongside the app.
+        enabled: ${OTLP_TRACING_EXPORT_ENABLED:false}
 
 logging:
   level:

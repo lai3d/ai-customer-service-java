@@ -46,6 +46,7 @@ flowchart LR
     Corpus[/"faq.json<br/>18 entries"/]
     Embed["ONNX multilingual-e5-small<br/>in-process · 384-dim · en + zh"]
     Prom["/actuator/prometheus<br/>model calls · stream outcomes"]
+    Jaeger["Jaeger<br/>OTLP spans"]
 
     Client -->|"POST /api/v1/chat<br/>POST /api/v1/chat/stream"| Ctl
     Ctl --> Svc
@@ -63,6 +64,7 @@ flowchart LR
     Svc -.->|"partial reply<br/>on disconnect"| CM
     Svc -.-> Prom
     CC -.-> Prom
+    CC -.->|"OTLP"| Jaeger
 
 ```
 
@@ -139,7 +141,7 @@ sequenceDiagram
 | Embeddings | Spring AI Transformers — `multilingual-e5-small` ONNX, in-process |
 | Vector store | pgvector |
 | Memory | Spring AI JDBC chat memory repository |
-| Observability | Spring Boot Actuator + Micrometer → Prometheus |
+| Observability | Actuator + Micrometer → Prometheus; Micrometer Tracing → OTLP → Jaeger |
 | Build | Maven (wrapper included) |
 | Tests | JUnit 5 + Testcontainers |
 
@@ -161,6 +163,7 @@ $EDITOR .env               # set ANTHROPIC_API_KEY
 
 docker compose up -d       # Postgres, then the app once Postgres is healthy
 curl -s localhost:8080/actuator/health | jq
+open http://localhost:16686        # Jaeger: traces for every chat turn
 ```
 
 The image bakes in the embedding model, so a cold start downloads nothing at runtime and
@@ -369,6 +372,53 @@ both entry points instead of waiting for that.
 
 ---
 
+## Observability
+
+Metrics and traces come from the same Micrometer instrumentation, and Spring AI already emits
+OpenTelemetry's GenAI semantic conventions — `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.response.finish_reasons` — so nothing here invents a vocabulary.
+
+Traces matter more for this kind of service than for an ordinary one. A single turn is
+retrieval, then a model call, then possibly a tool call and a second model call. Metrics can
+tell you a turn took eight seconds; only a trace tells you which of those it was:
+
+```
+http post /api/v1/chat
+└─ spring_ai chat_client
+   ├─ message_chat_memory        (advisor)
+   ├─ question_answer            (advisor)
+   │  ├─ embedding               (query → vector, in-process)
+   │  └─ pg_vector query         top_k, threshold, dimensions
+   └─ chat claude-opus-5         gen_ai.usage.*, finish reasons
+```
+
+`docker compose up` starts Jaeger alongside the app and points the exporter at it; the UI is at
+**http://localhost:16686**. Jaeger ingests OTLP directly, so no separate collector is needed
+locally — a real deployment would put an OpenTelemetry Collector in front. Export is off by
+default when you run the app on its own, so `./mvnw spring-boot:run` does not fill the log with
+failed exports.
+
+**Sampling is set to 1.0, not Spring Boot's default 0.1.** At the default rate nine out of ten
+conversations produce no trace, which reads as "tracing is broken" rather than "tracing is
+sampled". Lower it deliberately under real traffic.
+
+### Customer messages are kept out of traces
+
+Spring AI has switches for prompt and completion content — `log-prompt`, `log-completion`,
+`log-query-response` — and all three default to off. The vector store's *query* text is not
+among them: `db.vector.query.content` is added unconditionally, so the question a customer typed
+leaves the process on every search. That was found by reading it back out of Jaeger, not by
+reading the docs.
+
+It is a reasonable default for a library and a poor one for a support system, where the query is
+often the most sensitive thing in the request. A
+[custom observation convention](src/main/java/dev/merlionos/customerservice/observability/PrivacyPreservingVectorStoreObservationConvention.java)
+drops it unless `app.observability.include-query-content` is deliberately switched on for
+debugging. Everything that makes the span useful — top-k, threshold, similarity metric,
+dimensions, timing — is kept.
+
+---
+
 ## Roadmap
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
@@ -379,8 +429,9 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **3 · Tool calling** — order status lookup and support ticket creation
 - [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests
 - [x] **5 · Bilingual retrieval** — Chinese corpus, multilingual embeddings, cross-lingual tests
+- [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Jaeger, with customer messages excluded
 
-Next: OpenTelemetry tracing, then multi-provider chat models.
+Next: multi-provider chat models (OpenAI, Gemini, and Grok through its OpenAI-compatible API).
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 

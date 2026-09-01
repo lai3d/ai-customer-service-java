@@ -336,3 +336,25 @@ container, so the image redirects it to `/tmp/onnx-model-cache`. It stays empty 
 model comes from `file:` — but the directory has to be creatable.
 
 **A green rollout does not mean a working API key.** See the warning at the top.
+
+
+## Tracing
+
+`docker compose up` also starts Jaeger (`jaegertracing/jaeger:2.20.0`), which ingests OTLP
+directly — no separate collector is needed for local work. A real deployment would put an
+OpenTelemetry Collector between the application and its tracing backend.
+
+| Variable | Compose value | Meaning |
+| --- | --- | --- |
+| `OTLP_TRACING_EXPORT_ENABLED` | `true` | Off by default, so running the app without a collector does not log export failures on every span |
+| `OTLP_TRACING_ENDPOINT` | `http://jaeger:4318/v1/traces` | OTLP/HTTP traces endpoint |
+| `TRACING_SAMPLE_RATE` | `1.0` | Spring Boot's default is `0.1`; lower this deliberately under real traffic |
+| `TRACE_INCLUDE_QUERY_CONTENT` | unset (`false`) | Attaches the customer's question to vector-store spans. Debugging only — see the README's Observability section |
+
+Jaeger's UI is on port 16686 and its OTLP/HTTP ingest on 4318; both are overridable with
+`JAEGER_UI_PORT` and `OTLP_HTTP_PORT`.
+
+The Kubernetes manifests do not deploy a tracing backend. Set `OTLP_TRACING_EXPORT_ENABLED` and
+`OTLP_TRACING_ENDPOINT` in the ConfigMap to point at whatever collector the cluster already has.
+Jaeger's storage here is in-memory and resets when the container restarts, which is fine for
+local work and not a production configuration.
