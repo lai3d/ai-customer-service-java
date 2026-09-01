@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: ai-customer-service-java
+
+  # Loom. Every LLM call is a long, blocking I/O wait; virtual threads carry them
+  # without dragging the whole codebase into a reactive programming model.
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:csagent}
+    username: ${POSTGRES_USER:csagent}
+    password: ${POSTGRES_PASSWORD:csagent}
+    hikari:
+      maximum-pool-size: 20
+
+  ai:
+    anthropic:
+      # No default: a missing key should fail at startup, not at the first request.
+      api-key: ${ANTHROPIC_API_KEY}
+      chat:
+        options:
+          # Spring AI 1.1.8's AnthropicApi.ChatModel enum stops at Claude Opus 4.6,
+          # so current model IDs are given as plain strings.
+          model: claude-opus-5
+          max-tokens: 8192
+          # Sampling parameters (temperature / top_p / top_k) are deliberately absent:
+          # Claude Opus 5 rejects them with HTTP 400. They cannot be switched off from
+          # here -- see config/AnthropicSamplingParameterStripper for why, and
+          # AnthropicChatOptionsTest for the guard.
+
+    embedding:
+      transformer:
+        # all-MiniLM-L6-v2 ONNX, loaded in-process. Anthropic has no embedding API.
+        cache:
+          enabled: true
+          directory: ${user.dir}/onnx-model-cache
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        # Must match the embedding model's output width (all-MiniLM-L6-v2 = 384).
+        dimensions: 384
+        index-type: hnsw
+        distance-type: cosine-distance
+        table-name: vector_store
+
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # Defaults to `embedded`, which is a no-op against a real Postgres.
+            initialize-schema: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  level:
+    org.springframework.ai: INFO

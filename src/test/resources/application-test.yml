@@ -1,0 +1,8 @@
+# Profile-specific overlay. Deliberately NOT named application.yml: a test-classpath
+# application.yml shadows src/main/resources/application.yml wholesale rather than
+# merging with it, which would silently un-configure the application under test.
+spring:
+  ai:
+    anthropic:
+      # Tests never reach the Anthropic API; this only has to satisfy startup.
+      api-key: test-key-not-used

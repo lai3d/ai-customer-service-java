@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # The ONNX embedding model is downloaded on first use; caching it keeps
+      # subsequent runs from re-fetching ~90 MB.
+      - name: Cache ONNX embedding model
+        uses: actions/cache@v4
+        with:
+          path: onnx-model-cache
+          key: onnx-all-minilm-l6-v2
+
+      # Testcontainers provisions Postgres itself; the runner only needs a daemon,
+      # which ubuntu-latest already has.
+      - name: Build and test
+        run: ./mvnw -B --no-transfer-progress verify
+
+      - name: Publish test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore

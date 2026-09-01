@@ -1,0 +1,141 @@
+# AI Customer Service System — Java / Spring AI
+
+The Java implementation of an AI customer service backend, built on **Spring Boot 3.5**,
+**Spring AI 1.1**, and **Anthropic Claude**, with retrieval-augmented answers over an FAQ corpus, tool calling for real
+business actions, SSE streaming, and first-class observability.
+
+This is not a notebook demo. It runs on virtual threads, persists conversation memory and vectors in
+the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
+Dockerfile and Kubernetes manifests.
+
+> **Status:** Phase 1, under active development. See [Roadmap](#roadmap).
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Client["Client<br/>(SSE)"] --> Ctl["ChatController<br/>Flux&lt;String&gt;"]
+    Ctl --> CC["ChatClient"]
+
+    subgraph Advisors["Advisor chain"]
+        direction TB
+        Mem["MessageChatMemoryAdvisor"] --> QA["QuestionAnswerAdvisor"]
+    end
+
+    CC --> Advisors
+    Advisors --> Claude["Anthropic Claude"]
+    Claude -.->|tool_use| Tools["@Tool<br/>order lookup · create ticket"]
+    Tools -.-> Claude
+
+    QA <--> VS[("pgvector<br/>vector_store")]
+    Mem <--> CM[("Postgres<br/>chat memory")]
+    Embed["ONNX all-MiniLM-L6-v2<br/>(in-process)"] --> VS
+
+    CC -.->|observations| Prom["/actuator/prometheus"]
+
+    VS -.- PG[("Single Postgres instance")]
+    CM -.- PG
+```
+
+**Why these pieces:**
+
+| Decision | Reason |
+| --- | --- |
+| Virtual threads, no WebFlux | LLM calls are I/O-bound and long-lived. Loom gives the concurrency without forcing a reactive programming model on the whole codebase. `Flux` appears only as an SSE controller return type. |
+| Advisor chain, never hand-built prompts | Memory and retrieval are cross-cutting concerns. Composing them as advisors keeps them testable and independently switchable. |
+| pgvector in the business database | One database to run, back up, and reason about. Transactional consistency between a ticket and the conversation that created it comes for free. |
+| Local ONNX embeddings | Anthropic offers no embedding API. An in-process ONNX model (`all-MiniLM-L6-v2`, 384-dim) means the RAG path needs no second vendor, no second API key, and costs nothing per query. |
+| Micrometer on every model call | Token spend and latency are the two numbers that decide whether an LLM feature survives contact with production. |
+
+---
+
+## Tech Stack
+
+| Layer | Choice |
+| --- | --- |
+| Runtime | JDK 21, virtual threads (`spring.threads.virtual.enabled=true`) |
+| Framework | Spring Boot 3.5.16, Spring MVC |
+| AI | Spring AI 1.1.8 — `ChatClient` + advisor chain |
+| Chat model | Anthropic Claude (`claude-opus-5` by default) |
+| Embeddings | Spring AI Transformers (ONNX, in-process) |
+| Vector store | pgvector |
+| Memory | Spring AI JDBC chat memory repository |
+| Observability | Spring Boot Actuator + Micrometer → Prometheus |
+| Build | Maven (wrapper included) |
+| Tests | JUnit 5 + Testcontainers |
+
+Spring AI 2.0 exists but targets Spring Boot 4.x. This project stays on the
+Spring Boot 3.5 / Spring AI 1.1 line, which is the combination Spring AI 1.1.8 is built and tested
+against.
+
+---
+
+## Quick Start
+
+**Prerequisites:** JDK 21, Docker. Maven is not required — use the bundled wrapper.
+
+```bash
+# 1. Configure credentials
+cp .env.example .env
+$EDITOR .env          # set ANTHROPIC_API_KEY
+
+# 2. Start Postgres (with the pgvector extension)
+docker compose up -d
+
+# 3. Run
+set -a && source .env && set +a
+./mvnw spring-boot:run
+```
+
+Verify:
+
+```bash
+curl -s localhost:8080/actuator/health | jq
+curl -s localhost:8080/actuator/prometheus | grep -E '^gen_ai|^spring_ai'
+```
+
+Run the tests (Testcontainers starts its own Postgres; no `docker compose` needed):
+
+```bash
+./mvnw verify
+```
+
+---
+
+## Roadmap
+
+Phase 1 is built one item at a time, each landing as a reviewable change.
+
+- [x] **0 · Foundation** — project skeleton, Postgres + pgvector via Compose, actuator/Prometheus, CI
+- [ ] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
+- [ ] **2 · RAG** — FAQ ingestion pipeline (read → split → embed → store) and grounded answers
+- [ ] **3 · Tool calling** — order status lookup and support ticket creation
+- [ ] **4 · Deployment** — Dockerfile, Kubernetes Deployment / Service / ConfigMap
+
+Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
+
+---
+
+## Project Layout
+
+```
+├── docker/postgres/init/    # extensions created before the app connects
+├── k8s/                     # Kubernetes manifests (phase 1, item 4)
+├── src/main/java/dev/merlionos/customerservice/
+│   ├── CustomerServiceApplication.java
+│   └── config/              # explicit overrides of Spring AI defaults
+├── src/main/resources/
+└── src/test/java/           # Testcontainers-backed integration tests
+```
+
+This repository is one of a planned pair — a Go implementation of the same system lives in
+a separate repository. Nothing is shared between them by design; each is idiomatic for its
+own ecosystem.
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE)

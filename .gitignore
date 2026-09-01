@@ -1,0 +1,36 @@
+# --- Secrets: never commit these ---
+.env
+*.env
+!.env.example
+application-local.yml
+application-local.properties
+*.pem
+*.key
+
+# --- Build output ---
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+build/
+out/
+
+# --- IDE ---
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+nbproject/private/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Runtime / local data ---
+logs/
+*.log
+onnx-model-cache/
