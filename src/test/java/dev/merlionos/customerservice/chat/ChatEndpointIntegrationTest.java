@@ -117,6 +117,17 @@ class ChatEndpointIntegrationTest {
     }
 
     @Test
+    @DisplayName("an over-long conversation id is a 400, not a 500 from the database")
+    void rejectsOverLongConversationId() {
+        // Spring AI's chat memory schema declares conversation_id as varchar(36). Without a
+        // bound here the insert fails and the customer sees an internal error.
+        ResponseEntity<String> response = rest.postForEntity("/api/v1/chat",
+                new ChatRequest("x".repeat(37), "Where is my order?"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     @DisplayName("a blank message is rejected before reaching the model")
     void rejectsBlankMessage() {
         ResponseEntity<String> response = rest.postForEntity(

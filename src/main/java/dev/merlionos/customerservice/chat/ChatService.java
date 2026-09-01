@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.cost.ConversationBudget;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -10,6 +11,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -27,16 +29,19 @@ public class ChatService {
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final TurnEventBus turnEventBus;
+    private final ConversationBudget budget;
     private final ObjectProvider<Tracer> tracer;
     private final Counter streamsCompleted;
     private final Counter streamsCancelled;
     private final Counter streamsFailed;
 
     ChatService(ChatClient chatClient, ChatMemory chatMemory, TurnEventBus turnEventBus,
-                ObjectProvider<Tracer> tracer, MeterRegistry meterRegistry) {
+                ConversationBudget budget, ObjectProvider<Tracer> tracer,
+                MeterRegistry meterRegistry) {
         this.chatClient = chatClient;
         this.chatMemory = chatMemory;
         this.turnEventBus = turnEventBus;
+        this.budget = budget;
         this.tracer = tracer;
         this.streamsCompleted = terminationCounter(meterRegistry, "completed");
         this.streamsCancelled = terminationCounter(meterRegistry, "cancelled");
@@ -55,12 +60,34 @@ public class ChatService {
      * tests that would otherwise have to parse an event stream.
      */
     public String ask(String conversationId, String message) {
-        return chatClient.prompt()
+        budget.checkRemaining(conversationId);
+
+        // Deliberately not `.content()`. That discards the response metadata, and with it the
+        // token usage -- so this path would spend money that the budget and the cost meters
+        // never saw. Found by a test asserting the second request over budget was refused; it
+        // was not, because the first request's tokens were never counted.
+        ChatResponse response = chatClient.prompt()
                 .user(message)
                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .toolContext(toolContext(conversationId))
                 .call()
-                .content();
+                .chatResponse();
+
+        recordUsage(conversationId, response);
+
+        return response == null || response.getResult() == null
+                ? ""
+                : response.getResult().getOutput().getText();
+    }
+
+    private void recordUsage(String conversationId, ChatResponse response) {
+        if (response == null || response.getMetadata() == null) {
+            return;
+        }
+        String model = response.getMetadata().getModel();
+        budget.record(conversationId,
+                model == null || model.isBlank() ? "unknown" : model,
+                response.getMetadata().getUsage());
     }
 
     /**
@@ -73,6 +100,10 @@ public class ChatService {
      * the merge cannot complete until the tool flux does.
      */
     public Flux<TurnEvent> stream(String conversationId, String message) {
+        // Checked before the Flux is built, so an exhausted budget is an HTTP status rather
+        // than an error event buried in a stream that has already been committed as 200.
+        budget.checkRemaining(conversationId);
+
         return Flux.defer(() -> {
             Flux<TurnEvent> toolEvents = turnEventBus.open(conversationId);
             Flux<TurnEvent> modelEvents = modelEvents(conversationId, message)
@@ -85,6 +116,7 @@ public class ChatService {
     private Flux<TurnEvent> modelEvents(String conversationId, String message) {
         long started = System.currentTimeMillis();
         AtomicReference<org.springframework.ai.chat.metadata.Usage> usage = new AtomicReference<>();
+        AtomicReference<String> model = new AtomicReference<>("unknown");
 
         Flux<TurnEvent> events = chatClient.prompt()
                 .user(message)
@@ -95,12 +127,15 @@ public class ChatService {
                 // Retrieval is reported by RetrievalReportingAdvisor, which publishes to the
                 // bus before the model is called -- so it arrives even when the call fails.
                 .flatMap(response -> {
-                    captureUsage(response, usage);
+                    captureUsage(response, usage, model);
                     return tokenEvent(response);
                 });
 
         return recordAssistantReplyOnInterruption(conversationId, events)
-                .concatWith(Mono.fromSupplier(() -> usageEvent(usage.get(), started)));
+                .concatWith(Mono.fromSupplier(() -> {
+                    budget.record(conversationId, model.get(), usage.get());
+                    return usageEvent(usage.get(), started);
+                }));
     }
 
     private static Mono<TurnEvent> tokenEvent(ChatClientResponse response) {
@@ -112,11 +147,16 @@ public class ChatService {
     }
 
     private static void captureUsage(ChatClientResponse response,
-                                     AtomicReference<org.springframework.ai.chat.metadata.Usage> holder) {
+                                     AtomicReference<org.springframework.ai.chat.metadata.Usage> holder,
+                                     AtomicReference<String> model) {
         if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
-            var current = response.chatResponse().getMetadata().getUsage();
+            var metadata = response.chatResponse().getMetadata();
+            var current = metadata.getUsage();
             if (current != null && current.getTotalTokens() != null && current.getTotalTokens() > 0) {
                 holder.set(current);
+            }
+            if (metadata.getModel() != null && !metadata.getModel().isBlank()) {
+                model.set(metadata.getModel());
             }
         }
     }

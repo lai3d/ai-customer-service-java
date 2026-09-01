@@ -8,6 +8,15 @@ spring:
     virtual:
       enabled: true
 
+  # Applies to the RestClient the Anthropic/OpenAI/Gemini clients are built on. Spring Boot
+  # ships no default here, so without it a hung upstream request never returns and the request
+  # thread waits forever. Read timeout is generous because a long answer legitimately takes
+  # time; it guards against a stall, not against slowness.
+  http:
+    client:
+      connect-timeout: ${HTTP_CONNECT_TIMEOUT:10s}
+      read-timeout: ${HTTP_READ_TIMEOUT:120s}
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:csagent}
     username: ${POSTGRES_USER:csagent}
@@ -33,6 +42,20 @@ spring:
         transcription: none
       image: none
       moderation: none
+
+    # Spring AI's defaults are max-attempts 10 with a 2s initial interval, a multiplier of 5
+    # and a 180s cap. That is 2+10+50+180*6 = 1142 seconds of backoff -- a customer watching a
+    # spinner for nineteen minutes before being told it did not work. Sensible for a nightly
+    # batch job, wrong for an interactive assistant.
+    #
+    # Three attempts with a 1s/2s gap caps the added wait at three seconds. If the provider is
+    # still failing after that, saying so quickly is a better answer than trying harder.
+    retry:
+      max-attempts: ${AI_RETRY_MAX_ATTEMPTS:3}
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 10s
 
     anthropic:
       # The binder ignores an unresolvable placeholder rather than raising, so this alone
@@ -117,6 +140,26 @@ spring:
             initialize-schema: always
 
 app:
+  cost:
+    # A single conversation is otherwise an open-ended bill: memory is windowed so any one
+    # request is bounded, but the number of requests is not. Reaching the cap hands the
+    # customer to a human, which is the right outcome for a conversation this long anyway.
+    # 0 disables the cap.
+    conversation-token-budget: ${CONVERSATION_TOKEN_BUDGET:200000}
+    # Spend is held in a bounded LRU map -- per replica, reset on restart. It limits blast
+    # radius rather than enforcing a ledger; Redis or Postgres would be the real thing.
+    tracked-conversations: 10000
+    # Dollars per million tokens. Keep in step with the provider's published pricing; nothing
+    # here can detect that it has drifted. A model with no entry has its tokens counted but
+    # not costed.
+    prices:
+      claude-opus-5:
+        input-per-million-usd: 5.00
+        output-per-million-usd: 25.00
+      claude-sonnet-5:
+        input-per-million-usd: 2.00
+        output-per-million-usd: 10.00
+
   observability:
     # Spring AI attaches the search query to the vector-store span unconditionally -- there is
     # no property for it, unlike log-prompt / log-completion / log-query-response, which all

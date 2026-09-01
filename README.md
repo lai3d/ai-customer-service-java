@@ -526,6 +526,65 @@ is on the `pg_vector query` span in the trace.
 
 ---
 
+## Cost and failure
+
+An assistant that answers well and bills unpredictably is not finished. Three things were
+missing, and two of them were Spring's defaults rather than omissions in this code.
+
+### Retry gave up after nineteen minutes
+
+Spring AI's defaults are 10 attempts with a 2s initial interval, a multiplier of 5 and a 180s
+cap — `2 + 10 + 50 + 180×6 = 1142` seconds of backoff before the customer is told it did not
+work. That is defensible for a nightly batch job and wrong for someone watching a spinner.
+Three attempts with a 1s/2s gap cap the added wait at three seconds; if the provider is still
+failing, saying so quickly is the better answer.
+
+### There were no HTTP timeouts at all
+
+Spring Boot ships no default for `spring.http.client.read-timeout`, so a hung upstream request
+never returned and the request thread waited indefinitely. Now 10s to connect, 120s to read —
+generous, because a long answer legitimately takes time; it guards against a stall, not against
+slowness.
+
+`ResilienceConfigurationTest` computes the worst-case backoff from the bound properties and
+fails if it climbs back past fifteen seconds. Both settings look like configuration noise and
+would be easy to delete in a tidy-up.
+
+### A conversation was an open-ended bill
+
+Memory is windowed at 40 messages, so any single request is bounded — but the number of
+requests is not. A customer who keeps typing, or a script that does, runs indefinitely, and the
+failure is not dramatic: no error, no alert, just a larger invoice. A conversation that reaches
+its token budget gets a `429` pointing at a human, which is the right outcome for a conversation
+that long anyway.
+
+Spend is held in a **bounded** LRU map, per replica, reset on restart. That is honest about what
+it is — blast-radius limiting, not a ledger; Redis or Postgres would be the real thing. The
+bound matters more than it looks: an unbounded map keyed by conversation id is a memory leak
+with a long fuse.
+
+Tokens and dollars are metered by model and **never** by conversation id. Per-conversation tags
+would grow cardinality without limit and take the metrics backend down long before the bill did.
+
+```
+chat_tokens_total{model="claude-opus-5",type="input"}
+chat_cost_usd_total{model="claude-opus-5"}
+```
+
+### Two bugs the tests found, not the code review
+
+**The blocking endpoint spent money nobody counted.** `ask()` returned `.call().content()`,
+which discards the response metadata and with it the token usage — so `/api/v1/chat` was
+invisible to both the budget and the cost meters. The test asserting a second over-budget
+request was refused failed, because the first request's tokens were never recorded.
+
+**A client-supplied conversation id could cause a 500.** Spring AI's chat memory schema declares
+`conversation_id` as `varchar(36)`, sized for the UUID this service generates. Nothing stopped a
+client sending a longer one, and it surfaced as a `DataIntegrityViolationException` rendered as
+an internal error. It is a `400` now. Found because a test used a descriptive id.
+
+---
+
 ## Roadmap
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
@@ -539,6 +598,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Jaeger, with customer messages excluded
 - [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini, and OpenAI-compatible APIs by configuration
 - [x] **8 · Demo UI** — a glass-box page showing retrieval, tool calls and token cost per turn
+- [x] **9 · Cost and failure** — per-conversation token budget, HTTP timeouts, bounded retry, cost metrics
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 

@@ -9,6 +9,14 @@ import jakarta.validation.constraints.Size;
  * @param message        the customer's turn
  */
 public record ChatRequest(
+        /*
+         * Bounded at 36 because Spring AI's JDBC chat memory schema declares
+         * conversation_id as varchar(36) -- sized for a UUID, which is what this service
+         * generates. Without the constraint a longer client-supplied id reaches Postgres and
+         * comes back as a 500 from a DataIntegrityViolationException. Found by a test that
+         * happened to use a descriptive id.
+         */
+        @Size(max = 36, message = "conversationId must be at most 36 characters")
         String conversationId,
 
         @NotBlank(message = "message must not be blank")
