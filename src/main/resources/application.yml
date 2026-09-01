@@ -35,7 +35,22 @@ spring:
 
     embedding:
       transformer:
-        # all-MiniLM-L6-v2 ONNX, loaded in-process. Anthropic has no embedding API.
+        # multilingual-e5-small, loaded in-process. Anthropic has no embedding API.
+        #
+        # This is the second multilingual model tried. paraphrase-multilingual-MiniLM-L12-v2
+        # was measured first and rejected: it is trained for symmetric similarity (is sentence
+        # A like sentence B), not retrieval (does this short query match this long passage),
+        # and it showed exactly that failure -- a colloquial Chinese damage report scored 0.21
+        # against its own answer while an unrelated question scored 0.14, leaving no threshold
+        # that could keep one and reject the other. The e5 family is retrieval-trained.
+        #
+        # Still 384 dimensions, so the pgvector column did not have to change. The fp32 export
+        # is used rather than a quantised one because the qint8 builds are per-architecture
+        # and would make the image unportable; the Dockerfile exposes it as a build arg.
+        onnx:
+          model-uri: https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/onnx/model.onnx
+        tokenizer:
+          uri: https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/tokenizer.json
         cache:
           enabled: true
           directory: ${user.dir}/onnx-model-cache
@@ -67,13 +82,24 @@ app:
     # Passages per question. Each one is re-sent on every turn it informs, so this trades
     # recall against tokens.
     top-k: 4
-    # Below this similarity a passage is dropped rather than shown to the model as fact.
-    # Measured against the sample corpus (see FaqRetrievalIntegrationTest): correct answers
-    # to paraphrased questions score 0.34 to 0.63, unrelated questions peak at 0.11, and
-    # near-miss passages sit around 0.27 to 0.29. 0.3 clears the near misses while keeping
-    # the weakest true match. Retune this whenever the corpus or the embedding model changes
-    # -- it is a property of both, not a universal constant.
-    similarity-threshold: 0.3
+    # A floor, NOT a relevance filter -- and that distinction is measured, not assumed.
+    #
+    # With the previous English-only model the two populations were cleanly separated:
+    # correct answers scored 0.34 to 0.63, unrelated questions peaked at 0.11, so 0.3 sat in
+    # open space. e5 compresses cosine similarity into a narrow high band. Across 30 queries
+    # (20 relevant, 10 off-topic, both languages) the weakest true match scored 0.8378 and the
+    # strongest off-topic scored 0.8318 -- a margin of 0.006, which is noise, not signal.
+    # Tuning to 0.835 would fit those 30 queries and break on the 31st.
+    #
+    # So relevance filtering moved out of the retriever and into the prompt: the system prompt
+    # requires grounding and instructs the model to say what it does not know. The retriever's
+    # job is now ranking, which it does well -- 20 of 20 paraphrased questions retrieve the
+    # right entry first. See FaqRetrievalIntegrationTest.
+    similarity-threshold: 0.5
+    # e5 models are trained with these asymmetric markers; they are part of the model
+    # contract, not decoration. Blank them out for a model that does not want them.
+    query-prefix: "query: "
+    passage-prefix: "passage: "
 
 management:
   endpoints:

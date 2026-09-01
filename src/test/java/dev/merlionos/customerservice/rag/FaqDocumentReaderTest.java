@@ -16,23 +16,32 @@ class FaqDocumentReaderTest {
             new ClassPathResource("faq/faq.json"), new ObjectMapper()).get();
 
     @Test
-    @DisplayName("every corpus entry becomes exactly one document")
-    void readsOneDocumentPerEntry() {
-        assertThat(documents).hasSize(18);
+    @DisplayName("every entry becomes one document per language it is written in")
+    void readsOneDocumentPerEntryPerLanguage() {
+        assertThat(documents).hasSize(36);
         assertThat(documents).extracting(Document::getId).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("the language a document is written in travels with it")
+    void languageIsRecorded() {
+        assertThat(documents)
+                .extracting(document -> document.getMetadata().get(FaqDocumentReader.METADATA_LANGUAGE))
+                .containsOnly("en", "zh");
     }
 
     @Test
     @DisplayName("document ids are derived from entry ids, so re-ingestion is deterministic")
     void idsAreStableAndTraceable() {
-        assertThat(documents).extracting(Document::getId).contains("faq:returns-window");
+        assertThat(documents).extracting(Document::getId)
+                .contains("faq:returns-window:en", "faq:returns-window:zh");
     }
 
     @Test
     @DisplayName("both the question and the answer are embedded")
     void textCarriesQuestionAndAnswer() {
         Document returnsWindow = documents.stream()
-                .filter(document -> "faq:returns-window".equals(document.getId()))
+                .filter(document -> "faq:returns-window:en".equals(document.getId()))
                 .findFirst()
                 .orElseThrow();
 
@@ -45,7 +54,7 @@ class FaqDocumentReaderTest {
     @DisplayName("metadata carries what filtering and citation need")
     void metadataIsPopulated() {
         Document returnsWindow = documents.stream()
-                .filter(document -> "faq:returns-window".equals(document.getId()))
+                .filter(document -> "faq:returns-window:en".equals(document.getId()))
                 .findFirst()
                 .orElseThrow();
 

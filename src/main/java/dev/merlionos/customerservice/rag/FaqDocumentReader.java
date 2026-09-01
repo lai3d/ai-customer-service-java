@@ -33,6 +33,7 @@ class FaqDocumentReader implements DocumentReader {
     static final String METADATA_ENTRY_ID = "entry_id";
     static final String METADATA_CATEGORY = "category";
     static final String METADATA_QUESTION = "question";
+    static final String METADATA_LANGUAGE = "language";
     static final String METADATA_VERSION = "corpus_version";
 
     private final Resource corpus;
@@ -50,7 +51,8 @@ class FaqDocumentReader implements DocumentReader {
         Assert.notEmpty(parsed.entries(), "FAQ corpus contains no entries: " + corpus.getDescription());
 
         return parsed.entries().stream()
-                .map(entry -> toDocument(entry, parsed.version()))
+                .flatMap(entry -> entry.localized().stream()
+                        .map(localized -> toDocument(entry, localized, parsed.version())))
                 .toList();
     }
 
@@ -63,18 +65,19 @@ class FaqDocumentReader implements DocumentReader {
         }
     }
 
-    private static Document toDocument(FaqEntry entry, String version) {
-        String text = "Q: %s%nA: %s".formatted(entry.question(), entry.answer());
+    private static Document toDocument(FaqEntry entry, LocalizedFaq localized, String version) {
+        String text = "Q: %s%nA: %s".formatted(localized.question(), localized.answer());
 
         Map<String, Object> metadata = Map.of(
                 METADATA_SOURCE, SOURCE,
                 METADATA_ENTRY_ID, entry.id(),
                 METADATA_CATEGORY, entry.category(),
-                METADATA_QUESTION, entry.question(),
+                METADATA_QUESTION, localized.question(),
+                METADATA_LANGUAGE, localized.language(),
                 METADATA_VERSION, version);
 
-        // A stable id keeps re-ingestion deterministic and makes a document traceable back
-        // to the corpus entry it came from.
-        return new Document(SOURCE + ":" + entry.id(), text, metadata);
+        // A stable id keeps re-ingestion deterministic and makes a document traceable back to
+        // the corpus entry and language it came from.
+        return new Document(SOURCE + ":" + entry.id() + ":" + localized.language(), text, metadata);
     }
 }

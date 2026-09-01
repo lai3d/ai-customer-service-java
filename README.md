@@ -44,7 +44,7 @@ flowchart LR
 
     Ingest["FaqIngestionService<br/>replace-on-boot"]
     Corpus[/"faq.json<br/>18 entries"/]
-    Embed["ONNX all-MiniLM-L6-v2<br/>in-process · 384-dim"]
+    Embed["ONNX multilingual-e5-small<br/>in-process · 384-dim · en + zh"]
     Prom["/actuator/prometheus<br/>model calls · stream outcomes"]
 
     Client -->|"POST /api/v1/chat<br/>POST /api/v1/chat/stream"| Ctl
@@ -123,7 +123,7 @@ sequenceDiagram
 | Virtual threads, no WebFlux | LLM calls are I/O-bound and long-lived. Loom gives the concurrency without forcing a reactive programming model on the whole codebase. `Flux` appears only as an SSE controller return type. |
 | Advisor chain, never hand-built prompts | Memory and retrieval are cross-cutting concerns. Composing them as advisors keeps them testable and independently switchable. |
 | pgvector in the business database | One database to run, back up, and reason about. Transactional consistency between a ticket and the conversation that created it comes for free. |
-| Local ONNX embeddings | Anthropic offers no embedding API. An in-process ONNX model (`all-MiniLM-L6-v2`, 384-dim) means the RAG path needs no second vendor, no second API key, and costs nothing per query. |
+| Local ONNX embeddings | Anthropic offers no embedding API. An in-process ONNX model (`multilingual-e5-small`, 384-dim) means the RAG path needs no second vendor, no second API key, and costs nothing per query — and it handles English and Chinese. |
 | Micrometer on every model call | Token spend and latency are the two numbers that decide whether an LLM feature survives contact with production. |
 
 ---
@@ -136,7 +136,7 @@ sequenceDiagram
 | Framework | Spring Boot 3.5.16, Spring MVC |
 | AI | Spring AI 1.1.8 — `ChatClient` + advisor chain |
 | Chat model | Anthropic Claude (`claude-opus-5` by default) |
-| Embeddings | Spring AI Transformers (ONNX, in-process) |
+| Embeddings | Spring AI Transformers — `multilingual-e5-small` ONNX, in-process |
 | Vector store | pgvector |
 | Memory | Spring AI JDBC chat memory repository |
 | Observability | Spring Boot Actuator + Micrometer → Prometheus |
@@ -240,50 +240,82 @@ data: shipped on Monday.
 ## Retrieval
 
 The FAQ corpus lives in [`src/main/resources/faq/faq.json`](src/main/resources/faq/faq.json) —
-18 entries across returns, shipping, payment, account, and support. **It is sample data.**
-Replace it with your own before this answers anything real.
+18 entries across returns, shipping, payment, account, and support, each written in English and
+Chinese. Every language becomes its own document, so 36 in total. **It is sample data.** Replace
+it before this answers anything real.
 
 Ingestion runs at startup and *replaces* what it wrote last time rather than appending.
-Appending on every boot would duplicate the corpus, and duplicates do not merely waste space:
-they crowd out distinct passages in the top-k window, so the model sees one answer four times
-instead of four different ones. Re-embedding everything on each start is affordable only
-because the corpus is small and the embedding model is in-process — 18 documents in under
-300 ms. A larger corpus would want per-document change detection instead.
+Duplicates do not merely waste space: they crowd out distinct passages in the top-k window, so
+the model sees one answer four times instead of four different ones.
 
-No text splitter sits in the pipeline, deliberately. Splitters cut long prose into retrievable
-pieces; an FAQ entry is already the unit a customer's question should match, and splitting one
-would separate a question from its answer. A corpus of long-form policy documents would need
-one.
+No text splitter, deliberately. An FAQ entry is already the unit a customer's question should
+match, and splitting one would separate a question from its answer. Long-form policy documents
+would need one.
 
-### The similarity threshold is measured, not guessed
+### Choosing an embedding model, by measurement
 
-Below `app.rag.similarity-threshold` a passage is dropped rather than handed to the model as
-fact. The value comes from running paraphrased questions — never the corpus wording — against
-the real embedding model:
+Three models were tried. The first two were rejected on data, and both rejections are more
+interesting than the final choice.
 
-| Query | Top hit | Score |
-| --- | --- | --- |
-| "I want to send something back, is it too late after three weeks?" | `returns-window` | 0.56 |
-| "how much do I pay for delivery" | `shipping-cost` | 0.63 |
-| "my card was rejected at checkout" | `payment-declined` | 0.61 |
-| "when can I talk to a real person" | `support-hours` | **0.34** |
-| "what is the capital of France" | *(unrelated)* | 0.11 |
+**`all-MiniLM-L6-v2`** — the original. Clean separation on English: correct answers scored 0.34
+to 0.63 against paraphrased questions, unrelated questions peaked at 0.11. It is also
+English-only, so a Chinese corpus was never going to work.
 
-Correct matches span 0.34 to 0.63; unrelated questions peak at 0.11; near misses sit around
-0.27 to 0.29. `0.3` clears the near misses while keeping the weakest true match. A plausible-
-looking `0.4` would silently stop answering "when can I talk to a real person".
+**`paraphrase-multilingual-MiniLM-L12-v2`** — rejected. Chinese retrieval mostly worked, but a
+colloquial damage report (*包裹到的时候是坏的*) scored **0.21** against its own answer while an
+unrelated question scored **0.14**. No threshold exists that keeps one and rejects the other,
+and the failure lands on exactly the customer you least want to fail. The cause is the model
+class: `paraphrase-*` models are trained for *symmetric* similarity — is sentence A like
+sentence B — while retrieval is *asymmetric*: does this short colloquial query match this long
+written passage. It also regressed English, demoting `returns-window` to third place on a
+question the previous model got right.
 
-The threshold is a property of *this corpus and this embedding model*, not a universal
-constant — `FaqRetrievalIntegrationTest` re-measures it on every build, against real pgvector
-and the real ONNX model, so a regression surfaces as a red build rather than as vaguer answers
+**`multilingual-e5-small`** — chosen. The e5 family is retrieval-trained. Same 384 dimensions,
+so the pgvector column did not change. **20 of 20 paraphrased questions, ten English and ten
+Chinese, now retrieve the correct entry first**, and the damage report went from 0.21 to 0.89.
+
+e5 requires asymmetric input markers — `query: ` before a search query, `passage: ` before an
+indexed document. These are part of the model contract, not decoration, and applying them to
+only one side is worse than applying neither.
+[`PrefixingEmbeddingModel`](src/main/java/dev/merlionos/customerservice/rag/PrefixingEmbeddingModel.java)
+wraps the embedding model, because the vector store already separates the two cases for us: it
+embeds through `embed(List<Document>, …)` when writing and `embed(String)` when searching.
+Nothing above that class knows the convention exists.
+
+### The threshold stopped working, and that is the finding
+
+With the English-only model, `similarity-threshold` was a genuine relevance filter sitting in
+open space between two well-separated populations. e5 compresses cosine similarity into a
+narrow high band, and across 30 queries the two populations nearly touch:
+
+| | n | min | max |
+| --- | --- | --- | --- |
+| Relevant questions (en + zh) | 20 | **0.8378** | 0.9337 |
+| Off-topic questions (en + zh) | 10 | 0.6977 | **0.8318** |
+
+A margin of **0.006** is noise, not signal. Tuning the threshold to 0.835 would fit these 30
+queries and break on the 31st.
+
+So relevance filtering moved out of the retriever and into the prompt. The threshold is now a
+floor for degenerate input; the system prompt tells the model that reference material is
+selected by similarity, that some of it will be unrelated, and to say so rather than stretch an
+unrelated passage to fit. Ranking is what the retriever is good at, and it is good at it: 20 of
+20.
+
+This is worth stating plainly because the opposite is a common failure — porting a threshold
+across an embedding-model change and never noticing it stopped meaning anything.
+
+### Cross-lingual retrieval
+
+Because both languages are indexed, a Chinese question matches a Chinese passage; same-language
+matches score high enough that all eighteen Chinese passages outrank every English one. To
+verify that cross-lingual retrieval works *at all* — which is what matters for an entry nobody
+has translated yet — the test isolates the English half with a metadata filter and asks in
+Chinese. Four for four.
+
+`FaqRetrievalIntegrationTest` runs all of the above on every build, against real pgvector and
+the real ONNX model, with no API key. A retrieval regression is a red build, not vaguer answers
 in production.
-
-### Language
-
-`all-MiniLM-L6-v2` is English-trained. Retrieval over a Chinese or multilingual corpus will be
-noticeably worse. Switching to a multilingual model (`bge-m3` via Ollama, for instance) is a
-configuration change plus a `dimensions` update and a rebuilt index — the retrieval code itself
-does not change.
 
 ---
 
@@ -346,6 +378,9 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **2 · RAG** — FAQ ingestion pipeline and grounded answers, with retrieval quality under test
 - [x] **3 · Tool calling** — order status lookup and support ticket creation
 - [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests
+- [x] **5 · Bilingual retrieval** — Chinese corpus, multilingual embeddings, cross-lingual tests
+
+Next: OpenTelemetry tracing, then multi-provider chat models.
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 

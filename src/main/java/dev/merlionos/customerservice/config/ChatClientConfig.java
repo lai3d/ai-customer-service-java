@@ -33,6 +33,11 @@ class ChatClientConfig {
             retrieved documents or tool results. If you do not have that grounding, say \
             what you don't know and offer to escalate to a human agent rather than \
             guessing. Never invent order numbers, dates, prices, or policy terms.
+
+            Reference material is selected by similarity, so some of it will have nothing to \
+            do with what was asked. Judge each passage on whether it actually answers the \
+            question. If none of it does, say so plainly -- do not stretch an unrelated \
+            passage to fit.
             """;
 
     /**

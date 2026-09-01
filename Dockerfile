@@ -104,8 +104,8 @@ EOF
 # They are ARGs so an air-gapped build can point them at an internal mirror.
 FROM ${JRE_IMAGE} AS onnx
 
-ARG ONNX_MODEL_URI=https://media.githubusercontent.com/media/spring-projects/spring-ai/refs/heads/main/models/spring-ai-transformers/src/main/resources/onnx/all-MiniLM-L6-v2/model.onnx
-ARG ONNX_TOKENIZER_URI=https://raw.githubusercontent.com/spring-projects/spring-ai/main/models/spring-ai-transformers/src/main/resources/onnx/all-MiniLM-L6-v2/tokenizer.json
+ARG ONNX_MODEL_URI=https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/onnx/model.onnx
+ARG ONNX_TOKENIZER_URI=https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/tokenizer.json
 
 RUN set -eux; \
     mkdir -p /onnx; \
