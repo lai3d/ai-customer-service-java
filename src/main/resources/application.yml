@@ -17,7 +17,10 @@ spring:
 
   ai:
     anthropic:
-      # No default: a missing key should fail at startup, not at the first request.
+      # The binder ignores an unresolvable placeholder rather than raising, so this alone
+      # does NOT fail startup -- it binds to the literal "${ANTHROPIC_API_KEY}" and the
+      # application reports itself healthy while every request 401s.
+      # AnthropicApiKeyValidator is what actually refuses to start.
       api-key: ${ANTHROPIC_API_KEY}
       chat:
         options:

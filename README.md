@@ -151,17 +151,29 @@ against.
 
 ## Quick Start
 
+### Everything in containers
+
+**Prerequisites:** Docker. Nothing else — no JDK, no Maven.
+
+```bash
+cp .env.example .env
+$EDITOR .env               # set ANTHROPIC_API_KEY
+
+docker compose up -d       # Postgres, then the app once Postgres is healthy
+curl -s localhost:8080/actuator/health | jq
+```
+
+The image bakes in the embedding model, so a cold start downloads nothing at runtime and
+reaches ready in a few seconds. See [`docs/deployment.md`](docs/deployment.md) for the image
+layout, the Kubernetes manifests in [`k8s/`](k8s/README.md), and why the model is baked in
+rather than mounted.
+
+### Running the app from your IDE
+
 **Prerequisites:** JDK 21, Docker. Maven is not required — use the bundled wrapper.
 
 ```bash
-# 1. Configure credentials
-cp .env.example .env
-$EDITOR .env          # set ANTHROPIC_API_KEY
-
-# 2. Start Postgres (with the pgvector extension)
-docker compose up -d
-
-# 3. Run
+docker compose up -d postgres      # just the database
 set -a && source .env && set +a
 ./mvnw spring-boot:run
 ```
@@ -170,14 +182,20 @@ Verify:
 
 ```bash
 curl -s localhost:8080/actuator/health | jq
-curl -s localhost:8080/actuator/prometheus | grep -E '^gen_ai|^spring_ai'
+curl -s localhost:8080/actuator/prometheus | grep -E '^gen_ai|^chat_'
 ```
 
-Run the tests (Testcontainers starts its own Postgres; no `docker compose` needed):
+Run the tests — Testcontainers starts its own Postgres, and nothing reaches the Anthropic API,
+so no key is needed:
 
 ```bash
 ./mvnw verify
 ```
+
+Starting without `ANTHROPIC_API_KEY` fails immediately and says so. That is deliberate: Spring's
+binder ignores an unresolvable placeholder, so without an explicit check the application would
+start, report itself healthy, be marked ready by Kubernetes, and then fail every customer
+request with a 401.
 
 ---
 
@@ -327,7 +345,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
 - [x] **2 · RAG** — FAQ ingestion pipeline and grounded answers, with retrieval quality under test
 - [x] **3 · Tool calling** — order status lookup and support ticket creation
-- [ ] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes Deployment / Service / ConfigMap
+- [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests
 
 Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 
@@ -336,8 +354,11 @@ Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
 ## Project Layout
 
 ```
+├── Dockerfile               # 3 stages; embedding model baked in, no runtime downloads
+├── docker-compose.yml       # full stack, or `up -d postgres` for IDE development
 ├── docker/postgres/init/    # extensions created before the app connects
-├── k8s/                     # Kubernetes manifests (phase 1, item 4)
+├── docs/deployment.md       # image layout, Kubernetes, environment
+├── k8s/                     # Namespace, ConfigMap, Deployment, Service, Secret template
 ├── src/main/java/dev/merlionos/customerservice/
 │   ├── CustomerServiceApplication.java
 │   └── config/              # explicit overrides of Spring AI defaults
