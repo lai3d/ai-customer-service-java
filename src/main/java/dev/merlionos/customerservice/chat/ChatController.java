@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.UUID;
 
 @RestController
@@ -24,6 +25,14 @@ class ChatController {
     static final String ERROR_EVENT = "error";
     static final String RETRIEVAL_EVENT = "retrieval";
     static final String USAGE_EVENT = "usage";
+
+    /**
+     * Comment-only frames keep the connection alive. Proxies and load balancers close idle
+     * connections, and this stream is legitimately idle between the request and the first
+     * token -- which, with retrieval and a slow model, can be several seconds. A comment is
+     * invisible to EventSource and to any correct SSE parser, so no client needs to know.
+     */
+    private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
@@ -71,11 +80,26 @@ class ChatController {
 
         return ResponseEntity.ok()
                 .header(CONVERSATION_ID_HEADER, conversationId)
-                .body(events);
+                .body(withHeartbeat(events));
     }
 
     private static ServerSentEvent<TurnEvent> toServerSentEvent(TurnEvent event) {
         return ServerSentEvent.builder(event).event(event.name()).build();
+    }
+
+    /**
+     * {@code publish} is what makes this correct: the heartbeat has to stop when the answer
+     * does, and both the merge and the stop condition need the same single subscription to the
+     * upstream. Subscribing twice would run the whole turn twice.
+     */
+    static Flux<ServerSentEvent<TurnEvent>> withHeartbeat(
+            Flux<ServerSentEvent<TurnEvent>> events) {
+
+        Flux<ServerSentEvent<TurnEvent>> heartbeats = Flux.interval(HEARTBEAT_INTERVAL)
+                .map(tick -> ServerSentEvent.<TurnEvent>builder().comment("keep-alive").build());
+
+        return events.publish(shared ->
+                Flux.merge(shared, heartbeats.takeUntilOther(shared.ignoreElements())));
     }
 
     private static String resolveConversationId(ChatRequest request) {

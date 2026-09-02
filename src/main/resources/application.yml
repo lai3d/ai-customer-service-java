@@ -1,6 +1,18 @@
+server:
+  # Rolling deploys otherwise cut in-flight requests mid-answer, and an SSE stream is in flight
+  # for as long as the model is still talking. Graceful shutdown stops accepting new requests
+  # and lets the current ones finish.
+  shutdown: graceful
+
 spring:
   application:
     name: ai-customer-service-java
+
+  lifecycle:
+    # Long enough for a streamed answer to finish, short enough that a deploy is not held up by
+    # one stuck connection. Must stay below the pod's terminationGracePeriodSeconds, or
+    # Kubernetes SIGKILLs the container in the middle of the grace period it was given.
+    timeout-per-shutdown-phase: ${SHUTDOWN_GRACE:30s}
 
   # Loom. Every LLM call is a long, blocking I/O wait; virtual threads carry them
   # without dragging the whole codebase into a reactive programming model.
