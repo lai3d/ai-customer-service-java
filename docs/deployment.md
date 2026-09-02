@@ -358,3 +358,7 @@ The Kubernetes manifests do not deploy a tracing backend. Set `OTLP_TRACING_EXPO
 `OTLP_TRACING_ENDPOINT` in the ConfigMap to point at whatever collector the cluster already has.
 Jaeger's storage here is in-memory and resets when the container restarts, which is fine for
 local work and not a production configuration.
+
+---
+
+[← Back to the README](../README.md)
