@@ -13,7 +13,10 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
-> **Status:** Phase 1, under active development. See [Roadmap](#roadmap).
+> **Status:** complete and verified against the live Anthropic API — 117 tests, no API key
+> needed to run them. Two limits are known and written down rather than smoothed over:
+> a multi-intent question can still miss the passage that answers it, and no request has
+> ever been sent to OpenAI, Gemini or Grok. See [Roadmap](#roadmap).
 
 ---
 
@@ -307,7 +310,24 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
 - [x] **11 · Hardening** — bounded tool side effects, graceful shutdown, SSE keep-alive
 
-Deliberately out of scope for Phase 1: authentication, multi-tenancy, and MCP.
+Every item is done, and the system has been run end to end against the live API: a Chinese
+question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token
+usage reaches the budget and the spans, and asked something the corpus does not cover the
+assistant says so rather than inventing an answer.
+
+**What is not done, stated rather than implied:**
+
+- One of fourteen multi-intent questions still misses the passage that answers it. Fixing it
+  would mean putting a third of the corpus into every prompt; the measurement behind that
+  decision is in [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them).
+- The provider switch is proven only to the extent that each builds a working application
+  context. No request has been sent to OpenAI, Gemini or Grok.
+- There is no evaluation harness scoring answer quality against a golden set.
+
+Deliberately out of scope: authentication, multi-tenancy, and MCP.
+
+A Go implementation is planned as a comparison rather than a port — the same system and the same
+measurements on a runtime whose concurrency model is natively what this one opts into.
 
 ---
 
