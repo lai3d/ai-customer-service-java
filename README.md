@@ -17,7 +17,12 @@ Dockerfile and Kubernetes manifests.
 
 ---
 
-![The demo UI: a Chinese conversation on the left, and on the right the passages retrieval found with their scores, the tool that ran, the tokens spent, and a link to the turn's trace](docs/images/demo.png)
+![The demo UI: a two-turn conversation on the left; on the right, per turn, the passages retrieval found with their scores, the tool that ran, the tokens spent, and a link to that turn's trace](docs/images/demo.png)
+
+*A real exchange, not a mock-up. The second answer combines three things: the delivery date the
+`lookup_order_status` tool returned in the previous turn, the returns policy retrieved for this
+one, and the conversation memory joining them — "your 30-day window won't start until it's
+delivered". The right-hand panel is what a chat widget hides.*
 
 ## What this project found
 

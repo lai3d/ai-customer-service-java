@@ -67,6 +67,14 @@ unrelated passage to fit. Ranking is what the retriever is good at, and it is go
 This is worth stating plainly because the opposite is a common failure — porting a threshold
 across an embedding-model change and never noticing it stopped meaning anything.
 
+### The same system, asked in Chinese
+
+![The demo UI in Chinese: a Chinese question retrieves Chinese passages and is answered in Chinese, with the same tool call and token accounting](images/demo-zh.png)
+
+Nothing is switched but the question. The corpus is indexed in both languages, retrieval picks
+the Chinese passages, and the answer comes back in Chinese with the same tool call and the same
+accounting behind it.
+
 ### Cross-lingual retrieval
 
 Because both languages are indexed, a Chinese question matches a Chinese passage; same-language
