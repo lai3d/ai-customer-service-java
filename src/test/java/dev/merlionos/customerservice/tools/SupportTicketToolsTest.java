@@ -20,7 +20,8 @@ class SupportTicketToolsTest {
     private final SupportTicketTools tools = new SupportTicketTools(meterRegistry, new TurnEventBus());
 
     private static ToolContext context(String conversationId) {
-        return new ToolContext(Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId));
+        return new ToolContext(Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
+                dev.merlionos.customerservice.chat.TurnEventBus.TURN_ID_KEY, "turn-" + conversationId));
     }
 
     @Test
@@ -75,7 +76,7 @@ class SupportTicketToolsTest {
     @DisplayName("a ticket cannot be created without knowing which conversation it belongs to")
     void requiresConversationId() {
         assertThatThrownBy(() -> tools.createSupportTicket(
-                "Anything", "other", null, new ToolContext(Map.of("unrelated", "value"))))
+                "Anything", "other", null, new ToolContext(Map.of(dev.merlionos.customerservice.chat.TurnEventBus.TURN_ID_KEY, "turn-x"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(SupportTicketTools.CONVERSATION_ID_KEY);
     }

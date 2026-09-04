@@ -72,11 +72,14 @@ A healthy first start logs `Ingested 18 FAQ documents`. If a pod sits in
 `CrashLoopBackOff`, the usual cause is Postgres being unreachable or missing the `vector`
 extension.
 
-A **missing or wrong `ANTHROPIC_API_KEY` will not show up here.** The pod starts, passes
-both probes, and reports `UP`; Spring's configuration-property binder ignores the
-unresolvable `${ANTHROPIC_API_KEY}` placeholder rather than failing, so the first chat
-request is what returns 401. Health checks never call Anthropic. Smoke-test the actual
-chat endpoint after a deploy, not just `/actuator/health`.
+A **missing** `ANTHROPIC_API_KEY` now crash-loops the pod: `ChatProviderCredentialsValidator`
+refuses to start on a blank or unresolved key. It did not always — Spring's
+configuration-property binder ignores an unresolvable placeholder, so the property used to bind
+to the literal `${ANTHROPIC_API_KEY}` and the pod went green with no working key.
+
+A **wrong** key still shows up nowhere: health checks never call Anthropic, so the first chat
+request is what returns 401. Smoke-test the actual chat endpoint after a deploy, not just
+`/actuator/health`.
 
 ## Dry-run validation
 

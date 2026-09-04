@@ -66,7 +66,7 @@ public class OrderTools {
     private void report(ToolContext toolContext, String outcome) {
         meterRegistry.counter("chat.tool.invocations",
                 "tool", TOOL_NAME, "outcome", outcome).increment();
-        turnEventBus.publish(SupportTicketTools.conversationIdFrom(toolContext),
+        turnEventBus.publish(SupportTicketTools.turnIdFrom(toolContext),
                 new TurnEvent.ToolCall(TOOL_NAME, outcome));
     }
 }

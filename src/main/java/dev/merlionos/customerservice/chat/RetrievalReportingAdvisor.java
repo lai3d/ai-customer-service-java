@@ -5,7 +5,6 @@ import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
 
@@ -50,10 +49,10 @@ public class RetrievalReportingAdvisor implements BaseAdvisor {
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain advisorChain) {
         Map<String, Object> context = request.context();
 
-        Object conversationId = context.get(ChatMemory.CONVERSATION_ID);
+        Object turnId = context.get(TurnEventBus.TURN_ID_KEY);
         Object documents = context.get(QuestionAnswerAdvisor.RETRIEVED_DOCUMENTS);
 
-        if (conversationId instanceof String id && documents instanceof List<?> list) {
+        if (turnId instanceof String id && documents instanceof List<?> list) {
             List<TurnEvent.Passage> passages = list.stream()
                     .filter(Document.class::isInstance)
                     .map(Document.class::cast)

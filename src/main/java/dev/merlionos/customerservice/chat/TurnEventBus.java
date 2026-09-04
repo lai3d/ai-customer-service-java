@@ -5,6 +5,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -12,41 +13,55 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Tools are the reason this exists. Spring AI executes them inside the chat call, on its own
  * scheduler, with no return path to the controller other than the model's eventual answer -- so
- * a tool invocation is invisible to a client until the assistant happens to mention it. Keying
- * a sink by conversation id gives tools somewhere to publish, using the conversation id they
- * already receive through {@code ToolContext}.
+ * a tool invocation is invisible to a client until the assistant happens to mention it.
  *
- * <p>The keying assumes one in-flight turn per conversation, which is what a chat UI does: the
- * customer is waiting for the answer. A second concurrent turn on the same conversation would
- * have its tool events attributed to the first. That is acceptable for an inspection channel
- * and would not be for anything the answer depended on.
+ * <p>Channels are keyed by <em>turn</em>, not by conversation. Keying by conversation was the
+ * first design and it was wrong in a way that a comment tried to excuse: two overlapping turns
+ * on one conversation meant the second {@code open} replaced the first's sink, so the first
+ * stream could never be completed by anything and hung until the client gave up, while tool
+ * events landed on whichever turn happened to be registered. Two API clients sharing a
+ * conversation id is enough to trigger it. {@code TurnEventBusConcurrencyTest} pins the fixed
+ * behaviour.
  *
- * <p>A sink that is never opened swallows emissions rather than failing, so the blocking
- * endpoint and the tests can call tools with no stream attached.
+ * <p>A turn id that has already been closed, or was never opened, swallows emissions rather
+ * than failing -- the blocking endpoint and the unit tests call tools with no stream attached.
  */
 @Component
 public class TurnEventBus {
 
-    private final Map<String, Sinks.Many<TurnEvent>> sinks = new ConcurrentHashMap<>();
+    /** Key under which {@code ChatService} puts the turn id into the tool and advisor contexts. */
+    public static final String TURN_ID_KEY = "turnId";
 
-    Flux<TurnEvent> open(String conversationId) {
-        Sinks.Many<TurnEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
-        sinks.put(conversationId, sink);
-        return sink.asFlux();
+    private final Map<String, Sinks.Many<TurnEvent>> sinksByTurn = new ConcurrentHashMap<>();
+
+    /** One open channel. Closing it needs this handle, not a conversation id. */
+    public record Channel(String turnId, Flux<TurnEvent> events) {
     }
 
-    void close(String conversationId) {
-        Sinks.Many<TurnEvent> sink = sinks.remove(conversationId);
+    Channel open() {
+        String turnId = UUID.randomUUID().toString();
+        Sinks.Many<TurnEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
+        sinksByTurn.put(turnId, sink);
+        return new Channel(turnId, sink.asFlux());
+    }
+
+    void close(String turnId) {
+        Sinks.Many<TurnEvent> sink = sinksByTurn.remove(turnId);
         if (sink != null) {
             sink.tryEmitComplete();
         }
     }
 
-    /** Called from tool code. A conversation with no open stream is a no-op. */
-    public void publish(String conversationId, TurnEvent event) {
-        Sinks.Many<TurnEvent> sink = sinks.get(conversationId);
+    /** Called from tool and advisor code. A turn with no open stream is a no-op. */
+    public void publish(String turnId, TurnEvent event) {
+        Sinks.Many<TurnEvent> sink = sinksByTurn.get(turnId);
         if (sink != null) {
             sink.tryEmitNext(event);
         }
+    }
+
+    /** Visible for tests: no channel should outlive the turn that opened it. */
+    int openChannels() {
+        return sinksByTurn.size();
     }
 }

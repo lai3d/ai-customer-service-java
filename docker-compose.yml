@@ -56,11 +56,10 @@ services:
       # time and is never written into this file. Compose renders it as unset (not empty)
       # when it is absent everywhere.
       #
-      # Careful: if it is unset, the app still starts and still reports healthy. Spring's
-      # configuration-property Binder ignores unresolvable placeholders, so
-      # spring.ai.anthropic.api-key binds to the literal string "${ANTHROPIC_API_KEY}"
-      # and the failure only surfaces as a 401 on the first chat request. Verified, not
-      # assumed -- see docs/deployment.md.
+      # A missing key now fails startup: ChatProviderCredentialsValidator refuses to start
+      # rather than letting the container report healthy and 401 every request. That check
+      # exists because Spring's Binder ignores unresolvable placeholders, so the property
+      # would otherwise bind to the literal string "${ANTHROPIC_API_KEY}".
       - ANTHROPIC_API_KEY
       # Container-to-container: always the compose network alias on the internal port,
       # never POSTGRES_PORT -- that variable controls the *host* publish above and may
@@ -70,6 +69,30 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-csagent}
       - POSTGRES_USER=${POSTGRES_USER:-csagent}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-csagent}
+
+      # Container-specific: the app exports to Jaeger over the compose network, and tracing is
+      # on here because `docker compose up` brings Jaeger up with it. Running the app directly
+      # leaves export off so the log is not filled with failures against nothing.
+      - OTLP_TRACING_EXPORT_ENABLED=true
+      - OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
+
+      # Name-only, so an unset variable stays unset in the container and the application's own
+      # default applies. Compose reads .env for interpolation but does NOT inject undeclared
+      # variables into a container -- anything documented in .env.example has to be listed here
+      # or it silently does nothing. ComposeEnvironmentTest asserts exactly that.
+      - CHAT_PROVIDER
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - OPENAI_CHAT_MODEL
+      - GEMINI_API_KEY
+      - GEMINI_CHAT_MODEL
+      - CONVERSATION_TOKEN_BUDGET
+      - AI_RETRY_MAX_ATTEMPTS
+      - HTTP_CONNECT_TIMEOUT
+      - HTTP_READ_TIMEOUT
+      - TRACING_SAMPLE_RATE
+      - TRACE_INCLUDE_QUERY_CONTENT
+      - SHUTDOWN_GRACE
     ports:
       - "${APP_PORT:-8080}:8080"
     restart: unless-stopped

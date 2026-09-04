@@ -150,6 +150,13 @@ const TEXT = {
 let lang = "en";
 let conversationId = null;
 let busy = false;
+// A request outlives the click that started it. "New conversation" used to clear
+// conversationId while a fetch was still in flight, and the response handler then wrote the
+// discarded id straight back -- so the next message silently continued the conversation the
+// customer had just abandoned. The generation counter invalidates stale handlers; the
+// controller stops the request itself rather than letting it finish into nothing.
+let generation = 0;
+let inFlight = null;
 
 const $ = (id) => document.getElementById(id);
 const log = $("log"), inspector = $("inspector"), input = $("input"), form = $("form");
@@ -250,6 +257,11 @@ async function send(question) {
   $("send").disabled = true;
   input.value = "";
 
+  const myGeneration = generation;
+  const controller = new AbortController();
+  inFlight = controller;
+  const current = () => generation === myGeneration;
+
   bubble("user", question);
   const answer = bubble("bot", "");
   answer.classList.add("cursor");
@@ -260,13 +272,16 @@ async function send(question) {
     const response = await fetch("/api/v1/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
-      body: JSON.stringify({ conversationId, message: question })
+      body: JSON.stringify({ conversationId, message: question }),
+      signal: controller.signal
     });
+    if (!current()) return;
     conversationId = response.headers.get("X-Conversation-Id") || conversationId;
     if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
 
     let toolCard = null;
     for await (const event of sse(response)) {
+      if (!current()) return;
       let payload;
       try { payload = JSON.parse(event.data); } catch { payload = { text: event.data }; }
 
@@ -327,12 +342,16 @@ async function send(question) {
     }
     if (!answer.textContent) answer.remove();
   } catch (e) {
-    bubble("err", `${t.noAnswer} (${e.message})`);
+    // An abort is the user's own doing, not a failure worth reporting.
+    if (current() && e.name !== "AbortError") bubble("err", `${t.noAnswer} (${e.message})`);
   } finally {
     answer.classList.remove("cursor");
-    busy = false;
-    $("send").disabled = false;
-    input.focus();
+    if (inFlight === controller) inFlight = null;
+    if (current()) {
+      busy = false;
+      $("send").disabled = false;
+      input.focus();
+    }
   }
 }
 
@@ -340,6 +359,11 @@ form.onsubmit = (e) => { e.preventDefault(); send(input.value); };
 $("lang-en").onclick = () => { lang = "en"; applyLanguage(); };
 $("lang-zh").onclick = () => { lang = "zh"; applyLanguage(); };
 $("reset").onclick = () => {
+  generation += 1;
+  if (inFlight) inFlight.abort();
+  inFlight = null;
+  busy = false;
+  $("send").disabled = false;
   conversationId = null;
   inspector.innerHTML = "";
   log.innerHTML = `<div id="empty">

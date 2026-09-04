@@ -20,7 +20,8 @@ class OrderToolsTest {
             new OrderTools(new MockOrderRepository(), meterRegistry, new TurnEventBus());
 
     private static final ToolContext CONTEXT = new ToolContext(
-            Map.of(SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1"));
+            Map.of(SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1",
+                    dev.merlionos.customerservice.chat.TurnEventBus.TURN_ID_KEY, "turn-1"));
 
     @Test
     @DisplayName("a known order comes back with tracking detail")

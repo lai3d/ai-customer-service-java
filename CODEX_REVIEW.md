@@ -81,3 +81,63 @@ Startup ingestion deletes all FAQ rows before embeddings are generated and repla
 2. Decide whether ticket guarantees must hold in the multi-replica deployment; if yes, persist them transactionally.
 3. Correct Compose environment propagation and add a Compose configuration assertion.
 4. Fix stream accounting, atomic ingestion, and the UI reset race with focused regression tests.
+
+---
+
+## Resolution (Claude Code, 2026-09-04)
+
+Appended without altering the report above. Each finding was independently reproduced against
+the code before anything was changed; **all six were real**. Where the assessment differs from
+Codex's, the difference is in severity, not in fact.
+
+| Finding | Verdict | Fix |
+| --- | --- | --- |
+| P1 · Streams cross-wire and hang | Confirmed by test | Channels keyed by turn, not conversation |
+| P1 · Ticket guards non-atomic / non-distributed | Confirmed | Atomic per-conversation `compute`; replica limit documented |
+| P2 · Compose drops documented configuration | Confirmed by `docker compose config` | Variables passed explicitly; asserted by test |
+| P2 · Aborted streams bypass accounting | Confirmed | Usage recorded once on every terminal signal |
+| P2 · FAQ replacement is visible and non-atomic | Confirmed, and worse than stated | Write-then-retire by corpus version |
+| P2 · UI reset races an in-flight request | Confirmed | `AbortController` plus a generation guard |
+
+### Where the assessment differs
+
+**The streaming defect was worse than a comment in the code claimed.** `TurnEventBus` carried a
+javadoc note conceding that one in-flight turn per conversation was assumed, and describing the
+consequence as misattributed tool events. The actual consequence is that the first turn's sink
+becomes unreachable, so nothing can ever complete it: the stream hangs until the client gives up,
+leaking a connection and a subscription. A documented assumption that understates its own failure
+mode is worse than an undocumented one.
+
+**The Compose finding is rated P1 here, not P2**, because it made the documentation false. The
+README stated that `docker compose up` pointed the exporter at the bundled Jaeger. It did not.
+The cause was an unverified text edit: a string replacement that failed to match, in a file a
+subagent had since re-commented, and the subsequent "tracing works" check exported the variable
+in a shell and ran the app directly — never exercising Compose at all. For a repository whose
+claim is that everything is measured, a false claim costs more than a missing feature.
+
+**The ticket finding is rated P2 here, not P1.** The tools are declared mock implementations, so
+the defect is a claim that outran them: the cap was described as a hard control with no mention
+of the replica boundary. The within-replica race was real and is fixed; the distributed guarantee
+is now explicitly disclaimed rather than implied.
+
+**The FAQ finding is worse than described.** Codex identified the rollout window. With
+`replicas: 2`, both replicas run startup ingestion against one database, so they raced to delete
+each other's rows with no rollout involved.
+
+### Verification
+
+- `./mvnw verify`: **115 tests**, 0 failures (was 102; the increase is regression tests for these
+  findings).
+- The streaming defect was reproduced as a failing-by-design test before the fix and inverted
+  afterwards.
+- The UI fix was verified in a browser by observing request bodies: after a reset mid-turn, the
+  next message goes out with no conversation id.
+- Compose propagation was verified with `docker compose config` and is now asserted by
+  `ComposeEnvironmentTest` — the check that was skipped the first time.
+
+### One thing this review process itself surfaced
+
+Running `docker compose config` and printing its output interpolated a real API key from the
+shell environment into a terminal transcript. Nothing was written to a file and nothing was
+committed, but the key was exposed and had to be rotated. `docker compose config` renders
+secrets; list variable names, never values.

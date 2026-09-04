@@ -18,6 +18,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -62,14 +63,20 @@ public class ChatService {
     public String ask(String conversationId, String message) {
         budget.checkRemaining(conversationId);
 
+        // No stream is listening, so nothing consumes the events; the id still has to exist
+        // because tools and the retrieval advisor read it unconditionally.
+        String turnId = UUID.randomUUID().toString();
+
         // Deliberately not `.content()`. That discards the response metadata, and with it the
         // token usage -- so this path would spend money that the budget and the cost meters
         // never saw. Found by a test asserting the second request over budget was refused; it
         // was not, because the first request's tokens were never counted.
         ChatResponse response = chatClient.prompt()
                 .user(message)
-                .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
-                .toolContext(toolContext(conversationId))
+                .advisors(advisor -> advisor
+                        .param(ChatMemory.CONVERSATION_ID, conversationId)
+                        .param(TurnEventBus.TURN_ID_KEY, turnId))
+                .toolContext(toolContext(conversationId, turnId))
                 .call()
                 .chatResponse();
 
@@ -105,23 +112,27 @@ public class ChatService {
         budget.checkRemaining(conversationId);
 
         return Flux.defer(() -> {
-            Flux<TurnEvent> toolEvents = turnEventBus.open(conversationId);
-            Flux<TurnEvent> modelEvents = modelEvents(conversationId, message)
-                    .doFinally(signal -> turnEventBus.close(conversationId));
+            // The channel is per turn. Closing by conversation id used to complete whichever
+            // turn registered last and orphan the other one's stream forever.
+            TurnEventBus.Channel channel = turnEventBus.open();
+            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), message)
+                    .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
-            return Flux.merge(modelEvents, toolEvents);
+            return Flux.merge(modelEvents, channel.events());
         });
     }
 
-    private Flux<TurnEvent> modelEvents(String conversationId, String message) {
+    private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String message) {
         long started = System.currentTimeMillis();
         AtomicReference<org.springframework.ai.chat.metadata.Usage> usage = new AtomicReference<>();
         AtomicReference<String> model = new AtomicReference<>("unknown");
 
         Flux<TurnEvent> events = chatClient.prompt()
                 .user(message)
-                .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
-                .toolContext(toolContext(conversationId))
+                .advisors(advisor -> advisor
+                        .param(ChatMemory.CONVERSATION_ID, conversationId)
+                        .param(TurnEventBus.TURN_ID_KEY, turnId))
+                .toolContext(toolContext(conversationId, turnId))
                 .stream()
                 .chatClientResponse()
                 // Retrieval is reported by RetrievalReportingAdvisor, which publishes to the
@@ -131,11 +142,24 @@ public class ChatService {
                     return tokenEvent(response);
                 });
 
+        // Accounting runs on every terminal signal, not only on completion. A cancelled or
+        // failed turn still consumed whatever the provider had already reported, and recording
+        // it only on success meant repeatedly aborted requests slipped the conversation budget
+        // and under-reported the global cost meters. The guard makes it exactly once: the
+        // completion path below and doFinally both call it.
+        AtomicBoolean recorded = new AtomicBoolean();
+        Runnable recordOnce = () -> {
+            if (recorded.compareAndSet(false, true)) {
+                budget.record(conversationId, model.get(), usage.get());
+            }
+        };
+
         return recordAssistantReplyOnInterruption(conversationId, events)
                 .concatWith(Mono.fromSupplier(() -> {
-                    budget.record(conversationId, model.get(), usage.get());
+                    recordOnce.run();
                     return usageEvent(usage.get(), started);
-                }));
+                }))
+                .doFinally(signal -> recordOnce.run());
     }
 
     private static Mono<TurnEvent> tokenEvent(ChatClientResponse response) {
@@ -146,6 +170,12 @@ public class ChatService {
         return text == null || text.isEmpty() ? Mono.empty() : Mono.just(new TurnEvent.Token(text));
     }
 
+    /**
+     * Usage arrives on the provider's final chunk, so a turn cancelled early often has none to
+     * capture and is accounted as zero. That is a real limitation rather than an oversight: the
+     * alternative is reserving an estimate up front and reconciling, which is worth doing when
+     * the budget has to be exact and is not worth it here.
+     */
     private static void captureUsage(ChatClientResponse response,
                                      AtomicReference<org.springframework.ai.chat.metadata.Usage> holder,
                                      AtomicReference<String> model) {
@@ -233,7 +263,8 @@ public class ChatService {
      * Every path that reaches the model therefore has to supply this, which is what
      * {@code ChatServiceToolContextTest} checks.
      */
-    private static Map<String, Object> toolContext(String conversationId) {
-        return Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId);
+    private static Map<String, Object> toolContext(String conversationId, String turnId) {
+        return Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
+                TurnEventBus.TURN_ID_KEY, turnId);
     }
 }

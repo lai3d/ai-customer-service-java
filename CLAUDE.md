@@ -18,7 +18,7 @@ Testcontainers.
 ## Commands
 
 ```bash
-./mvnw verify                                   # full suite (~102 tests, no API key needed)
+./mvnw verify                                   # full suite (~115 tests, no API key needed)
 ./mvnw test -Dtest=FaqRetrievalIntegrationTest  # one class
 ./mvnw test -Dtest='ClassName#methodName'       # one method
 
@@ -64,13 +64,14 @@ places with no direct return path:
 
 - **Retrieval** is published by `RetrievalReportingAdvisor` *before the model is called*, so it
   arrives while the model is still thinking and survives a failed model call.
-- **Tool calls** publish through `TurnEventBus`, a sink keyed by conversation id. Spring AI runs
-  tools inside the chat call on its own scheduler; there is no other way back to the controller.
-  Tools get the conversation id from Spring AI's `ToolContext`.
+- **Tool calls** publish through `TurnEventBus`, a sink keyed by **turn**, not by conversation.
+  Spring AI runs tools inside the chat call on its own scheduler; there is no other way back to
+  the controller. Keying by conversation let two overlapping turns orphan each other's stream —
+  see `TurnEventBusConcurrencyTest`. Tools read both ids from Spring AI's `ToolContext`.
 
 A tool that declares a `ToolContext` parameter **fails outright when the context is empty**, so
-every path reaching the model must call `.toolContext(...)`. `ChatServiceToolContextTest` pins
-both paths.
+every path reaching the model must call `.toolContext(...)` with both the conversation id and
+the turn id. `ChatServiceToolContextTest` pins both paths.
 
 ### Retrieval
 
@@ -110,6 +111,10 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
   `terminationGracePeriodSeconds` (45s)** in `k8s/deployment.yaml`.
 - Spring's test context cache keeps multiple servers alive at once; benchmarks that count
   threads need `@DirtiesContext`.
+- **Compose does not inject undeclared variables into a container.** Anything documented in
+  `.env.example` must be listed in the app service's `environment:` or it silently does nothing;
+  `ComposeEnvironmentTest` asserts that. Never dump `docker compose config` output verbatim — it
+  interpolates real secrets from the shell.
 
 ## Where the reasoning lives
 

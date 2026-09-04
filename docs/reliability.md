@@ -79,6 +79,18 @@ AI hands a thrown tool exception's message back to the model, and this project's
 replaces that with a fixed instruction to *offer a support ticket* — precisely the wrong thing
 to say when the problem is that too many tickets exist.
 
+Both guards run inside a single `compute` on the conversation's entry. Checking the count and
+then inserting is not the same as doing both atomically: two concurrent calls with different
+wording could each see two tickets and each add a third.
+
+**What the cap is not.** State lives in memory in one process, and the supplied Kubernetes
+manifest runs two replicas with no session affinity — so a conversation routed to the other
+replica gets its own dedupe table and its own allowance, an upper bound of `replicas × 3` rather
+than 3. These are mock tools. A real implementation would put the idempotency key in Postgres
+behind a unique constraint and do the capacity check in the same transaction as the insert. The
+cap demonstrates where the boundary belongs; it is not a distributed guarantee, and calling it
+one would be the kind of claim this repository is otherwise careful not to make.
+
 ### Deploys no longer cut answers in half
 
 `server.shutdown: graceful` with a 30s phase timeout, under the pod's 45s

@@ -23,7 +23,7 @@ the measured numbers below are from that run, not estimates.
 
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | yes | none | No default in `application.yml`, on purpose. See the warning below — a missing key does **not** stop the app from starting. |
+| `ANTHROPIC_API_KEY` | yes | none | No default in `application.yml`, on purpose. A missing key now fails startup; see the note below for what still slips through. |
 | `POSTGRES_HOST` | no | `localhost` | Set to `postgres` inside Compose; to your database's service name or endpoint in Kubernetes. |
 | `POSTGRES_PORT` | no | `5432` | In `docker-compose.yml` this variable controls the **host** publish port only; the app container always talks to `postgres:5432` on the internal network. |
 | `POSTGRES_DB` | no | `csagent` | |
@@ -41,15 +41,17 @@ The image additionally sets `JAVA_TOOL_OPTIONS`, `DJL_CACHE_DIR`,
 `SPRING_AI_EMBEDDING_TRANSFORMER_CACHE_DIRECTORY`. Those are deployment plumbing, not
 knobs — the Dockerfile explains each one at the point it is set.
 
-> **A missing or wrong `ANTHROPIC_API_KEY` will not fail the deploy.**
-> This was measured, not assumed. With the variable absent from the container entirely,
-> the app starts in 1.4s, both probes pass, and `/actuator/health` returns `UP`. Spring's
-> configuration-property binder ignores unresolvable placeholders, so
-> `spring.ai.anthropic.api-key` binds to the literal string `${ANTHROPIC_API_KEY}` and the
-> first chat request comes back 401. Health checks never call Anthropic.
+> **A missing `ANTHROPIC_API_KEY` now fails startup, and that took a fix.**
+> It used to be measured and true that it did not: with the variable absent, the app started
+> in 1.4s, both probes passed, `/actuator/health` returned `UP`, and only the first chat
+> request came back 401 — because Spring's configuration-property binder ignores an
+> unresolvable placeholder and `spring.ai.anthropic.api-key` bound to the literal string
+> `${ANTHROPIC_API_KEY}`. A rollout could go fully green with no working key.
 >
-> Practical consequence: **smoke-test `POST /api/v1/chat` after a deploy**, not just
-> `/actuator/health`. A rollout can go fully green with no working API key.
+> `ChatProviderCredentialsValidator` refuses to start on a blank or unresolved key for the
+> selected provider, so a keyless deploy crash-loops visibly instead. A wrong-but-present key
+> still passes: health checks never call Anthropic, so **smoke-test `POST /api/v1/chat` after
+> a deploy**, not just `/actuator/health`.
 
 ---
 
