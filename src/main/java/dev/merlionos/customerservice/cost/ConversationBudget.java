@@ -27,6 +27,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Metrics are tagged by model, never by conversation id. Per-conversation tags would make
  * cardinality grow without limit and take the metrics backend down long before the bill did.
+ *
+ * <p>Tokens are always counted; cost only when the reported model has a configured price.
+ * Those two can disagree, so {@code chat.unpriced.model.calls} counts the disagreement rather
+ * than letting a zero cost pass for a cheap month.
  */
 @Component
 public class ConversationBudget {
@@ -96,6 +100,13 @@ public class ConversationBudget {
             meterRegistry.counter("chat.cost.usd", "model", model).increment(usd);
         }
         else {
+            // A model with no price is the quiet version of a billing bug: tokens keep being
+            // counted, chat.cost.usd stays flat, and the dashboard reads as "we spent nothing"
+            // rather than "we cannot tell". It happens for a mundane reason -- providers answer
+            // with a dated id (asking for gpt-5 yields gpt-5-2025-08-07), so a price keyed on
+            // the requested name never matches. A counter makes the gap visible; a debug log
+            // does not, because nobody turns debug on for a number that looks plausible.
+            meterRegistry.counter("chat.unpriced.model.calls", "model", model).increment();
             log.debug("No price configured for model {}; tokens counted, cost not", model);
         }
 

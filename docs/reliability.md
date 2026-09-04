@@ -82,6 +82,20 @@ In a tool round trip the second prompt carries the tool result and is reliably l
 needs a coincidence — and it errs towards under-reporting rather than over-charging, which is
 the right direction for a number that gates spending.
 
+**This reconstruction exists because the boundary is lost, and that is Spring AI's doing rather
+than the protocols'.** The Go implementation of this system measured the raw wire: Anthropic
+carries usage on two frames per model call — `message_start` and `message_delta` — while OpenAI
+and xAI carry it on one. Two, one, one. The 124 identical frames seen here were produced above
+the wire: Spring AI attaches accumulated usage to every downstream chunk, across *both* calls of
+a turn, leaving nothing in the stream that says where one call ended. That is exactly why the
+boundary had to be inferred from the numbers, and why the two obvious rules failed in opposite
+directions.
+
+The Java numbers corroborate it precisely, which is what makes this an explanation rather than a
+competing story: Anthropic showed two distinct `(input, output)` pairs per call and xAI showed
+one, matching the frame counts measured on the wire. A client that owns its own request loop
+gets one usage per call and needs none of this.
+
 ### The same turn, on four providers
 
 One tool-calling question, asked of each, after the accounting was fixed:

@@ -104,10 +104,15 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
   `spring.ai.openai.chat.options.stream-usage: true` the budget never triggers and the cost
   meters stay at zero. Anthropic sends it unasked, which is how this hid.
 - **Cost metrics key on the model the provider reports, not the one requested.** Asking for
-  `gpt-5` yields `model="gpt-5-2025-08-07"`; a price keyed on `gpt-5` silently never matches.
-- **A turn is not a model call.** Tool-calling turns bill for two, and the OpenAI-compatible
-  path repeats the same cumulative usage on every chunk. `TurnUsage` de-duplicates by value and
-  sums; neither "keep the last" nor "add them all" is correct.
+  `gpt-5` yields `model="gpt-5-2025-08-07"`; a price keyed on `gpt-5` silently never matches, so
+  tokens are counted and cost stays at zero. `chat_unpriced_model_calls_total{model}` makes that
+  visible — a flat cost meter is otherwise indistinguishable from a cheap month.
+- **A turn is not a model call.** Tool-calling turns bill for two, and Spring AI repeats the
+  accumulated usage on every streamed chunk *across both calls*, leaving no call boundary in the
+  stream. `TurnUsage` reconstructs it: group frames by input count, take each group's largest
+  output. Neither "keep the last" nor "add them all" is correct — they fail in opposite
+  directions. This is a workaround for Spring AI's abstraction, not a property of the protocols;
+  on the wire Anthropic sends usage on two frames per call, OpenAI and xAI on one.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`

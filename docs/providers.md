@@ -51,9 +51,16 @@ back with nulls, so the conversation budget would never trigger and `chat.cost.u
 at zero while real money was spent. `spring.ai.openai.chat.options.stream-usage: true` fixes it.
 Anthropic sends usage without being asked, which is exactly why this went unnoticed.
 
-**A third trap, still live:** metrics are tagged with the model the provider *reports*, not the
-one requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a price keyed on
-`gpt-5` never matches and the cost silently stays zero while tokens keep counting.
+**A third trap:** metrics are tagged with the model the provider *reports*, not the one
+requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a price keyed on `gpt-5`
+never matches and the cost stays zero while tokens keep counting.
+
+That one used to be documented and nothing more, which is a weak fix: a flat `chat.cost.usd` is
+indistinguishable from a cheap month, and nobody enables debug logging for a number that looks
+plausible. `chat_unpriced_model_calls_total{model}` now rises whenever tokens are counted but
+cannot be costed, so the gap is something a dashboard shows rather than something a reader has
+to remember. Credit for that framing goes to the Go implementation, which made the same trap
+non-silent on its side.
 
 All four are verified live: each answers a question, calls a tool, and reports usage that
 reaches the budget and the spans. Grok was the provider whose usage reporting exposed the

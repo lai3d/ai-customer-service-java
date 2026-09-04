@@ -32,6 +32,15 @@ import java.util.Map;
  * frames are grouped by their input count — one group per model call — and each group
  * contributes its input once and its largest output.
  *
+ * <p><strong>This is a workaround for a boundary this code cannot see, not a property of the
+ * protocols.</strong> Measured on the raw wire, Anthropic carries usage on two frames per model
+ * call ({@code message_start} and {@code message_delta}), OpenAI and xAI on one. The repetition
+ * and the missing call boundary are Spring AI's: it attaches accumulated usage metadata to every
+ * downstream chunk, across both calls of a turn, so nothing in the stream says where one call
+ * ends. A client owning its own request loop would add up one usage per call and need none of
+ * this. Worth knowing before porting the idea anywhere, and worth revisiting if Spring AI ever
+ * exposes the boundary — the reconstruction is sound but it is reconstruction.
+ *
  * <p>Two calls in one turn whose prompts tokenise to exactly the same length would merge into
  * one group and be under-counted. In a tool round trip the second prompt carries the tool
  * result and is reliably longer, so this needs a coincidence; it errs towards under-reporting

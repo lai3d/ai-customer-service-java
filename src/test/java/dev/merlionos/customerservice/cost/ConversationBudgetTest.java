@@ -106,4 +106,26 @@ class ConversationBudgetTest {
         assertThat(meterRegistry.find("chat.cost.usd").tag("model", "some-new-model").counter())
                 .isNull();
     }
+
+    @Test
+    @DisplayName("an unpriced model is counted, so a flat cost meter is distinguishable from a cheap month")
+    void countsCallsThatCannotBeCosted() {
+        ConversationBudget budget = budget(0, 100);
+
+        budget.record("c1", "some-new-model", 10, 5);
+        budget.record("c2", "some-new-model", 20, 8);
+
+        assertThat(meterRegistry.get("chat.unpriced.model.calls")
+                .tag("model", "some-new-model").counter().count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a priced model does not raise the unpriced counter")
+    void doesNotCountPricedModelsAsUnpriced() {
+        ConversationBudget budget = budget(0, 100);
+
+        budget.record("c1", MODEL, 1_000, 500);
+
+        assertThat(meterRegistry.find("chat.unpriced.model.calls").counter()).isNull();
+    }
 }
