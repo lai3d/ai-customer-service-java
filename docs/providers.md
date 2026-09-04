@@ -32,6 +32,31 @@ speech, transcription, image, and moderation auto-configurations, each of which 
 default and throws for want of an API key. `spring.ai.model.audio.speech: none` and its
 siblings are not tidying — without them the application does not start.
 
+### What only a live call found
+
+Switching provider is configuration, but "the context starts" and "it works" are different
+claims. Running the same conversation against OpenAI found two defects that no amount of
+reading would have.
+
+**Every provider's seeded `temperature` is rejected by its own current model.** Spring AI's
+chat properties set one in a field initialiser for all three — Anthropic 0.8, OpenAI 0.7,
+Google 0.7 — and the binder cannot null it back out. Claude Opus 5 returns HTTP 400 for any
+sampling parameter; GPT-5 returns *"Unsupported value: 'temperature' does not support 0.7 with
+this model. Only the default (1) value is supported."* This codebase had a workaround for
+Anthropic and a comment asserting the others did not need one. The comment was wrong.
+[`SeededSamplingParameterStripper`](../src/main/java/dev/merlionos/customerservice/config/SeededSamplingParameterStripper.java)
+now covers all three, and removes only the *seeded* value — a temperature someone sets
+deliberately is a choice about a model that accepts it, and it survives.
+
+**OpenAI reports no token usage in a streamed response unless asked.** Every streamed turn came
+back with nulls, so the conversation budget would never trigger and `chat.cost.usd` would stay
+at zero while real money was spent. `spring.ai.openai.chat.options.stream-usage: true` fixes it.
+Anthropic sends usage without being asked, which is exactly why this went unnoticed.
+
+**A third trap, still live:** metrics are tagged with the model the provider *reports*, not the
+one requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a price keyed on
+`gpt-5` never matches and the cost silently stays zero while tokens keep counting.
+
 ### What this does not claim
 
 Nothing here calls three APIs and compares them. The abstraction covers the request shape;
@@ -41,7 +66,7 @@ of credentials and would cost money on every run, so it does not belong in CI. G
 particular rides on a compatibility layer maintained by xAI, not on first-class support.
 
 Claude remains the default. The sampling-parameter workaround in
-[`AnthropicSamplingParameterStripper`](../src/main/java/dev/merlionos/customerservice/config/AnthropicSamplingParameterStripper.java)
+[`SeededSamplingParameterStripper`](../src/main/java/dev/merlionos/customerservice/config/SeededSamplingParameterStripper.java)
 is the only provider-specific code, and it stays inert under the others.
 
 ---

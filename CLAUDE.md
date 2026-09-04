@@ -95,9 +95,16 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
 
 ## Constraints that fail silently
 
-- **Never set `temperature`, `top_p` or `top_k`.** Claude Opus 5 and Sonnet 5 reject them with
-  HTTP 400, and Spring AI seeds a default that configuration cannot null out —
-  `AnthropicSamplingParameterStripper` removes it, `AnthropicChatOptionsTest` guards it.
+- **Never set `temperature`, `top_p` or `top_k`.** Every provider's current model rejects the
+  value Spring AI seeds: Claude Opus 5 returns HTTP 400 for any of them, GPT-5 accepts only its
+  own default. Spring AI seeds one per provider (0.8 / 0.7 / 0.7) in a field initialiser that
+  configuration cannot null out. `SeededSamplingParameterStripper` removes the seeded value for
+  all three and leaves an explicitly configured one alone.
+- **OpenAI reports no usage in a streamed response unless asked.** Without
+  `spring.ai.openai.chat.options.stream-usage: true` the budget never triggers and the cost
+  meters stay at zero. Anthropic sends it unasked, which is how this hid.
+- **Cost metrics key on the model the provider reports, not the one requested.** Asking for
+  `gpt-5` yields `model="gpt-5-2025-08-07"`; a price keyed on `gpt-5` silently never matches.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`
@@ -125,22 +132,20 @@ measured value, update the measurement, not just the number.
 
 ## Verified against the live API
 
-Confirmed on 2026-09-04 with a real key, against `claude-opus-5`:
+Confirmed 2026-09-04 against **both** `claude-opus-5` and `gpt-5`:
 
-- The request is accepted with no sampling parameters — the `temperature` workaround holds.
+- Requests are accepted with no sampling parameters.
 - Chinese questions retrieve Chinese passages and are answered in Chinese from the corpus.
-- Tool calling round-trips: `lookup_order_status` and `create_support_ticket` are chosen, run,
-  and their results used in the answer.
-- Real usage is reported (~1.5k input tokens for a plain question, ~3.3k when a tool round trip
-  doubles the model calls) and reaches both the budget and the spans.
-- Traces arrive in Jaeger with `gen_ai.usage.*` and per-tool spans; a turn taking 3517ms was
-  3498ms of `chat claude-opus-5`.
-- The grounding instruction works: asked something the corpus does not cover, the model says so
-  and offers a human rather than inventing an answer.
+- Tool calling round-trips on both providers; results reach the answer.
+- Real usage reaches the budget, the meters and the spans.
+- Traces arrive in Jaeger with `gen_ai.usage.*` and per-tool spans; one 3517 ms turn was
+  3498 ms of `chat claude-opus-5`.
+- Grounding holds: asked something the corpus does not cover, the model says so.
 
-**Known gap, seen live:** retrieval does not always surface the right entry for a long
-multi-topic question. A refund-timing question also mentioning an order number returned four
-unrelated passages and missed `returns-refund-timing`, which is in the corpus.
+**Still unverified:** Gemini and Grok have never been called.
+
+**Known gap:** one of fourteen multi-intent questions still misses the passage that answers it;
+see `docs/retrieval.md`.
 
 ## Scope
 

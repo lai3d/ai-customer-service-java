@@ -13,10 +13,10 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
-> **Status:** complete and verified against the live Anthropic API — 117 tests, no API key
-> needed to run them. Two limits are known and written down rather than smoothed over:
-> a multi-intent question can still miss the passage that answers it, and no request has
-> ever been sent to OpenAI, Gemini or Grok. See [Roadmap](#roadmap).
+> **Status:** complete and verified live against both Anthropic and OpenAI — 121 tests, no API
+> key needed to run them. Two limits are known and written down rather than smoothed over:
+> a multi-intent question can still miss the passage that answers it, and Gemini and Grok have
+> never been called. See [Roadmap](#roadmap).
 
 ---
 
@@ -43,6 +43,7 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | Virtual threads held 1000 in-flight requests on 2 platform threads instead of 202 | [Benchmark](docs/benchmark.md) |
 | Two benchmark measurements gave confident wrong answers before they gave right ones | [Benchmark](docs/benchmark.md#two-measurement-mistakes-both-worth-knowing-about) |
 | Spring AI's query expander silently returns the original query, on 10 of 10 attempts | [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them) |
+| Every provider's seeded `temperature` is rejected by its own current model | [Chat providers](docs/providers.md#what-only-a-live-call-found) |
 
 ---
 
@@ -320,8 +321,9 @@ assistant says so rather than inventing an answer.
 - One of fourteen multi-intent questions still misses the passage that answers it. Fixing it
   would mean putting a third of the corpus into every prompt; the measurement behind that
   decision is in [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them).
-- The provider switch is proven only to the extent that each builds a working application
-  context. No request has been sent to OpenAI, Gemini or Grok.
+- Gemini and Grok have never been called. The provider switch is proven live for Anthropic and
+  OpenAI; for the other two it is proven only to the extent that each builds a working
+  application context.
 - There is no evaluation harness scoring answer quality against a golden set.
 
 Deliberately out of scope: authentication, multi-tenancy, and MCP.

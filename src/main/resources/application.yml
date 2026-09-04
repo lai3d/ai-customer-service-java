@@ -83,7 +83,7 @@ spring:
           max-tokens: 8192
           # Sampling parameters (temperature / top_p / top_k) are deliberately absent:
           # Claude Opus 5 rejects them with HTTP 400. They cannot be switched off from
-          # here -- see config/AnthropicSamplingParameterStripper for why, and
+          # here -- see config/SeededSamplingParameterStripper for why, and
           # AnthropicChatOptionsTest for the guard.
 
     # --- Alternative providers -------------------------------------------------------
@@ -101,6 +101,11 @@ spring:
       chat:
         options:
           model: ${OPENAI_CHAT_MODEL:gpt-5}
+          # Off by default, and the consequence is silent: OpenAI omits usage from a streamed
+          # response unless the request asks for it, so every streamed turn reported no tokens
+          # at all. The conversation budget would never trigger and chat.cost.usd would stay at
+          # zero while real money was spent. Found by running it, not by reading anything.
+          stream-usage: true
 
     google:
       genai:
@@ -164,6 +169,10 @@ app:
     # Dollars per million tokens. Keep in step with the provider's published pricing; nothing
     # here can detect that it has drifted. A model with no entry has its tokens counted but
     # not costed.
+    #
+    # Key on the id the provider *reports*, not the one you requested: asking for `gpt-5`
+    # produces metrics tagged `gpt-5-2025-08-07`, and a price keyed on `gpt-5` would never
+    # match. The failure is silent -- tokens keep counting, cost stays at zero.
     prices:
       claude-opus-5:
         input-per-million-usd: 5.00
