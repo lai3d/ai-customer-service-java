@@ -58,11 +58,45 @@ Summing every frame is equally wrong. Providers on the OpenAI-compatible path at
 cumulative usage to every streamed chunk; one measured turn carried **124 identical frames**.
 Adding them would have inflated that turn a hundredfold.
 
-So frames are de-duplicated by value and then summed. The response id is not usable as the key
-— xAI reuses one id across both calls of a tool round trip, which was checked rather than
-assumed. The remaining assumption is that a provider reports usage cumulatively for a call
-rather than incrementally per chunk; an incremental provider would be under-counted, and it
-would show up as a turn whose reported cost sits far below the invoice.
+De-duplicating frames by value and summing them was the second attempt, and it was also wrong.
+Anthropic grows the output count as the answer streams, so one call contributes several distinct
+frames and its input is counted once per frame — 11,902 for a turn that spent 5,951. The
+response id is not a usable key either: xAI reuses one id across both calls of a tool round
+trip, checked rather than assumed.
+
+What the wire actually carries, measured:
+
+```
+xAI        in=1800 out=18  ×104    in=3696 out=108   in=1800 out=18
+Anthropic  in=1923 out=25 → out=60   in=4028 out=61 → out=275
+```
+
+The rule that fits all of it comes from what each number means. Input tokens are fixed for a
+call — the prompt does not change while the answer streams. Output tokens only grow. So frames
+are grouped by their input count, one group per model call, and each group contributes its input
+once and its largest output. That yields 5,951 and 335 for the Anthropic turn above, and
+5,496 for the xAI one.
+
+Two calls whose prompts tokenise to exactly the same length would merge and be under-counted.
+In a tool round trip the second prompt carries the tool result and is reliably longer, so that
+needs a coincidence — and it errs towards under-reporting rather than over-charging, which is
+the right direction for a number that gates spending.
+
+### The same turn, on four providers
+
+One tool-calling question, asked of each, after the accounting was fixed:
+
+| Provider | Input | Output | Wall |
+| --- | --- | --- | --- |
+| `claude-opus-5` | 5,951 | 316 | 7.9 s |
+| `gpt-5` | 3,354 | 799 | 14.0 s |
+| `gemini-3.8-flash` | 5,954 | 169 | 56.3 s |
+| `grok-4.6` | 5,496 | 113 | 10.2 s |
+
+The Gemini figure is not a model characteristic: a free-tier key is rate-limited, and 56 seconds
+is mostly the retry backoff earning its keep. Read the table as evidence that accounting works
+across four providers, not as a benchmark — one question on one key is not a measurement of a
+model.
 
 ### Two bugs the tests found, not the code review
 

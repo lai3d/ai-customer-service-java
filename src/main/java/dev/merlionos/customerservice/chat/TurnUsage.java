@@ -2,38 +2,45 @@ package dev.merlionos.customerservice.chat;
 
 import org.springframework.ai.chat.metadata.Usage;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Adds up what one turn actually cost, across every model call it made.
  *
- * <p>A turn is not one model call. A tool-calling turn is at least two: one where the model
- * asks for the tool, one where it answers with the result — and each is billed. Keeping the
- * last usage seen therefore under-reported every tool-calling turn on every provider. On xAI it
- * was conspicuous, because the frame that arrived last was the *first* call's, so a turn that
- * spent 5,496 input tokens was recorded as 1,800.
+ * <p>A turn is not a model call. A tool-calling turn is at least two — one where the model asks
+ * for the tool, one where it answers with the result — and each is billed separately. The
+ * arithmetic looks trivial and every simple rule for it is wrong, which is why this is derived
+ * from observed frames rather than from what the providers ought to do.
  *
- * <p>Summing every frame is equally wrong. Providers on the OpenAI-compatible path attach the
- * same cumulative usage to every streamed chunk: one measured turn carried 124 identical
- * frames. Adding them would have inflated the same turn a hundredfold.
+ * <p>What the wire actually carries, measured:
  *
- * <p>So frames are de-duplicated by their values and then summed. The response id is not
- * usable as the key — xAI reuses one id across both calls of a tool round trip, which was
- * checked rather than assumed. The assumption this does rest on is that a provider reports
- * usage cumulatively for a call rather than incrementally per chunk; an incremental provider
- * would be under-counted, and its arrival would show up as a turn whose reported cost is far
- * below the invoice.
+ * <pre>
+ * xAI        in=1800 out=18   x104     in=3696 out=108   in=1800 out=18
+ * Anthropic  in=1923 out=25 → out=60   in=4028 out=61 → out=275
+ * </pre>
  *
- * <p>Two calls with byte-identical usage collapse into one. That is possible, rare, and errs
- * towards under-reporting rather than over-charging.
+ * <p>Keeping the last frame under-reports: on xAI the frame arriving last is the *first* call's,
+ * so a turn costing 5,496 input tokens was recorded as 1,800. Summing every frame over-reports
+ * by a hundredfold, because the OpenAI-compatible path repeats one cumulative usage on every
+ * chunk. Summing the *distinct* frames is also wrong — that was the second attempt — because
+ * Anthropic grows the output count as it streams, so one call contributes several distinct
+ * frames and its input is counted once per frame: 11,902 for a turn that spent 5,951.
+ *
+ * <p>The rule that fits all of it comes from what each number means. Input tokens are fixed for
+ * a call: the prompt does not change while the answer streams. Output tokens only grow. So
+ * frames are grouped by their input count — one group per model call — and each group
+ * contributes its input once and its largest output.
+ *
+ * <p>Two calls in one turn whose prompts tokenise to exactly the same length would merge into
+ * one group and be under-counted. In a tool round trip the second prompt carries the tool
+ * result and is reliably longer, so this needs a coincidence; it errs towards under-reporting
+ * rather than over-charging, which is the right direction for a number that gates spending.
  */
 final class TurnUsage {
 
-    private record Frame(int inputTokens, int outputTokens) {
-    }
-
-    private final Set<Frame> frames = new LinkedHashSet<>();
+    /** input tokens (stable within a model call) -> largest output seen for that call */
+    private final Map<Integer, Integer> outputByInput = new LinkedHashMap<>();
 
     synchronized void record(Usage usage) {
         if (usage == null) {
@@ -41,25 +48,26 @@ final class TurnUsage {
         }
         int input = usage.getPromptTokens() == null ? 0 : usage.getPromptTokens();
         int output = usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens();
-        if (input > 0 || output > 0) {
-            frames.add(new Frame(input, output));
+        if (input <= 0 && output <= 0) {
+            return;
         }
+        outputByInput.merge(input, output, Math::max);
     }
 
     synchronized boolean isEmpty() {
-        return frames.isEmpty();
+        return outputByInput.isEmpty();
     }
 
     synchronized int inputTokens() {
-        return frames.stream().mapToInt(Frame::inputTokens).sum();
+        return outputByInput.keySet().stream().mapToInt(Integer::intValue).sum();
     }
 
     synchronized int outputTokens() {
-        return frames.stream().mapToInt(Frame::outputTokens).sum();
+        return outputByInput.values().stream().mapToInt(Integer::intValue).sum();
     }
 
     /** How many model calls this turn made, as far as the usage frames can tell. */
     synchronized int modelCalls() {
-        return frames.size();
+        return outputByInput.size();
     }
 }

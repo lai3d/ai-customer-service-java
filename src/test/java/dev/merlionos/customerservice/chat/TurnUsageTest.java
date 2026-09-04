@@ -33,6 +33,23 @@ class TurnUsageTest {
     }
 
     @Test
+    @DisplayName("output growing mid-stream is one call, not several")
+    void growingOutputWithinACallIsNotCountedTwice() {
+        TurnUsage usage = new TurnUsage();
+
+        // Anthropic reports output tokens as they accumulate. Summing distinct frames counted
+        // this call's input once per frame: a turn that spent 5,951 was recorded as 11,902.
+        usage.record(new DefaultUsage(1923, 25));
+        usage.record(new DefaultUsage(1923, 60));
+        usage.record(new DefaultUsage(4028, 61));
+        usage.record(new DefaultUsage(4028, 275));
+
+        assertThat(usage.inputTokens()).isEqualTo(5951);
+        assertThat(usage.outputTokens()).isEqualTo(335);
+        assertThat(usage.modelCalls()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("a tool-calling turn bills for both model calls")
     void distinctCallsAreSummed() {
         TurnUsage usage = new TurnUsage();

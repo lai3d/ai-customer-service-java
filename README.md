@@ -44,7 +44,7 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | Two benchmark measurements gave confident wrong answers before they gave right ones | [Benchmark](docs/benchmark.md#two-measurement-mistakes-both-worth-knowing-about) |
 | Spring AI's query expander silently returns the original query, on 10 of 10 attempts | [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them) |
 | Every provider's seeded `temperature` is rejected by its own current model | [Chat providers](docs/providers.md#what-only-a-live-call-found) |
-| Token accounting under-reported every tool-calling turn — 5,496 tokens recorded as 1,800 | [Cost and failure](docs/reliability.md#a-turn-is-not-a-model-call) |
+| Token accounting: every simple rule for it is wrong, and each was wrong differently | [Cost and failure](docs/reliability.md#a-turn-is-not-a-model-call) |
 
 ---
 
