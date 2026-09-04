@@ -117,6 +117,9 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
 - **Adding a chat provider starter** makes `spring.ai.model.chat` mandatory and drags in
   speech/image/moderation auto-configurations that fail without their own keys; see
   `spring.ai.model.*` in `application.yml`.
+- **xAI is registered as its own provider** (`spring.ai.model.chat=xai`, `spring.ai.xai.*`) by
+  `XaiChatConfig`, which reuses `OpenAiChatModel` because xAI speaks that protocol. Do not
+  "support Grok" by putting its key in `OPENAI_API_KEY` with a base-URL override.
 - **`spring.lifecycle.timeout-per-shutdown-phase` (30s) must stay below the pod's
   `terminationGracePeriodSeconds` (45s)** in `k8s/deployment.yaml`.
 - Spring's test context cache keeps multiple servers alive at once; benchmarks that count

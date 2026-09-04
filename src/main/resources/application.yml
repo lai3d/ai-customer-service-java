@@ -125,6 +125,18 @@ spring:
             # that only works on a paid account is a default most readers cannot run.
             model: ${GEMINI_CHAT_MODEL:gemini-3.8-flash}
 
+    # xAI, registered as its own provider by XaiChatConfig rather than by borrowing OpenAI's
+    # slot. Spring AI ships no xAI starter and xAI speaks OpenAI's protocol, so the client is
+    # reused while the credentials, base URL and model are its own. Select with
+    # CHAT_PROVIDER=xai.
+    xai:
+      api-key: ${XAI_API_KEY:}
+      base-url: ${XAI_BASE_URL:https://api.x.ai}
+      completions-path: /v1/chat/completions
+      # List what a key can actually reach:
+      #   curl https://api.x.ai/v1/models -H "Authorization: Bearer $XAI_API_KEY"
+      model: ${XAI_CHAT_MODEL:grok-4.6}
+
     embedding:
       transformer:
         # multilingual-e5-small, loaded in-process. Anthropic has no embedding API.

@@ -10,9 +10,7 @@ CHAT_PROVIDER=anthropic                      # default
 CHAT_PROVIDER=openai       OPENAI_API_KEY=…
 CHAT_PROVIDER=google-genai GEMINI_API_KEY=…
 
-# Grok: xAI has no Spring AI starter, but its API is OpenAI-compatible
-CHAT_PROVIDER=openai OPENAI_API_KEY=<xAI key> \
-  OPENAI_BASE_URL=https://api.x.ai OPENAI_CHAT_MODEL=<grok model>
+CHAT_PROVIDER=xai          XAI_API_KEY=…
 ```
 
 `ChatProviderSwitchingTest` boots the real context under each of the three providers and checks
@@ -58,9 +56,32 @@ one requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a pric
 `gpt-5` never matches and the cost silently stays zero while tokens keep counting.
 
 All four are verified live: each answers a question, calls a tool, and reports usage that
-reaches the budget and the spans. Grok goes through the OpenAI client with
-`OPENAI_BASE_URL=https://api.x.ai`, and it was the provider whose usage reporting exposed the
+reaches the budget and the spans. Grok was the provider whose usage reporting exposed the
 accounting bug described in [Cost and failure](reliability.md#a-turn-is-not-a-model-call).
+
+### xAI is a provider, not a base-URL trick
+
+Spring AI ships no xAI starter, and there are three ways to respond to that. Two are wrong.
+
+The shortcut is to select `openai`, put the xAI key in `OPENAI_API_KEY` and override the base
+URL. It works, and it lies: the configuration says OpenAI everywhere while talking to xAI, the
+two cannot be configured side by side, and whoever reads the deployment later has to know the
+trick. The opposite mistake is writing an `XaiChatModel` from scratch — xAI speaks OpenAI's wire
+protocol, so that reimplements streaming, tool calling, retry and observation for no gain and a
+permanent maintenance cost.
+
+What is actually true is that xAI is a **separate provider** reached over a **shared protocol**,
+and those are different things.
+[`XaiChatConfig`](../src/main/java/dev/merlionos/customerservice/provider/XaiChatConfig.java)
+reuses `OpenAiChatModel` — with the same `ToolCallingManager`, `RetryTemplate` and
+`ObservationRegistry` Spring AI's own auto-configuration would supply, so tool calling, retry
+and observability behave identically — while owning its credentials, base URL and model under
+`spring.ai.xai`. `CHAT_PROVIDER=xai` sits alongside the providers Spring AI ships, and OpenAI's
+own slot stays free.
+
+The one thing this does not paper over: xAI's compatibility is xAI's to maintain. If they
+diverge from OpenAI's protocol this breaks, and the class says so rather than hiding behind its
+name.
 
 ### Choosing a Gemini model took four attempts
 
@@ -84,8 +105,8 @@ that lists what a given key can reach.
 Nothing here calls three APIs and compares them. The abstraction covers the request shape;
 tool-call reliability, streaming chunk granularity, and how each provider treats a system prompt
 differ in ways only live traffic reveals. A cross-provider contract test would need three sets
-of credentials and would cost money on every run, so it does not belong in CI. Grok in
-particular rides on a compatibility layer maintained by xAI, not on first-class support.
+of credentials and would cost money on every run, so it does not belong in CI. And Grok's
+protocol compatibility is xAI's to maintain, not something this repository can guarantee.
 
 Claude remains the default. The sampling-parameter workaround in
 [`SeededSamplingParameterStripper`](../src/main/java/dev/merlionos/customerservice/config/SeededSamplingParameterStripper.java)

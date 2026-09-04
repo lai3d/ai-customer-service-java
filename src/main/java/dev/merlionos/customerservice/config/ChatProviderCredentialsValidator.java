@@ -31,12 +31,14 @@ class ChatProviderCredentialsValidator implements InitializingBean {
     private static final Map<String, String> API_KEY_PROPERTY = Map.of(
             "anthropic", "spring.ai.anthropic.api-key",
             "openai", "spring.ai.openai.api-key",
-            "google-genai", "spring.ai.google.genai.api-key");
+            "google-genai", "spring.ai.google.genai.api-key",
+            "xai", "spring.ai.xai.api-key");
 
     private static final Map<String, String> ENVIRONMENT_VARIABLE = Map.of(
             "anthropic", "ANTHROPIC_API_KEY",
             "openai", "OPENAI_API_KEY",
-            "google-genai", "GEMINI_API_KEY");
+            "google-genai", "GEMINI_API_KEY",
+            "xai", "XAI_API_KEY");
 
     private final Environment environment;
 

@@ -85,6 +85,36 @@ class ChatProviderSwitchingTest {
 
     @Nested
     @SpringBootTest(properties = {
+            "spring.ai.model.chat=xai",
+            "spring.ai.xai.api-key=test-key-not-used"})
+    @Import(PostgresTestcontainer.class)
+    @ActiveProfiles("test")
+    @DisplayName("xAI, its own provider built on the OpenAI client")
+    class Xai {
+
+        @Autowired ApplicationContext context;
+
+        @Test
+        void wiringIsIntact() throws Exception {
+            // Reuses OpenAiChatModel deliberately -- xAI speaks that protocol -- while owning
+            // its own credentials and base URL. Borrowing OPENAI_API_KEY instead would make
+            // the configuration say OpenAI while talking to xAI.
+            assertWiringIsIntact(context,
+                    Class.forName("org.springframework.ai.openai.OpenAiChatModel"));
+        }
+
+        @Test
+        @DisplayName("selecting xai does not also build OpenAI's own model")
+        void openAiIsNotAlsoBuilt() {
+            assertThat(context.getBeansOfType(
+                    org.springframework.ai.openai.OpenAiChatModel.class))
+                    .as("exactly one chat model, and it is the xAI-configured one")
+                    .hasSize(1);
+        }
+    }
+
+    @Nested
+    @SpringBootTest(properties = {
             "spring.ai.model.chat=google-genai",
             "spring.ai.google.genai.api-key=test-key-not-used"})
     @Import(PostgresTestcontainer.class)

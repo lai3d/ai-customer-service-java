@@ -35,14 +35,7 @@ class ComposeEnvironmentTest {
     /** Matches `NAME=` at the start of a line in .env.example, commented out or not. */
     private static final Pattern DECLARED = Pattern.compile("(?m)^#?\\s*([A-Z][A-Z0-9_]*)=");
 
-    /**
-     * Documented for whoever writes the run command, but never read by the application, so
-     * passing it into the container would suggest a wiring that does not exist. XAI_API_KEY is
-     * mapped onto OPENAI_API_KEY at launch because Grok is reached through the OpenAI client.
-     * Anything added here needs that kind of reason -- the list is the loophole, so keep it
-     * short and say why.
-     */
-    private static final Set<String> NOT_READ_BY_THE_APPLICATION = Set.of("XAI_API_KEY");
+
 
     private static Map<String, Object> composeService(String name) throws IOException {
         try (InputStream in = Files.newInputStream(COMPOSE)) {
@@ -70,11 +63,7 @@ class ComposeEnvironmentTest {
         Set<String> passed = appEnvironmentNames();
 
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
-        List<String> declared = matcher.results()
-                .map(result -> result.group(1))
-                .filter(name -> !NOT_READ_BY_THE_APPLICATION.contains(name))
-                .distinct()
-                .toList();
+        List<String> declared = matcher.results().map(result -> result.group(1)).distinct().toList();
 
         assertThat(declared).as("sanity: .env.example should document something").isNotEmpty();
         assertThat(passed)

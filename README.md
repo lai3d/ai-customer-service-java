@@ -288,7 +288,7 @@ against evidence, and says what the evidence was.
 | [Observability](docs/observability.md) | OpenTelemetry traces over OTLP, and keeping the customer's own words out of them |
 | [Cost and failure](docs/reliability.md) | Token budgets, HTTP timeouts, bounded retry, bounded tool side effects, graceful shutdown |
 | [Virtual threads, measured](docs/benchmark.md) | 3x the throughput and 202 platform threads down to 2 — plus two measurements that were confidently wrong first |
-| [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and OpenAI-compatible APIs by configuration |
+| [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and xAI by configuration — and why xAI is a provider rather than a base-URL trick |
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
 
@@ -306,7 +306,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests
 - [x] **5 · Bilingual retrieval** — Chinese corpus, multilingual embeddings, cross-lingual tests
 - [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Jaeger, with customer messages excluded
-- [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini, and OpenAI-compatible APIs by configuration
+- [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini and xAI, all four verified live
 - [x] **8 · Demo UI** — a glass-box page showing retrieval, tool calls and token cost per turn
 - [x] **9 · Cost and failure** — per-conversation token budget, HTTP timeouts, bounded retry, cost metrics
 - [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
