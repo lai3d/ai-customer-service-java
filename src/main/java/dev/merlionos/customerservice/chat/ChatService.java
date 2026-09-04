@@ -111,18 +111,26 @@ public class ChatService {
         // than an error event buried in a stream that has already been committed as 200.
         budget.checkRemaining(conversationId);
 
+        // Read here, on the request thread, while the HTTP span is still current. Reading it
+        // where the usage event is built instead returned null every time: that runs in a
+        // Mono.fromSupplier on a Reactor thread, outside the observation scope. The spans
+        // themselves were always fine -- only this id was missing, so the demo UI could not
+        // link a turn to its trace.
+        String traceId = currentTraceId();
+
         return Flux.defer(() -> {
             // The channel is per turn. Closing by conversation id used to complete whichever
             // turn registered last and orphan the other one's stream forever.
             TurnEventBus.Channel channel = turnEventBus.open();
-            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), message)
+            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), traceId, message)
                     .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
             return Flux.merge(modelEvents, channel.events());
         });
     }
 
-    private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String message) {
+    private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String traceId,
+                                        String message) {
         long started = System.currentTimeMillis();
         AtomicReference<org.springframework.ai.chat.metadata.Usage> usage = new AtomicReference<>();
         AtomicReference<String> model = new AtomicReference<>("unknown");
@@ -157,7 +165,7 @@ public class ChatService {
         return recordAssistantReplyOnInterruption(conversationId, events)
                 .concatWith(Mono.fromSupplier(() -> {
                     recordOnce.run();
-                    return usageEvent(usage.get(), started);
+                    return usageEvent(usage.get(), started, traceId);
                 }))
                 .doFinally(signal -> recordOnce.run());
     }
@@ -191,8 +199,8 @@ public class ChatService {
         }
     }
 
-    private TurnEvent usageEvent(org.springframework.ai.chat.metadata.Usage usage, long started) {
-        String traceId = currentTraceId();
+    private static TurnEvent usageEvent(org.springframework.ai.chat.metadata.Usage usage,
+                                        long started, String traceId) {
         return new TurnEvent.Usage(
                 usage == null ? null : usage.getPromptTokens(),
                 usage == null ? null : usage.getCompletionTokens(),

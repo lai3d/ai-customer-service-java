@@ -123,12 +123,24 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
 `demo-ui.md`, `deployment.md`. The README's findings table links into them. When you change a
 measured value, update the measurement, not just the number.
 
-## Not yet verified
+## Verified against the live API
 
-**No real Anthropic API key has ever been used against this code.** Every model interaction in
-the test suite is stubbed or returns 401. Retrieval quality, the event stream, tool logic,
-budgets, the benchmark and tracing are all verified; a live model answering a question, calling
-a tool, and reporting real token usage is not. Do not describe those as working.
+Confirmed on 2026-09-04 with a real key, against `claude-opus-5`:
+
+- The request is accepted with no sampling parameters — the `temperature` workaround holds.
+- Chinese questions retrieve Chinese passages and are answered in Chinese from the corpus.
+- Tool calling round-trips: `lookup_order_status` and `create_support_ticket` are chosen, run,
+  and their results used in the answer.
+- Real usage is reported (~1.5k input tokens for a plain question, ~3.3k when a tool round trip
+  doubles the model calls) and reaches both the budget and the spans.
+- Traces arrive in Jaeger with `gen_ai.usage.*` and per-tool spans; a turn taking 3517ms was
+  3498ms of `chat claude-opus-5`.
+- The grounding instruction works: asked something the corpus does not cover, the model says so
+  and offers a human rather than inventing an answer.
+
+**Known gap, seen live:** retrieval does not always surface the right entry for a long
+multi-topic question. A refund-timing question also mentioning an order number returned four
+unrelated passages and missed `returns-refund-timing`, which is in the corpus.
 
 ## Scope
 

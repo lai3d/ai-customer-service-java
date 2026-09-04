@@ -17,6 +17,8 @@ Dockerfile and Kubernetes manifests.
 
 ---
 
+![The demo UI: a Chinese conversation on the left, and on the right the passages retrieval found with their scores, the tool that ran, the tokens spent, and a link to the turn's trace](docs/images/demo.png)
+
 ## What this project found
 
 
