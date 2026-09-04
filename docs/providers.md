@@ -57,6 +57,11 @@ Anthropic sends usage without being asked, which is exactly why this went unnoti
 one requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a price keyed on
 `gpt-5` never matches and the cost silently stays zero while tokens keep counting.
 
+All four are verified live: each answers a question, calls a tool, and reports usage that
+reaches the budget and the spans. Grok goes through the OpenAI client with
+`OPENAI_BASE_URL=https://api.x.ai`, and it was the provider whose usage reporting exposed the
+accounting bug described in [Cost and failure](reliability.md#a-turn-is-not-a-model-call).
+
 ### Choosing a Gemini model took four attempts
 
 Worth recording because every plausible heuristic failed, and each failed differently:

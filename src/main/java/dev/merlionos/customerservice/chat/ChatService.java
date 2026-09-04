@@ -92,9 +92,11 @@ public class ChatService {
             return;
         }
         String model = response.getMetadata().getModel();
+        TurnUsage usage = new TurnUsage();
+        usage.record(response.getMetadata().getUsage());
         budget.record(conversationId,
                 model == null || model.isBlank() ? "unknown" : model,
-                response.getMetadata().getUsage());
+                usage.inputTokens(), usage.outputTokens());
     }
 
     /**
@@ -132,7 +134,7 @@ public class ChatService {
     private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String traceId,
                                         String message) {
         long started = System.currentTimeMillis();
-        AtomicReference<org.springframework.ai.chat.metadata.Usage> usage = new AtomicReference<>();
+        TurnUsage usage = new TurnUsage();
         AtomicReference<String> model = new AtomicReference<>("unknown");
 
         Flux<TurnEvent> events = chatClient.prompt()
@@ -158,14 +160,14 @@ public class ChatService {
         AtomicBoolean recorded = new AtomicBoolean();
         Runnable recordOnce = () -> {
             if (recorded.compareAndSet(false, true)) {
-                budget.record(conversationId, model.get(), usage.get());
+                budget.record(conversationId, model.get(), usage.inputTokens(), usage.outputTokens());
             }
         };
 
         return recordAssistantReplyOnInterruption(conversationId, events)
                 .concatWith(Mono.fromSupplier(() -> {
                     recordOnce.run();
-                    return usageEvent(usage.get(), started, traceId);
+                    return usageEvent(usage, started, traceId);
                 }))
                 .doFinally(signal -> recordOnce.run());
     }
@@ -184,26 +186,21 @@ public class ChatService {
      * alternative is reserving an estimate up front and reconciling, which is worth doing when
      * the budget has to be exact and is not worth it here.
      */
-    private static void captureUsage(ChatClientResponse response,
-                                     AtomicReference<org.springframework.ai.chat.metadata.Usage> holder,
+    private static void captureUsage(ChatClientResponse response, TurnUsage usage,
                                      AtomicReference<String> model) {
         if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
             var metadata = response.chatResponse().getMetadata();
-            var current = metadata.getUsage();
-            if (current != null && current.getTotalTokens() != null && current.getTotalTokens() > 0) {
-                holder.set(current);
-            }
+            usage.record(metadata.getUsage());
             if (metadata.getModel() != null && !metadata.getModel().isBlank()) {
                 model.set(metadata.getModel());
             }
         }
     }
 
-    private static TurnEvent usageEvent(org.springframework.ai.chat.metadata.Usage usage,
-                                        long started, String traceId) {
+    private static TurnEvent usageEvent(TurnUsage usage, long started, String traceId) {
         return new TurnEvent.Usage(
-                usage == null ? null : usage.getPromptTokens(),
-                usage == null ? null : usage.getCompletionTokens(),
+                usage.isEmpty() ? null : usage.inputTokens(),
+                usage.isEmpty() ? null : usage.outputTokens(),
                 System.currentTimeMillis() - started,
                 traceId);
     }

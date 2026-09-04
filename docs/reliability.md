@@ -44,6 +44,26 @@ chat_tokens_total{model="claude-opus-5",type="input"}
 chat_cost_usd_total{model="claude-opus-5"}
 ```
 
+### A turn is not a model call
+
+Usage was recorded by keeping the last frame the provider sent. That is wrong twice over, and
+both halves were measured against a live provider rather than reasoned about.
+
+A tool-calling turn makes at least two model calls — one where the model asks for the tool, one
+where it answers with the result — and each is billed. Keeping one of them under-reports every
+such turn on every provider. On xAI it was conspicuous: the frame arriving *last* was the
+*first* call's, so a turn that spent 5,496 input tokens was recorded as 1,800.
+
+Summing every frame is equally wrong. Providers on the OpenAI-compatible path attach the same
+cumulative usage to every streamed chunk; one measured turn carried **124 identical frames**.
+Adding them would have inflated that turn a hundredfold.
+
+So frames are de-duplicated by value and then summed. The response id is not usable as the key
+— xAI reuses one id across both calls of a tool round trip, which was checked rather than
+assumed. The remaining assumption is that a provider reports usage cumulatively for a call
+rather than incrementally per chunk; an incremental provider would be under-counted, and it
+would show up as a turn whose reported cost sits far below the invoice.
+
 ### Two bugs the tests found, not the code review
 
 **The blocking endpoint spent money nobody counted.** `ask()` returned `.call().content()`,

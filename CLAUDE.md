@@ -105,6 +105,9 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
   meters stay at zero. Anthropic sends it unasked, which is how this hid.
 - **Cost metrics key on the model the provider reports, not the one requested.** Asking for
   `gpt-5` yields `model="gpt-5-2025-08-07"`; a price keyed on `gpt-5` silently never matches.
+- **A turn is not a model call.** Tool-calling turns bill for two, and the OpenAI-compatible
+  path repeats the same cumulative usage on every chunk. `TurnUsage` de-duplicates by value and
+  sums; neither "keep the last" nor "add them all" is correct.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`
@@ -132,7 +135,7 @@ measured value, update the measurement, not just the number.
 
 ## Verified against the live API
 
-Confirmed against `claude-opus-5`, `gpt-5` and `gemini-3.8-flash`:
+Confirmed against `claude-opus-5`, `gpt-5`, `gemini-3.8-flash` and `grok-4.6`:
 
 - Requests are accepted with no sampling parameters.
 - Chinese questions retrieve Chinese passages and are answered in Chinese from the corpus.
@@ -141,8 +144,6 @@ Confirmed against `claude-opus-5`, `gpt-5` and `gemini-3.8-flash`:
 - Traces arrive in Jaeger with `gen_ai.usage.*` and per-tool spans; one 3517 ms turn was
   3498 ms of `chat claude-opus-5`.
 - Grounding holds: asked something the corpus does not cover, the model says so.
-
-**Still unverified:** Grok's OpenAI-compatible endpoint has never been called.
 
 **Known gap:** one of fourteen multi-intent questions still misses the passage that answers it;
 see `docs/retrieval.md`.

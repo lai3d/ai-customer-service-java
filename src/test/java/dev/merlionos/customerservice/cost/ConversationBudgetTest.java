@@ -4,7 +4,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.metadata.DefaultUsage;
 
 import java.util.Map;
 
@@ -28,8 +27,8 @@ class ConversationBudgetTest {
     void accumulatesSpend() {
         ConversationBudget budget = budget(1000, 100);
 
-        budget.record("c1", MODEL, new DefaultUsage(100, 20));
-        budget.record("c1", MODEL, new DefaultUsage(200, 30));
+        budget.record("c1", MODEL, 100, 20);
+        budget.record("c1", MODEL, 200, 30);
 
         assertThat(budget.spent("c1")).isEqualTo(350);
         assertThat(budget.spent("c2")).isZero();
@@ -40,10 +39,10 @@ class ConversationBudgetTest {
     void refusesWhenBudgetSpent() {
         ConversationBudget budget = budget(300, 100);
 
-        budget.record("c1", MODEL, new DefaultUsage(200, 50));
+        budget.record("c1", MODEL, 200, 50);
         assertThatCode(() -> budget.checkRemaining("c1")).doesNotThrowAnyException();
 
-        budget.record("c1", MODEL, new DefaultUsage(50, 10));
+        budget.record("c1", MODEL, 50, 10);
         assertThatThrownBy(() -> budget.checkRemaining("c1"))
                 .isInstanceOf(ConversationBudgetExceededException.class);
     }
@@ -53,7 +52,7 @@ class ConversationBudgetTest {
     void zeroDisablesTheCap() {
         ConversationBudget budget = budget(0, 100);
 
-        budget.record("c1", MODEL, new DefaultUsage(10_000_000, 10_000_000));
+        budget.record("c1", MODEL, 10_000_000, 10_000_000);
 
         assertThatCode(() -> budget.checkRemaining("c1")).doesNotThrowAnyException();
     }
@@ -63,9 +62,9 @@ class ConversationBudgetTest {
     void evictsLeastRecentlyUsedConversations() {
         ConversationBudget budget = budget(1000, 2);
 
-        budget.record("a", MODEL, new DefaultUsage(10, 10));
-        budget.record("b", MODEL, new DefaultUsage(10, 10));
-        budget.record("c", MODEL, new DefaultUsage(10, 10));
+        budget.record("a", MODEL, 10, 10);
+        budget.record("b", MODEL, 10, 10);
+        budget.record("c", MODEL, 10, 10);
 
         assertThat(budget.spent("a")).as("evicted as least recently used").isZero();
         assertThat(budget.spent("b")).isEqualTo(20);
@@ -77,7 +76,7 @@ class ConversationBudgetTest {
     void metersByModelOnly() {
         ConversationBudget budget = budget(0, 100);
 
-        budget.record("c1", MODEL, new DefaultUsage(1_000_000, 100_000));
+        budget.record("c1", MODEL, 1_000_000, 100_000);
 
         assertThat(meterRegistry.get("chat.tokens").tag("model", MODEL).tag("type", "input")
                 .counter().count()).isEqualTo(1_000_000);
@@ -100,7 +99,7 @@ class ConversationBudgetTest {
     void countsTokensForUnpricedModels() {
         ConversationBudget budget = budget(0, 100);
 
-        budget.record("c1", "some-new-model", new DefaultUsage(10, 5));
+        budget.record("c1", "some-new-model", 10, 5);
 
         assertThat(meterRegistry.get("chat.tokens").tag("model", "some-new-model")
                 .tag("type", "input").counter().count()).isEqualTo(10);

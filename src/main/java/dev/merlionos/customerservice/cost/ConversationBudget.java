@@ -3,7 +3,6 @@ package dev.merlionos.customerservice.cost;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -71,13 +70,14 @@ public class ConversationBudget {
         return counter == null ? 0L : counter.get();
     }
 
-    /** Records one turn's usage against the conversation, and against the global meters. */
-    public void record(String conversationId, String model, Usage usage) {
-        if (usage == null) {
-            return;
-        }
-        long input = usage.getPromptTokens() == null ? 0 : usage.getPromptTokens();
-        long output = usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens();
+    /**
+     * Records one turn's usage against the conversation, and against the global meters.
+     *
+     * <p>Takes totals rather than a provider {@code Usage} because a turn is not a model call:
+     * a tool-calling turn bills for at least two, and summing them correctly is the caller's
+     * problem. See {@code TurnUsage}.
+     */
+    public void record(String conversationId, String model, long input, long output) {
         if (input == 0 && output == 0) {
             return;
         }

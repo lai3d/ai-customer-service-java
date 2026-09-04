@@ -13,10 +13,10 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
-> **Status:** complete, and verified live against Anthropic, OpenAI and Gemini — 121 tests, no
-> API key needed to run them. Two limits are known and written down rather than smoothed over:
-> a multi-intent question can still miss the passage that answers it, and Grok's
-> OpenAI-compatible endpoint has never been called. See [Roadmap](#roadmap).
+> **Status:** complete, and verified live against Anthropic, OpenAI, Gemini and Grok — 124
+> tests, no API key needed to run them. One limit is known and written down rather than
+> smoothed over: a multi-intent question can still miss the passage that answers it.
+> See [Roadmap](#roadmap).
 
 ---
 
@@ -44,6 +44,7 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | Two benchmark measurements gave confident wrong answers before they gave right ones | [Benchmark](docs/benchmark.md#two-measurement-mistakes-both-worth-knowing-about) |
 | Spring AI's query expander silently returns the original query, on 10 of 10 attempts | [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them) |
 | Every provider's seeded `temperature` is rejected by its own current model | [Chat providers](docs/providers.md#what-only-a-live-call-found) |
+| Token accounting under-reported every tool-calling turn — 5,496 tokens recorded as 1,800 | [Cost and failure](docs/reliability.md#a-turn-is-not-a-model-call) |
 
 ---
 
@@ -321,10 +322,8 @@ assistant says so rather than inventing an answer.
 - One of fourteen multi-intent questions still misses the passage that answers it. Fixing it
   would mean putting a third of the corpus into every prompt; the measurement behind that
   decision is in [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them).
-- Grok has never been called. It rides on the OpenAI client with a different base URL, and that
-  client is verified, but xAI's endpoint is not. Anthropic, OpenAI and Gemini each answer a
-  question, call a tool and report usage.
-- There is no evaluation harness scoring answer quality against a golden set.
+- There is no evaluation harness scoring answer quality against a golden set — the retrieval
+  measurements say which passage was found, not whether the answer was good.
 
 Deliberately out of scope: authentication, multi-tenancy, and MCP.
 
