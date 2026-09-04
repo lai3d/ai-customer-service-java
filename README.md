@@ -34,7 +34,7 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 
 | | |
 | --- | --- |
-| A plausible similarity threshold silently stopped answering "when can I talk to a real person" | [Retrieval](docs/retrieval.md) |
+| A test asserted the similarity threshold worked, and passed — on four hand-picked samples | [Retrieval](docs/retrieval.md#the-threshold-does-not-work-and-the-first-measurement-of-that-was-too-kind) |
 | The obvious multilingual model was the wrong *class* of model, and the data said so | [Retrieval](docs/retrieval.md#choosing-an-embedding-model-by-measurement) |
 | Spring AI's retry defaults let a customer wait nineteen minutes | [Cost and failure](docs/reliability.md#retry-gave-up-after-nineteen-minutes) |
 | A missing API key started cleanly, passed both probes, and 401'd every request | [Quick start](#quick-start) |

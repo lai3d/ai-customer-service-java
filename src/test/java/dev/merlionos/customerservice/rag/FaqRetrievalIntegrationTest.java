@@ -113,24 +113,39 @@ class FaqRetrievalIntegrationTest {
     }
 
     @Test
-    @DisplayName("relevant questions still outrank off-topic ones, though not by much")
-    void relevantQuestionsOutrankOffTopicOnes() {
-        // The margin here is the reason similarity-threshold is a floor rather than a relevance
-        // filter. When this was measured it was 0.006 -- real, but far too thin to tune a
-        // threshold against. The assertion is deliberately the weak, true one: ranking
-        // separates the populations; absolute scores do not.
+    @DisplayName("relevant and off-topic scores overlap, so no threshold can separate them")
+    void scoreDistributionsOverlap() {
+        // This test used to assert the opposite, and passed -- on four hand-picked off-topic
+        // questions. Widening the sample inverted it. The margin was never +0.006; with fifteen
+        // off-topic questions and twelve degenerate inputs the populations overlap outright.
+        // Pinning the real shape is what stops someone reintroducing a threshold that cannot
+        // work, and what stops this test from being evidence for a claim that is false.
         double weakestRelevant = List.of(
                         "my parcel showed up broken", "I was billed twice", "包裹到的时候是坏的")
                 .stream().mapToDouble(this::topScore).min().orElseThrow();
 
         double strongestOffTopic = List.of(
-                        "who won the world cup in 2022", "how do I cook rice",
-                        "给我讲个笑话", "明天天气怎么样")
+                        "who won the world cup in 2022", "how do I cook rice", "给我讲个笑话",
+                        "明天天气怎么样", "你们公司多少人", "你们招聘工程师吗",
+                        "你用的是什么模型", "今天股市怎么样")
                 .stream().mapToDouble(this::topScore).max().orElseThrow();
 
-        assertThat(weakestRelevant)
-                .as("if this inverts, retrieval has stopped distinguishing the two at all")
-                .isGreaterThan(strongestOffTopic);
+        assertThat(strongestOffTopic)
+                .as("an off-topic question outscores a real one, which is why relevance "
+                        + "judgement lives in the system prompt and not in a threshold")
+                .isGreaterThan(weakestRelevant);
+    }
+
+    @Test
+    @DisplayName("even degenerate input scores highly, so the threshold is not a floor either")
+    void degenerateInputIsNotFilteredOut() {
+        // "。。。" scores 0.8417 against a corpus of shipping policies. A threshold low enough
+        // to keep real questions cannot reject this, which is why the configured value is 0:
+        // a number that filters nothing should not be dressed up as a filter.
+        double strongestDegenerate = List.of("。。。", "...", "???", "aaaaaaa", "1234567890")
+                .stream().mapToDouble(this::topScore).max().orElseThrow();
+
+        assertThat(strongestDegenerate).isGreaterThan(0.8);
     }
 
     @Test

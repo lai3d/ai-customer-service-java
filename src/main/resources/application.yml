@@ -230,20 +230,25 @@ app:
     # thirty-six-document corpus into every prompt; that case is recorded as a known limit in
     # docs/retrieval.md instead. TopKTradeoffTest re-measures the table.
     top-k: 8
-    # A floor, NOT a relevance filter -- and that distinction is measured, not assumed.
+    # Zero, because every non-zero value measured here filters nothing real.
     #
-    # With the previous English-only model the two populations were cleanly separated:
-    # correct answers scored 0.34 to 0.63, unrelated questions peaked at 0.11, so 0.3 sat in
-    # open space. e5 compresses cosine similarity into a narrow high band. Across 30 queries
-    # (20 relevant, 10 off-topic, both languages) the weakest true match scored 0.8378 and the
-    # strongest off-topic scored 0.8318 -- a margin of 0.006, which is noise, not signal.
-    # Tuning to 0.835 would fit those 30 queries and break on the 31st.
+    # With the previous English-only model the two populations were cleanly separated and a
+    # threshold was a genuine relevance filter. e5 compresses cosine similarity into a narrow
+    # high band, and the first measurement here -- 20 relevant against 5 off-topic questions --
+    # put the weakest true match at 0.8378 and the strongest off-topic at 0.8318, a margin of
+    # 0.006. That reading was optimistic because the sample was small. Widening it inverts the
+    # result:
     #
-    # So relevance filtering moved out of the retriever and into the prompt: the system prompt
-    # requires grounding and instructs the model to say what it does not know. The retriever's
-    # job is now ranking, which it does well -- 20 of 20 paraphrased questions retrieve the
-    # right entry first. See FaqRetrievalIntegrationTest.
-    similarity-threshold: 0.5
+    #   relevant     weakest    0.8378  "my parcel showed up broken"
+    #   off-topic    strongest  0.8543  "你们公司多少人"      (n=15)
+    #   degenerate   strongest  0.8417  "。。。"              (n=12)
+    #
+    # The populations overlap. A threshold high enough to reject "你们公司多少人" also rejects
+    # real questions, and one low enough to keep them accepts three full stops. 0.5 was neither
+    # -- it filtered nothing and implied a mechanism that did not exist. Relevance judgement
+    # lives in the system prompt; this stays 0 so nothing pretends otherwise.
+    # FaqRetrievalIntegrationTest pins the overlap.
+    similarity-threshold: 0
     # e5 models are trained with these asymmetric markers; they are part of the model
     # contract, not decoration. Blank them out for a model that does not want them.
     query-prefix: "query: "

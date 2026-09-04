@@ -44,36 +44,46 @@ wraps the embedding model, because the vector store already separates the two ca
 embeds through `embed(List<Document>, …)` when writing and `embed(String)` when searching.
 Nothing above that class knows the convention exists.
 
-### The threshold stopped working, and that is the finding
+### The threshold does not work, and the first measurement of that was too kind
 
 With the English-only model, `similarity-threshold` was a genuine relevance filter sitting in
-open space between two well-separated populations. e5 compresses cosine similarity into a
-narrow high band, and across 30 queries the two populations nearly touch:
+open space between two well-separated populations. e5 compresses cosine similarity into a narrow
+high band. The first measurement here — 20 relevant questions against 5 off-topic ones — read:
 
 | | n | min | max |
 | --- | --- | --- | --- |
-| Relevant questions (en + zh) | 20 | **0.8378** | 0.9337 |
-| Off-topic questions (en + zh) | 10 | 0.6977 | **0.8318** |
+| Relevant | 20 | **0.8378** | 0.9337 |
+| Off-topic | 5 | 0.6977 | **0.8318** |
 
-A margin of **0.006** is noise, not signal. Tuning the threshold to 0.835 would fit these 30
-queries and break on the 31st.
+and concluded that a margin of 0.006 was too thin to tune against. That conclusion was right and
+the number was optimistic, because five off-topic questions is not a sample. Widening it — and
+adding degenerate input, which had not been tested at all — inverts the result:
 
-So relevance filtering moved out of the retriever and into the prompt. The threshold is now a
-floor for degenerate input; the system prompt tells the model that reference material is
-selected by similarity, that some of it will be unrelated, and to say so rather than stretch an
-unrelated passage to fit. Ranking is what the retriever is good at, and it is good at it: 20 of
-20.
+| | n | strongest |
+| --- | --- | --- |
+| Relevant, weakest | 8 | 0.8378 &nbsp;·&nbsp; *"my parcel showed up broken"* |
+| **Off-topic, strongest** | **15** | **0.8543** &nbsp;·&nbsp; *"你们公司多少人"* |
+| **Degenerate, strongest** | **12** | **0.8417** &nbsp;·&nbsp; *"。。。"* |
 
-This is worth stating plainly because the opposite is a common failure — porting a threshold
-across an embedding-model change and never noticing it stopped meaning anything.
+The populations do not nearly touch. They **overlap**, by −0.0165. A threshold high enough to
+reject *"你们公司多少人"* also rejects real questions; one low enough to keep real questions
+accepts three full stops. `0.5` was neither: it filtered nothing measured while implying a
+mechanism that did not exist, so the configured value is now **0**.
 
-### The same system, asked in Chinese
+Two things about how this was found are worth more than the number.
 
-![The demo UI in Chinese: a Chinese question retrieves Chinese passages and is answered in Chinese, with the same tool call and token accounting](images/demo-zh.png)
+It came from someone else running the same measurement with different samples — the Go
+implementation, working from this corpus and this model. The finding reproduced here exactly,
+including a stronger off-topic case than they had.
 
-Nothing is switched but the question. The corpus is indexed in both languages, retrieval picks
-the Chinese passages, and the answer comes back in Chinese with the same tool call and the same
-accounting behind it.
+And a test in this repository asserted the opposite and **passed**, because it compared the
+weakest relevant score against four hand-picked off-topic questions. A test that encodes a false
+claim is worse than no test: it reads as evidence. It now pins the overlap instead, which is
+what is actually true and what stops the threshold being reintroduced.
+
+The decision — relevance judgement belongs in the system prompt, which is told that retrieved
+material is similarity-selected and that some of it will be unrelated — is unchanged and better
+supported than before.
 
 ### Multi-intent questions, and what fixed them
 
