@@ -13,10 +13,10 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
-> **Status:** complete and verified live against both Anthropic and OpenAI — 121 tests, no API
-> key needed to run them. Two limits are known and written down rather than smoothed over:
-> a multi-intent question can still miss the passage that answers it, and Gemini and Grok have
-> never been called. See [Roadmap](#roadmap).
+> **Status:** complete, and verified live against Anthropic, OpenAI and Gemini — 121 tests, no
+> API key needed to run them. Two limits are known and written down rather than smoothed over:
+> a multi-intent question can still miss the passage that answers it, and Grok's
+> OpenAI-compatible endpoint has never been called. See [Roadmap](#roadmap).
 
 ---
 
@@ -321,9 +321,9 @@ assistant says so rather than inventing an answer.
 - One of fourteen multi-intent questions still misses the passage that answers it. Fixing it
   would mean putting a third of the corpus into every prompt; the measurement behind that
   decision is in [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them).
-- Gemini and Grok have never been called. The provider switch is proven live for Anthropic and
-  OpenAI; for the other two it is proven only to the extent that each builds a working
-  application context.
+- Grok has never been called. It rides on the OpenAI client with a different base URL, and that
+  client is verified, but xAI's endpoint is not. Anthropic, OpenAI and Gemini each answer a
+  question, call a tool and report usage.
 - There is no evaluation harness scoring answer quality against a golden set.
 
 Deliberately out of scope: authentication, multi-tenancy, and MCP.

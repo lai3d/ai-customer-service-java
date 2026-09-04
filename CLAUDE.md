@@ -132,7 +132,7 @@ measured value, update the measurement, not just the number.
 
 ## Verified against the live API
 
-Confirmed 2026-09-04 against **both** `claude-opus-5` and `gpt-5`:
+Confirmed against `claude-opus-5`, `gpt-5` and `gemini-3.8-flash`:
 
 - Requests are accepted with no sampling parameters.
 - Chinese questions retrieve Chinese passages and are answered in Chinese from the corpus.
@@ -142,7 +142,7 @@ Confirmed 2026-09-04 against **both** `claude-opus-5` and `gpt-5`:
   3498 ms of `chat claude-opus-5`.
 - Grounding holds: asked something the corpus does not cover, the model says so.
 
-**Still unverified:** Gemini and Grok have never been called.
+**Still unverified:** Grok's OpenAI-compatible endpoint has never been called.
 
 **Known gap:** one of fourteen multi-intent questions still misses the passage that answers it;
 see `docs/retrieval.md`.

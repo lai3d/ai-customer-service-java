@@ -57,6 +57,23 @@ Anthropic sends usage without being asked, which is exactly why this went unnoti
 one requested. Asking for `gpt-5` produces `model="gpt-5-2025-08-07"`, so a price keyed on
 `gpt-5` never matches and the cost silently stays zero while tokens keep counting.
 
+### Choosing a Gemini model took four attempts
+
+Worth recording because every plausible heuristic failed, and each failed differently:
+
+| Model | Result |
+| --- | --- |
+| `gemini-3-pro-preview` | 404 — preview access not enabled on the account |
+| `gemini-2.5-pro` | 404 — *listed by the models API* and "no longer available to new users" |
+| `gemini-3.1-pro-preview` | 429 — free-tier quota for pro is `limit: 0` |
+| `gemini-3.8-flash` | works |
+
+"Prefer generally available over preview" is wrong: the GA model is closed to new accounts and
+Google's own error directs them to a preview. "Prefer the most capable tier" is wrong: a free
+key cannot call a pro model at all. The default is a flash model because that is what a reader
+with a free key can actually run, and the config comment says so along with the one-line curl
+that lists what a given key can reach.
+
 ### What this does not claim
 
 Nothing here calls three APIs and compares them. The abstraction covers the request shape;

@@ -112,7 +112,18 @@ spring:
         api-key: ${GEMINI_API_KEY:}
         chat:
           options:
-            model: ${GEMINI_CHAT_MODEL:gemini-3-pro-preview}
+            # Picking a default here is genuinely awkward and the obvious heuristics are
+            # wrong. gemini-3-pro-preview 404s on accounts without preview access.
+            # gemini-2.5-pro is listed by the models API and still 404s -- "no longer
+            # available to new users" -- so "prefer generally available over preview" fails
+            # too. Google's own error directs new accounts to this one. Expect it to age;
+            # list what a key can actually reach with:
+            #   curl "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY"
+            #
+            # A flash model, not a pro one, because the free tier's quota for pro is literally
+            # zero -- gemini-3.1-pro-preview returns 429 "limit: 0" on a free key. A default
+            # that only works on a paid account is a default most readers cannot run.
+            model: ${GEMINI_CHAT_MODEL:gemini-3.8-flash}
 
     embedding:
       transformer:
