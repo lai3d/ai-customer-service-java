@@ -184,8 +184,20 @@ app:
     corpus-location: classpath:/faq/faq.json
     ingest-on-startup: true
     # Passages per question. Each one is re-sent on every turn it informs, so this trades
-    # recall against tokens.
-    top-k: 4
+    # recall against tokens -- and the trade was measured rather than guessed, because the
+    # relevant and irrelevant passages for a multi-intent question sit within about 0.03 of
+    # each other and which ranks first is close to noise.
+    #
+    #   topK   recall (14 cases)   ~tokens of context per turn
+    #      4          12/14                    223
+    #      8          13/14                    452
+    #     13          14/14                    717
+    #
+    # 8 buys one of the two failures for about 230 tokens, roughly 13% on top of a typical
+    # 1700-token request. 13 buys the other for 29%, and means putting a third of a
+    # thirty-six-document corpus into every prompt; that case is recorded as a known limit in
+    # docs/retrieval.md instead. TopKTradeoffTest re-measures the table.
+    top-k: 8
     # A floor, NOT a relevance filter -- and that distinction is measured, not assumed.
     #
     # With the previous English-only model the two populations were cleanly separated:

@@ -75,6 +75,48 @@ Nothing is switched but the question. The corpus is indexed in both languages, r
 the Chinese passages, and the answer comes back in Chinese with the same tool call and the same
 accounting behind it.
 
+### Multi-intent questions, and what fixed them
+
+Retrieval was measured again after the system had been used against the live API, on questions
+of the kind customers actually send — an order number, a complaint, and an ask, in one message.
+Short paraphrases score 20 of 20; these do not:
+
+> 我的订单 ORD-10045 退货退款一直没到账，我要找人工客服处理
+
+`returns-refund-timing`, which answers it, came back at rank 13. The assistant duly said it had
+no information on something the corpus covers.
+
+The diagnosis is not that retrieval is broken. The entry scored 0.8503 against a top hit of
+0.8820 — **twelve passages inside a 0.03 band**, which is the compressed e5 score distribution
+again, seen from the other side: when everything is a near-tie, which one ranks first is close
+to noise.
+
+**Query expansion was tried first and rejected.** Spring AI ships `MultiQueryExpander`, which
+asks the model to split a question into sub-queries and retrieves for each. Two problems, both
+measured. It costs about 3.5 seconds per turn, on every turn. And as shipped it does not work
+with this model: `expand()` requires the response to split into *exactly* `numberOfQueries`
+lines and silently returns the original query otherwise, which happened on 10 of 10 cases with
+the default prompt and 9 of 10 with a prompt that spelled the format out. A component that fails
+open, logging one line at WARN, is worse than no component. `QueryExpansionComparisonTest` keeps
+the evidence; it is tagged `benchmark` because it calls the live API.
+
+**Raising `topK` was measured instead**, and the numbers made the decision:
+
+| topK | recall (14 cases) | context tokens per turn |
+| --- | --- | --- |
+| 4 | 12/14 | 223 |
+| **8** | **13/14** | **452** |
+| 13 | 14/14 | 717 |
+
+`topK: 8` buys one of the two failures for about 230 tokens — roughly 13% on top of a typical
+1700-token request. Going to 13 buys the other for 29%, and means putting a third of a
+thirty-six-document corpus into every prompt. That case stays unfixed and written down instead
+of being paid for by every conversation.
+
+Worth saying plainly: at eighteen entries, retrieval is barely earning its keep. A corpus this
+size could sit in the system prompt. The design matters for a corpus that cannot, and the
+measurements here are what would carry over.
+
 ### Cross-lingual retrieval
 
 Because both languages are indexed, a Chinese question matches a Chinese passage; same-language

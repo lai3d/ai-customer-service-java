@@ -102,6 +102,13 @@
             <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
         </dependency>
 
+        <!-- Modular RAG: query expansion, retrieval, joining. Used to give multi-intent
+             questions more than one shot at the corpus; see docs/retrieval.md. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-rag</artifactId>
+        </dependency>
+
         <!-- QuestionAnswerAdvisor lives here, not in spring-ai-client-chat -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
