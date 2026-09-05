@@ -288,6 +288,8 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 
 ## 路线图
 
+面向运营人员使用的下一步设计见 [运营管理后台建议](docs/operations-admin.md)：涵盖会话反馈、知识发布、工单处理、权限审计与分阶段验收，目前尚未实现。
+
 第一阶段按条目逐个推进，每一条都以一次可评审的改动落地。
 
 - [x] **0 · 地基** — 项目骨架、Compose 起 Postgres + pgvector、actuator/Prometheus、CI
