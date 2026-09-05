@@ -2,7 +2,10 @@ package dev.merlionos.customerservice.rag;
 
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+
+import java.util.Map;
 
 /**
  * Readiness, as far as retrieval is concerned: is the bundled corpus version in the database?
@@ -15,20 +18,26 @@ import org.springframework.stereotype.Component;
 @Component("corpus")
 class CorpusReadinessIndicator implements HealthIndicator {
 
-    private final CorpusImporter importer;
-    private final FaqIngestionService ingestion;
+    private final JdbcTemplate jdbc;
 
-    CorpusReadinessIndicator(CorpusImporter importer, FaqIngestionService ingestion) {
-        this.importer = importer;
-        this.ingestion = ingestion;
+    CorpusReadinessIndicator(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
     }
 
+    /**
+     * UP when a knowledge version is active and has documents. On a fresh database that is
+     * the bundled corpus once the importer has recorded it and the bootstrap adopted it;
+     * afterwards it is whatever was last published or rolled back to.
+     */
     @Override
     public Health health() {
-        String version = ingestion.bundledVersion();
-        return importer.recordedDocumentCount(version)
-                .map(count -> Health.up().withDetail("corpusVersion", version).withDetail("documents", count).build())
-                .orElseGet(() -> Health.down().withDetail("corpusVersion", version)
-                        .withDetail("reason", "corpus not yet imported").build());
+        return jdbc.query("SELECT a.version, v.document_count FROM knowledge_active a "
+                        + "JOIN knowledge_version v ON v.version = a.version WHERE a.id = 1",
+                        (rs, i) -> Map.entry(rs.getString(1), rs.getInt(2)))
+                .stream().findFirst()
+                .filter(active -> active.getValue() > 0)
+                .map(active -> Health.up().withDetail("corpusVersion", active.getKey())
+                        .withDetail("documents", active.getValue()).build())
+                .orElseGet(() -> Health.down().withDetail("reason", "corpus not yet imported").build());
     }
 }

@@ -6,6 +6,7 @@ import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.clients.KnowledgeUnavailableException;
 import dev.merlionos.customerservice.clients.HttpTicketWorkflow;
 import dev.merlionos.customerservice.clients.RemoteKnowledgeVectorStore;
+import dev.merlionos.customerservice.rag.ActiveVersionVectorStore;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.RagProperties;
@@ -149,7 +150,9 @@ class TopologyParityTest {
     @DisplayName("a knowledge process has the model and the store, and no chat model")
     void knowledgeRoleIsOnlyKnowledge() {
         assertThat(knowledge.getBeanNamesForType(EmbeddingModel.class)).isNotEmpty();
-        assertThat(knowledge.getBean(VectorStore.class).getClass().getSimpleName()).isEqualTo("PgVectorStore");
+        assertThat(knowledge.getBean(VectorStore.class)).isInstanceOf(ActiveVersionVectorStore.class);
+        assertThat(((ActiveVersionVectorStore) knowledge.getBean(VectorStore.class)).delegate().getClass().getSimpleName())
+                .isEqualTo("PgVectorStore");
         assertThat(knowledge.getBeanNamesForType(ChatModel.class)).isEmpty();
         assertThat(knowledge.containsBean("chatController")).isFalse();
         assertThat(knowledge.containsBean("knowledgeController")).isTrue();

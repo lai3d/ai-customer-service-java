@@ -139,6 +139,24 @@ with e5 the relevant and off-topic score distributions are 0.006 apart. Relevanc
 lives in the system prompt. If you change the embedding model, re-measure: the threshold, the
 dimensions in `spring.ai.vectorstore.pgvector`, and the corpus embeddings all move together.
 
+### Knowledge versions
+
+The bundled corpus is still `src/main/resources/faq/faq.json`, imported by `CorpusImporter`
+and untouched by the admin: it is the fixture the Java and Go retrieval numbers are compared
+on. What the admin edits lives in `knowledge_entry` / `knowledge_revision`; a publication
+(`JdbcKnowledgeAdmin.publish`) snapshots the drafts and published text into a
+`knowledge_version`, embeds them under a new `corpus_version`, and only then switches the one
+row in `knowledge_active`, under a lock, with an expected-version check. Retrieval reads
+through `ActiveVersionVectorStore`, which a `BeanPostProcessor` wraps around the pgvector bean
+(a decorator bean would make the auto-configuration back off) and which confines every search
+to the active version; a `SearchQuery` with a `version` searches that one instead (the
+admin's preview). The bundled corpus is adopted as the first version by `KnowledgeBootstrap`
+without re-embedding: its documents already carry `corpus_version`. Readiness is "an active
+version with documents". A failed build leaves the previous version serving; rollback
+re-activates a retained one; retention keeps the newest three ready versions and deletes the
+documents of older ones. Tests that publish must not share a database with tests that
+measure retrieval (`KnowledgeAdminIntegrationTest` has its own context for that reason).
+
 ### Failure and cost
 
 Tool failures are **values, not exceptions** (`OrderLookupResult`, `TicketResult`). Spring AI
