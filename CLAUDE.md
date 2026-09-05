@@ -201,7 +201,10 @@ as the database is concerned.
   stream. `TurnUsage` reconstructs it: group frames by input count, take each group's largest
   output. Neither "keep the last" nor "add them all" is correct — they fail in opposite
   directions. This is a workaround for Spring AI's abstraction, not a property of the protocols;
-  on the wire Anthropic sends usage on two frames per call, OpenAI and xAI on one.
+  on the wire Anthropic sends usage on two frames per call, OpenAI and xAI on one. Nor is it a
+  cost of unified multi-provider abstractions in general — `Microsoft.Extensions.AI` does the
+  same job and keeps one usage per call with per-call response ids
+  (`dotnet-probe/FINDINGS.md` in the workspace). It is a Spring AI design choice.
 - **`CREATE ... IF NOT EXISTS` is not concurrency-safe in Postgres.** It checks the catalogue
   and then inserts, with nothing holding the gap, so two replicas starting together collide on
   `pg_extension_name_index`. That is why every schema statement lives in a Flyway migration
