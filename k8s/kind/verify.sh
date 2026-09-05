@@ -31,7 +31,7 @@ set -euo pipefail
 
 CLUSTER=${CLUSTER:-ai-cs}
 NS=ai-customer-service
-IMAGE=$(grep -m1 'image: ghcr.io' "$(dirname "$0")/../deployment.yaml" | awk '{print $2}')
+IMAGE=$(grep -m1 'image: ghcr.io' "$(dirname "$0")/../base/deployment.yaml" | awk '{print $2}')
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PASS=0; FAIL=0
 
@@ -93,7 +93,7 @@ say "capacity"
 # the failure this whole harness exists to catch, and it was in this function until a parallel
 # session hit the same shape in theirs and said so.
 node_ki=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
-spec=$(command kubectl create -f "$ROOT/k8s/deployment.yaml" --dry-run=client -o \
+spec=$(command kubectl create -f "$ROOT/k8s/base/deployment.yaml" --dry-run=client -o \
          jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].resources.limits.memory}')
 replicas=${spec%% *}; limit=${spec##* }
 if [[ ! $node_ki =~ ^[0-9]+$ || ! $replicas =~ ^[0-9]+$ || -z $limit ]]; then
@@ -115,10 +115,38 @@ if [[ $node_mib -lt $want_mib ]]; then
   printf '       scale to one replica to check everything else.\n'
 fi
 
+# The property the kind overlay exists to have: it adds Postgres and changes nothing else.
+# An overlay that quietly lowered the replica count or the memory limit to fit a laptop would
+# make every assertion below true of a manifest nobody deploys.
+say "overlay"
+command kubectl kustomize "$ROOT/k8s/base" > /tmp/verify-base.yaml
+command kubectl kustomize "$ROOT/k8s/kind" > /tmp/verify-kind.yaml
+if python3 - /tmp/verify-base.yaml /tmp/verify-kind.yaml << 'PY'
+import re, sys
+
+def name(doc):
+    # Enough to say *which* object changed. Reporting the first line instead says
+    # "apiVersion: apps/v1", which is true of half the file and useless in a failure.
+    kind = re.search(r'^kind: (\S+)', doc, re.M)
+    named = re.search(r'^metadata:\n(?:  .*\n)*?  name: (\S+)', doc, re.M)
+    return f"{kind.group(1) if kind else '?'}/{named.group(1) if named else '?'}"
+
+base, kind_build = (open(p).read() for p in sys.argv[1:3])
+docs = [d for d in base.split('\n---\n') if d.strip()]
+changed = [name(d) for d in docs if d.strip() not in kind_build]
+print(f"  {len(docs) - len(changed)} of {len(docs)} base documents reproduced verbatim")
+for c in changed:
+    print(f"  CHANGED: {c}")
+sys.exit(1 if changed else 0)
+PY
+then ok "the kind overlay leaves the base unmodified"
+else bad "the kind overlay modifies the base -- the assertions below would not be about the real manifests"; fi
+
+# An example that stopped building would be worse than no example.
+check "the example overlay builds" command kubectl kustomize "$ROOT/k8s/overlays/example"
+
 say "deploy"
-kubectl apply -f "$ROOT/k8s/namespace.yaml"
-kubectl apply -f "$ROOT/k8s/kind/postgres.yaml"
-kubectl -n "$NS" rollout status deploy/postgres --timeout=180s
+kubectl apply -f "$ROOT/k8s/base/namespace.yaml"
 
 kubectl -n "$NS" create secret generic ai-customer-service-secrets \
   --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-placeholder-no-model-call-is-made-during-startup}" \
@@ -126,9 +154,11 @@ kubectl -n "$NS" create secret generic ai-customer-service-secrets \
   --from-literal=POSTGRES_PASSWORD=csagent \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-# The directory form on purpose: it must be safe, and it was not before the Secret
-# template moved into k8s/examples/.
-kubectl apply -f "$ROOT/k8s/"
+# The overlay, which is what the README tells people to apply. The Secret template is not
+# reachable from it -- it was reachable from `kubectl apply -f k8s/`, and overwrote working
+# credentials with placeholders.
+kubectl apply -k "$ROOT/k8s/kind"
+kubectl -n "$NS" rollout status deploy/postgres --timeout=180s
 # Deliberately not fatal. A failed rollout is a result, not a reason to stop: the
 # assertions below are what say *why* it failed, and "OOMKilled -- the memory limit is
 # too low" is a better last line than a rollout timeout.

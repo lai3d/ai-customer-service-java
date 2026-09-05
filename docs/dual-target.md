@@ -36,7 +36,7 @@ configuration metadata it says so; where it was not, it says "to verify".
 "Should this be microservices?" is two questions wearing one coat.
 
 The first is **whether the process can run as more than one replica correctly**. Today it
-cannot. `k8s/deployment.yaml` runs two replicas with no session affinity, and three pieces of
+cannot. `k8s/base/deployment.yaml` runs two replicas with no session affinity, and three pieces of
 state are held per replica: the conversation token budget (`ConversationBudget`, a bounded LRU
 map), the ticket deduplication table (`SupportTicketTools`, a `ConcurrentHashMap`), and the
 mock order data. [Cost and failure](reliability.md) already says so in as many words: the cap

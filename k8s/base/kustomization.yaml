@@ -1,0 +1,21 @@
+# The base. `kubectl apply -k k8s/base` applies exactly the four files listed here, which are
+# the same four files `kubectl apply -f` has always applied -- the manifests are unchanged
+# and still readable on their own. Nothing here generates, renames or transforms anything.
+#
+# What it is for is the two edits this README used to tell you to make by hand: the image
+# reference and the Postgres coordinates. Hand-editing a tracked file to deploy it is how
+# you end up with a repository whose committed manifests are not the ones anyone runs, and
+# this project has already found enough of that. See overlays/example.
+#
+# The Secret template and the kind harness are outside this directory rather than merely
+# absent from this list. A Secret template a directory apply can reach is how placeholders
+# end up overwriting working credentials, and the harness's throwaway Postgres has no
+# business anywhere but kind.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml

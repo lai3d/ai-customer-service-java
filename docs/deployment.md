@@ -274,22 +274,23 @@ unmodified and asserts eleven things about the running pods — that script exis
 manifests were committed without ever being applied anywhere, and two of them were wrong.
 
 ```sh
-kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/base/namespace.yaml
 
 kubectl -n ai-customer-service create secret generic ai-customer-service-secrets \
   --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --from-literal=POSTGRES_USER='csagent' \
   --from-literal=POSTGRES_PASSWORD="$PGPASSWORD"
 
-kubectl apply -f k8s/configmap.yaml -f k8s/deployment.yaml -f k8s/service.yaml
+kubectl apply -k k8s/base            # or -k k8s/overlays/mine
 kubectl -n ai-customer-service rollout status deploy/ai-customer-service
 ```
 
 Edit the image reference in `deployment.yaml` and the Postgres coordinates in
 `configmap.yaml` first. `k8s/examples/secret.yaml` is a template with placeholder
 values only — do not apply it, and do not fill it in and commit it (`k8s/secret.yaml` is
-git-ignored for the copy). It sits in `examples/` so that `kubectl apply -f k8s/` cannot
-reach it; that directory apply used to overwrite a working Secret with placeholders.
+git-ignored for the copy). It is outside `k8s/base/` and listed in no kustomization, so
+nothing that applies the manifests can reach it; a directory apply used to overwrite a
+working Secret with placeholders.
 
 Highlights:
 

@@ -199,7 +199,7 @@ as the database is concerned.
   `XaiChatConfig`, which reuses `OpenAiChatModel` because xAI speaks that protocol. Do not
   "support Grok" by putting its key in `OPENAI_API_KEY` with a base-URL override.
 - **`spring.lifecycle.timeout-per-shutdown-phase` (30s) must stay below the pod's
-  `terminationGracePeriodSeconds` (45s)** in `k8s/deployment.yaml`.
+  `terminationGracePeriodSeconds` (45s)** in `k8s/base/deployment.yaml`.
 - Spring's test context cache keeps multiple servers alive at once; benchmarks that count
   threads need `@DirtiesContext`.
 - **Compose does not inject undeclared variables into a container.** Anything documented in
