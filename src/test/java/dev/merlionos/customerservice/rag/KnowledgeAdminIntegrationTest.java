@@ -147,4 +147,31 @@ class KnowledgeAdminIntegrationTest {
         assertThatThrownBy(() -> admin.rollback(bundled, null, "bob")).isInstanceOf(KnowledgeRuleException.class);
 
     }
+
+    @Test
+    @Order(5)
+    @DisplayName("after many publications and retirements, a top-k search of the active version still returns k live rows")
+    void hnswStillReturnsKAfterChurn() {
+        // The .NET and Go sides found that an HNSW scan gathers its candidates from the graph
+        // before discarding dead or filtered ones, so a table full of deleted rows from
+        // retired versions, plus the corpus_version filter, could return fewer than k. Every
+        // version here inserts fresh ids and retention deletes whole versions; this is the
+        // churn a busy knowledge base would see, and k must still come back.
+        // The siblings reproduced it with autovacuum off and sixty reload cycles; nothing here
+        // may lean on the vacuum that happens to run between two publications.
+        jdbc.execute("ALTER TABLE vector_store SET (autovacuum_enabled = false)");
+        for (int i = 0; i < 20; i++) {
+            admin.publish("churn " + i, "alice", null);
+        }
+        assertThat(jdbc.queryForObject("SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = 'vector_store'", Long.class))
+                .as("the dead rows the scan has to step over are really there").isGreaterThan(300);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM knowledge_version WHERE state = 'retired'", Integer.class))
+                .isGreaterThanOrEqualTo(10);
+        for (String question : List.of("shipping", "退货", "password", "my parcel arrived crushed")) {
+            List<Passage> found = admin.preview(new SearchQuery(question, 8, 0), null);
+            assertThat(found).as("top-8 for '%s' after churn", question).hasSize(8);
+            assertThat(found).allSatisfy(p -> assertThat(p.metadata()).containsEntry("corpus_version", admin.activeVersion().orElseThrow()));
+        }
+        assertThat(search.search(new SearchQuery("shipping", 8, 0))).as("the seam sees the same").hasSize(8);
+    }
 }

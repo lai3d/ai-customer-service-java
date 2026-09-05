@@ -301,6 +301,19 @@ reach the service.
   Node's types declared for the container's TypeScript to accept it.
 - **8084 was in use on the development machine**, by something unrelated; the local walk
   used another host port and the Compose port stays configurable (`ADMIN_UI_PORT`).
+- **The HNSW dead-entry defect the .NET and Go sides found does not reach the version
+  design, measured.** Their corpus reload deleted and reinserted the same rows, and an HNSW
+  scan gathers candidates from the graph before discarding dead ones, so after enough
+  reloads a top-8 returned fewer than eight live rows until `VACUUM`. Here every
+  publication inserts a fresh document set under its own `corpus_version`, retention deletes
+  whole retired versions, and retrieval filters by the active version.
+  `KnowledgeAdminIntegrationTest` now disables autovacuum on `vector_store`, publishes twenty
+  times, confirms more than three hundred dead rows, and asks top-8 for four questions in
+  both languages: eight live rows of the active version every time, through the preview and
+  through the retrieval seam. The one in-place upsert left is the bundled import, which runs
+  once per bundled version, never on an ordinary restart.
+- **A publication's row is `ready` for a moment before it is `active`**, between the build
+  and the switch, and CI read it in that moment; the API test waits for a terminal state now.
 
 ### What is not built
 
