@@ -400,7 +400,8 @@ migrations are the part worth reading, in both directions.
 ├── docker-compose.yml       # full stack, or `up -d postgres` for IDE development
 ├── docker/postgres/init/    # extensions created before the app connects
 ├── docs/                    # the deeper reading linked above
-├── k8s/                     # Namespace, ConfigMap, Deployment, Service, Secret template
+├── k8s/                     # base/ for one process, roles/ for three plus an import Job, kind/ harness
+├── docker-compose.services.yml   # the split as containers; scripts/verify-services.sh asserts it
 ├── src/main/java/dev/merlionos/customerservice/
 │   ├── CustomerServiceApplication.java   # imports one gated configuration per role
 │   ├── target/              # app.target: all (default) or one role

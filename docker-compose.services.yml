@@ -1,0 +1,167 @@
+# The same image as docker-compose.yml, run as four processes instead of one:
+#
+#   export INTERNAL_TOKEN=$(openssl rand -hex 16)   # or put it in .env (git-ignored)
+#   docker compose -f docker-compose.services.yml up --build --wait
+#   curl localhost:8080/actuator/health/readiness
+#
+# `import` runs the knowledge role once (APP_RAG_IMPORT_MODE=once): migrates, embeds the
+# corpus, records the version, exits 0. `knowledge` waits for it to complete and then serves
+# search; `ticket` serves tickets; `chat` waits for both to be healthy -- which for knowledge
+# means its corpus indicator is UP -- and is the only service with a host port. So on a fresh
+# volume the public port opens only once there is something grounded to answer with, and the
+# ordering is the file's, not the reader's memory of it.
+#
+# Everything reaches Postgres and Jaeger the way the single-process stack does. A trace of one
+# turn now has spans in three containers; that is what OTLP_TRACING_* is on for here.
+#
+# This is the distributed topology of ADR 001 (docs/adr/001-deployment-targets.md), for
+# running the split on one machine and for scripts/verify-services.sh. docker-compose.yml
+# stays the one-process stack and the benchmark baseline; the two share Postgres's host port,
+# so run one at a time.
+#
+# Environment is in map form so the shared block can be merged into each service with `<<`.
+# A key with no value passes the variable through from the shell or .env, and stays unset
+# in the container otherwise -- the same rule as the list form in docker-compose.yml.
+
+name: ai-customer-service-roles
+
+x-common-env: &common-env
+  # Container-to-container: always the compose network alias on the internal port.
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-csagent}
+  POSTGRES_USER: ${POSTGRES_USER:-csagent}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-csagent}
+  OTLP_TRACING_EXPORT_ENABLED: "true"
+  OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+  # Required: every /internal/** call between roles carries it. The `:?` guard is right here
+  # because this file has no single-service workflow that could run without it.
+  INTERNAL_TOKEN: ${INTERNAL_TOKEN:?set INTERNAL_TOKEN -- the roles authenticate to each other with it}
+  TRACING_SAMPLE_RATE:
+  TRACE_INCLUDE_QUERY_CONTENT:
+  SHUTDOWN_GRACE:
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ${APP_IMAGE:-ai-customer-service-java:local}
+  # Hardened the same way as docker-compose.yml and the Kubernetes pods; see the comments
+  # there for why `exec` on /tmp is load-bearing.
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777,exec,size=256m
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-csagent}
+      POSTGRES_USER: ${POSTGRES_USER:-csagent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-csagent}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-csagent} -d ${POSTGRES_DB:-csagent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+    restart: unless-stopped
+
+  # Runs once and exits: the Kubernetes Job, in Compose clothing.
+  import:
+    <<: *app
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      APP_TARGET: knowledge
+      APP_RAG_IMPORT_MODE: once
+    # The image's HEALTHCHECK probes readiness, which a run-once process never reports; without
+    # this Compose would call the importer unhealthy while it was doing its job.
+    healthcheck:
+      disable: true
+
+  knowledge:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      import:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+    environment:
+      <<: *common-env
+      APP_TARGET: knowledge
+      # Serving replicas never import; the importer above did. The role's own default is
+      # `off`, spelled out here so the file says what happens.
+      APP_RAG_IMPORT_MODE: "off"
+
+  ticket:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    environment:
+      <<: *common-env
+      APP_TARGET: ticket
+
+  chat:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      # `service_healthy` is the image's readiness probe, and knowledge's readiness includes
+      # its corpus indicator: chat starts only once there is a corpus to retrieve from.
+      knowledge:
+        condition: service_healthy
+      ticket:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    environment:
+      <<: *common-env
+      APP_TARGET: chat
+      KNOWLEDGE_URL: http://knowledge:8080
+      TICKET_URL: http://ticket:8080
+      # The model, and everything else only the chat role reads. Pass-through, same as the
+      # single-process file; ComposeEnvironmentTest checks the list against .env.example.
+      ANTHROPIC_API_KEY:
+      CHAT_PROVIDER:
+      OPENAI_API_KEY:
+      OPENAI_BASE_URL:
+      OPENAI_CHAT_MODEL:
+      GEMINI_API_KEY:
+      GEMINI_CHAT_MODEL:
+      XAI_API_KEY:
+      XAI_BASE_URL:
+      XAI_CHAT_MODEL:
+      CONVERSATION_TOKEN_BUDGET:
+      AI_RETRY_MAX_ATTEMPTS:
+      HTTP_CONNECT_TIMEOUT:
+      HTTP_READ_TIMEOUT:
+      TURN_LEASE:
+      SERVICES_TIMEOUT:
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  pgdata:

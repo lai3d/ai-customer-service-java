@@ -1,0 +1,25 @@
+# Non-secret configuration shared by every role. Each Deployment adds APP_TARGET on top.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-customer-service-roles-config
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+data:
+  # See base/configmap.yaml for why no Postgres is shipped here.
+  POSTGRES_HOST: "postgres.ai-customer-service.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "csagent"
+
+  SERVER_SHUTDOWN: "graceful"
+  SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: "30s"
+
+  # Where a chat pod finds the other two roles: the Services below, on the internal port.
+  KNOWLEDGE_URL: "http://knowledge.ai-customer-service.svc.cluster.local:8080"
+  TICKET_URL: "http://ticket.ai-customer-service.svc.cluster.local:8080"
+
+  # Serving pods never import the corpus; the Job in import-job.yaml does, once per corpus
+  # version, and readiness on the knowledge pods stays DOWN until it has. The Job sets its own
+  # value over this one.
+  APP_RAG_IMPORT_MODE: "off"

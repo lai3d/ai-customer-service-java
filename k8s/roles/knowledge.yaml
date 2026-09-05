@@ -1,0 +1,122 @@
+# The knowledge role. Embedding, search, the corpus. The only role that loads the ONNX model, so the
+# only one whose memory looks like base/deployment.yaml -- those numbers were measured there
+# and the model is what they measure.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: knowledge
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-customer-service-java
+      app.kubernetes.io/component: knowledge
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-customer-service-java
+        app.kubernetes.io/component: knowledge
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      # Above SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE (30s) in the ConfigMap.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/lai3d/ai-customer-service-java:0.1.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APP_TARGET
+              value: knowledge
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ai-customer-service-roles-config
+            - secretRef:
+                name: ai-customer-service-secrets
+          resources:
+            # Measured on kind (cgroup memory.peak): 2911 MiB at startup, 1389 MiB steady -- the
+            # same 2.8 GiB peak the single-process pod has (base/deployment.yaml), which says the
+            # ONNX session is the whole footprint and this role carries all of it. Native, not
+            # heap; do not try to buy it back by shrinking the heap.
+            requests:
+              cpu: "500m"
+              memory: "3Gi"
+            limits:
+              memory: "4Gi"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness includes the corpus indicator: DOWN on a fresh database until the import Job has run.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: knowledge
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: knowledge
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  sessionAffinity: None

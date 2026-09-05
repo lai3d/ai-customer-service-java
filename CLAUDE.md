@@ -27,6 +27,9 @@ set -a && source .env && set +a && ./mvnw spring-boot:run
 docker compose up -d                            # full stack: Postgres, Jaeger, the app
 
 ./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'   # opt-in benchmark
+
+scripts/verify-services.sh                      # the split as four containers; --down to remove
+k8s/kind/verify.sh [--roles [--fit]] [--keep]   # the manifests on a throwaway kind cluster; --fit for a laptop node
 ```
 
 `./mvnw clean verify` after deleting or renaming a test resource — Maven leaves stale files in
@@ -80,7 +83,10 @@ what exists only when the roles are split: the `/internal/v1/**` controllers in 
 `ticket/`, the HTTP adapters and the `knowledge` readiness indicator in `clients/`, and the
 token filter in `internal/`. An `all` process serves no internal endpoint and needs no token.
 `TopologyParityTest` starts all three roles on real ports over one database and is the test
-to extend when a seam changes.
+to extend when a seam changes. `docker-compose.services.yml` runs the split as containers
+(`scripts/verify-services.sh` asserts it; the Services workflow runs that in CI), and
+`k8s/roles` is the split on Kubernetes (`k8s/kind/verify.sh --roles`). `docker-compose.yml`
+and `k8s/base` stay the single-process stack and the benchmark baseline.
 
 `CustomerServiceApplication` is deliberately not `@SpringBootApplication`: each role
 configuration scans its own packages and is gated on the target, so a `ticket` process never
@@ -151,8 +157,8 @@ as the database is concerned.
 - **Flyway owns the schema** (`db/migration`). Spring AI's `initialize-schema` for pgvector and
   JDBC chat memory must stay off; on, they race the migration. V1 recreates their tables
   `IF NOT EXISTS` and `baseline-on-migrate` adopts a database they already populated.
-  `SchemaInitializationLock` now wraps beans that issue no DDL; it is dead code until the
-  Kubernetes harness that proves it is re-run, and goes then.
+  Flyway's own Postgres advisory lock is what serialises two replicas starting against a cold
+  database; `k8s/kind/verify.sh` asserts no replica lost the `CREATE EXTENSION` race.
 - **Ticket writes over the seam carry an operation id**, generated per tool invocation in
   `SupportTicketTools`, never by the model. `JdbcTicketOperations` records every outcome
   against it in `ticket_operation` inside the ticket's transaction; the same id asked again
@@ -198,11 +204,11 @@ as the database is concerned.
   on the wire Anthropic sends usage on two frames per call, OpenAI and xAI on one.
 - **`CREATE ... IF NOT EXISTS` is not concurrency-safe in Postgres.** It checks the catalogue
   and then inserts, with nothing holding the gap, so two replicas starting together collide on
-  `pg_extension_name_index`. `SchemaInitializationLock` takes a `pg_advisory_lock` across
-  `PgVectorStore` and the JDBC chat-memory schema initializer; it matches them **by class
-  name**, so a Spring AI rename silently disables it and `SchemaInitializationLockTest` is what
-  turns that into a build failure. Found by running the k8s manifests on a real cluster —
-  nothing with a concurrency of one can see it.
+  `pg_extension_name_index`. That is why every schema statement lives in a Flyway migration
+  and Spring AI's initialisers stay off: Flyway holds a Postgres advisory lock for the whole
+  migration. An application-level lock (`SchemaInitializationLock`) did this job between the
+  race being found on a real cluster and Flyway arriving; it is gone. Nothing with a
+  concurrency of one can see the race, which is why the kind harness exists.
 - **A pooled `Connection.close()` ends no session.** It returns the connection with its
   advisory locks intact. A test here took a lock on a pooled connection, closed it, and blocked
   the next test for 25 minutes until Hikari retired it at `maxLifetime` — both tests green.

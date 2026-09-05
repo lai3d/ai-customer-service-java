@@ -1,0 +1,21 @@
+# The distributed topology of ADR 001: the same image as base/, run as three Deployments and
+# a Job instead of one Deployment. `kubectl apply -k k8s/roles` applies exactly what is listed.
+#
+# Its namespace.yaml is byte-identical to base/namespace.yaml (Kustomize will not reference a
+# file outside its own directory), so applying both layouts to one cluster is harmless. Otherwise: the ConfigMap here carries what every role
+# needs and what only the split needs (where the roles find each other), and each role's
+# Deployment carries its own measured resources and its APP_TARGET. The Secret is the same
+# one the base uses, plus INTERNAL_TOKEN -- see examples/secret.yaml.
+#
+# Point it at your registry and your Postgres the way overlays/example does for the base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - import-job.yaml
+  - knowledge.yaml
+  - ticket.yaml
+  - chat.yaml
+  - networkpolicy.yaml

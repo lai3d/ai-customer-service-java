@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/part-of: ai-customer-service
