@@ -100,7 +100,9 @@ class JdbcTicketWorkflowTest {
         assertThat(noted.state()).isEqualTo(TicketState.CLAIMED);
         assertThat(noted.version()).isEqualTo(2);
 
-        TicketRecord resolved = replicaA.resolve(number, ALICE, 2);
+        assertThatThrownBy(() -> replicaA.resolve(number, " ", ALICE, 2))
+                .isInstanceOf(TicketRuleException.class).hasMessageContaining("without a conclusion");
+        TicketRecord resolved = replicaA.resolve(number, "Replacement lamp sent, ORD-10045 refunded.", ALICE, 2);
         assertThat(resolved.state()).isEqualTo(TicketState.RESOLVED);
         assertThat(resolved.owner()).as("resolving keeps the owner; the record says who did the work").isEqualTo("alice");
 
@@ -118,6 +120,7 @@ class JdbcTicketWorkflowTest {
         assertThat(history.getFirst().toOwner()).isEqualTo("alice");
         assertThat(history.get(1).note()).isEqualTo("Called the customer; photos requested.");
         assertThat(history.get(1).fromState()).as("a note is not a transition").isNull();
+        assertThat(history.get(2).note()).as("the conclusion is on the resolving event").isEqualTo("Replacement lamp sent, ORD-10045 refunded.");
         assertThat(history).extracting(TicketEvent::occurredAt).isSorted();
 
         // The row agrees with the values that came back.
@@ -137,10 +140,15 @@ class JdbcTicketWorkflowTest {
         assertThat(released.owner()).isNull();
 
         replicaA.claim(number, BOB, 2);
-        replicaA.resolve(number, BOB, 3);
+        replicaA.resolve(number, "Exchanged for the right size.", BOB, 3);
         TicketRecord reopened = replicaB.reopen(number, ALICE, 4);
         assertThat(reopened.state()).isEqualTo(TicketState.OPEN);
         assertThat(reopened.owner()).as("a reopened ticket is nobody's until claimed again").isNull();
+        assertThat(postgres.jdbc.queryForMap("SELECT * FROM support_ticket WHERE ticket_number = ?", number))
+                .as("nothing on the row remembers the old conclusion; the history does")
+                .doesNotContainKey("resolution");
+        assertThat(replicaA.history(number)).filteredOn(e -> e.kind() == TicketEvent.Kind.RESOLVED)
+                .singleElement().satisfies(e -> assertThat(e.note()).isEqualTo("Exchanged for the right size."));
 
         replicaA.claim(number, BOB, 5);
         replicaA.close(number, BOB, 6);
@@ -163,7 +171,7 @@ class JdbcTicketWorkflowTest {
 
         assertThatThrownBy(() -> replicaB.assign(number, "bob", BOB, 1))
                 .isInstanceOf(TicketRuleException.class).hasMessageContaining("owned by alice");
-        assertThatThrownBy(() -> replicaB.resolve(number, BOB, 1))
+        assertThatThrownBy(() -> replicaB.resolve(number, "done", BOB, 1))
                 .isInstanceOf(TicketRuleException.class).hasMessageContaining("owned by alice");
         assertThatThrownBy(() -> replicaB.release(number, BOB, 1))
                 .isInstanceOf(TicketRuleException.class);
@@ -172,7 +180,7 @@ class JdbcTicketWorkflowTest {
 
         TicketRecord handedOn = replicaA.assign(number, "bob", ALICE, 1);
         assertThat(handedOn.owner()).isEqualTo("bob");
-        TicketRecord adminResolved = replicaB.resolve(number, ROOT, 2);
+        TicketRecord adminResolved = replicaB.resolve(number, "Refund issued by admin.", ROOT, 2);
         assertThat(adminResolved.state()).isEqualTo(TicketState.RESOLVED);
         assertThat(adminResolved.owner()).isEqualTo("bob");
 
@@ -191,7 +199,7 @@ class JdbcTicketWorkflowTest {
 
         assertThatThrownBy(() -> replicaA.close(number, ALICE, 0))
                 .isInstanceOf(TicketRuleException.class).hasMessageContaining("is open and cannot be closed");
-        assertThatThrownBy(() -> replicaA.resolve(number, ALICE, 0)).isInstanceOf(TicketRuleException.class);
+        assertThatThrownBy(() -> replicaA.resolve(number, "done", ALICE, 0)).isInstanceOf(TicketRuleException.class);
         assertThatThrownBy(() -> replicaA.release(number, ALICE, 0)).isInstanceOf(TicketRuleException.class);
         assertThatThrownBy(() -> replicaA.reopen(number, ALICE, 0)).isInstanceOf(TicketRuleException.class);
         assertThatThrownBy(() -> replicaA.assign(number, " ", ROOT, 0)).isInstanceOf(TicketRuleException.class);
@@ -266,7 +274,7 @@ class JdbcTicketWorkflowTest {
         TicketRecord third = newTicket(stamp + " third");
         replicaA.claim(second.ticketNumber(), ALICE, 0);
         replicaA.claim(third.ticketNumber(), BOB, 0);
-        replicaA.resolve(third.ticketNumber(), BOB, 1);
+        replicaA.resolve(third.ticketNumber(), "done", BOB, 1);
         Thread.sleep(5);
         replicaA.addNote(first.ticketNumber(), "bumped", ROOT, 0);
         Instant after = Instant.now();
