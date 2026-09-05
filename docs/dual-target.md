@@ -1,6 +1,10 @@
 # One process or several: deployment targets
 
-**Status: proposal.** Nothing in this document is implemented. It exists to be compared against
+**Status: superseded.** Reconciled with the independently written Codex proposal in
+[ADR 001](adr/001-deployment-targets.md), which records what was kept from each. Preserved
+below as the original proposal; only this status note was added.
+
+**Original status: proposal.** Nothing in this document is implemented. It exists to be compared against
 an independently written design for the same change, and the two will be reconciled before
 any code lands. Where a claim below was checked against Spring AI 1.1.8's actual classes or
 configuration metadata it says so; where it was not, it says "to verify".
