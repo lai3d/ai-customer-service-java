@@ -31,27 +31,30 @@ import static org.assertj.core.api.Assertions.assertThat;
  * fewer than eight live rows -- zero, in psql on pgvector 0.8.6 with autovacuum off after
  * thirty delete-and-reinsert transactions, and about one run in four with autovacuum on.
  *
- * <p>This repository runs the same pgvector version, so the same experiment is run here,
- * twice: with the importer's own write pattern (upsert, then retire the old version) and with
- * the delete-and-reinsert pattern the report used. Autovacuum is off on the table so the
- * result is about the mechanism, not the daemon's timing, and the scan is forced through the
- * index because on a 36-row table the planner would otherwise pick a sequential scan and
- * hide what a real corpus size exposes.
+ * <p>The zero turned out to be a degenerate case: the report's stub embeddings were all
+ * identical, so every graph point sat at distance zero and the candidates were one point's
+ * dead copies. Re-run there with 36 distinct vectors it became 7 of 8 after sixty reloads:
+ * degradation, not starvation. The same experiment here with the real bilingual corpus --
+ * closer to the degenerate case than random vectors, since each entry's two languages are
+ * near-duplicates -- runs twice: with the importer's own write pattern (upsert, then retire
+ * the old version) and with the delete-and-reinsert pattern the report used. Autovacuum is
+ * off on the table so the result is about the mechanism, not the daemon's timing, and the
+ * scan is forced through the index because on a 36-row table the planner would otherwise
+ * pick a sequential scan and hide what a real corpus size exposes.
  *
- * <p>What was measured, first run, before the importer vacuumed: the starvation did not
- * reproduce with either pattern -- both scans returned all eight rows -- but the bloat did:
- * 725 dead tuples and a 200 kB index after thirty upsert imports, 864 and 224 kB after
- * thirty delete-and-reinserts, against 36 live rows. The importer now vacuums after each
- * import, and the first test pins that the table is clean afterwards; the second keeps the
- * reported pattern under observation, so a pgvector upgrade that changes the answer is
- * noticed here and not in production.
+ * <p>Measured: thirty reloads of either pattern still returned 8 of 8 (725 and 864 dead
+ * tuples, the index at twice its size). Sixty delete-and-reinserts returned <b>6 of 8</b>
+ * through the index with 2016 dead tuples and a 528 kB index, against 36 live rows, and 8
+ * of 8 after a vacuum. The importer now vacuums after each import; the first test pins that
+ * sixty imports through it leave the table clean and the top-k whole, the second keeps the
+ * defect itself under observation so a pgvector release that fixes it is noticed here.
  */
 @SpringBootTest
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class HnswDeadEntriesTest {
 
-    private static final int RELOADS = 30;
+    private static final int RELOADS = 60;
     private static final String QUESTION = "my parcel showed up broken";
 
     @Autowired CorpusImporter importer;
@@ -82,7 +85,7 @@ class HnswDeadEntriesTest {
     }
 
     @Test
-    @DisplayName("the reported delete-and-reinsert starvation, kept under observation")
+    @DisplayName("sixty delete-and-reinserts without a vacuum lose rows through the index; a vacuum restores them")
     void deleteAndReinsertPatternUnderObservation() {
         jdbc.execute("ALTER TABLE vector_store SET (autovacuum_enabled = false)");
         List<Document> corpus = new FaqDocumentReader(
@@ -104,14 +107,17 @@ class HnswDeadEntriesTest {
         // Thirty reloads delete 1080 rows; some are already invisible to the statistics
         // collector by the time it is read, so the bar is half of that, not all of it.
         assertThat(dead).as("the pattern does leave the index full of dead entries").isGreaterThan(RELOADS * 36 / 2);
-        // The report's result was 0. Here, on the same pgvector version, it is 8. If this
-        // assertion ever fails after a pgvector upgrade, the importer's vacuum is what keeps
-        // production safe and this is the place to say so.
-        assertThat(viaIndex).as("pgvector 0.8.6 still finds the live rows through the dead ones")
-                .isEqualTo(ragProperties.topK());
+        // This is the defect the importer's vacuum guards against, pinned as it behaves today:
+        // fewer rows than the LIMIT, silently. If this assertion fails after a pgvector
+        // upgrade because the scan returns all eight again, the guard has become optional and
+        // this is the place that says so; do not "fix" the test by vacuuming above it.
+        assertThat(viaIndex)
+                .as("pgvector 0.8.6 returns fewer than top-k through a mostly-dead HNSW index")
+                .isLessThan(ragProperties.topK());
 
         jdbc.execute("VACUUM vector_store");
         assertThat(deadTuples()).isZero();
+        assertThat(forcedIndexScan()).as("a vacuum restores the full top-k").isEqualTo(ragProperties.topK());
     }
 
     private int liveRows() {

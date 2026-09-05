@@ -141,21 +141,29 @@ The same experiment here, on the same pgvector version (`HnswDeadEntriesTest`, a
 off on the table, the scan forced through the index because a 36-row table would otherwise
 be read sequentially and hide it):
 
-| write pattern, x30 | live rows | dead tuples | index size | forced index scan returns |
-| --- | --- | --- | --- | --- |
-| this importer: upsert, then retire the old version | 36 | 725 | 200 kB | 8 of 8 |
-| delete everything, reinsert (the report's pattern) | 36 | 864 | 224 kB | 8 of 8 |
-| either, after `VACUUM` | 36 | 0 | unchanged | 8 of 8 |
+| write pattern | reloads | live rows | dead tuples | index size | forced index scan returns |
+| --- | --- | --- | --- | --- | --- |
+| this importer: upsert, then retire the old version | 30 | 36 | 725 | 200 kB | 8 of 8 |
+| delete everything, reinsert (the report's pattern) | 30 | 36 | 864 | 224 kB | 8 of 8 |
+| delete everything, reinsert | 60 | 36 | 2016 | 528 kB | **6 of 8** |
+| either, after `VACUUM` | | 36 | 0 | unchanged | 8 of 8 |
 
-The starvation did not reproduce with either pattern; the bloat did. Why the scan still
-finds the live rows here and not there is not known -- same extension version, same
-pattern, a different result -- and the honest record is the table, not a theory. What
-changed: the importer now runs `VACUUM vector_store` after each import, outside the
+At thirty reloads the starvation did not reproduce and the bloat did; at sixty it is there,
+as degradation: six passages where the request said eight, with nothing in the response to
+say two are missing. The zero in the original report turned out to be a degenerate case --
+its stub embeddings were all identical, so every graph point sat at distance zero and the
+candidates were one point's dead copies; re-run there with 36 distinct vectors it became
+7 of 8 after sixty reloads. This corpus is closer to the degenerate case than random vectors
+are, because each entry's two languages are near-duplicates, which is a fair reading of why
+it loses two rather than one.
+
+What changed: the importer now runs `VACUUM vector_store` after each import, outside the
 transaction because Postgres refuses it inside one, which is cheap for a corpus this size
-and takes the daemon's timing out of the question. The first test pins that the table is
-clean after thirty imports; the second keeps the reported pattern under observation, so a
-pgvector upgrade that changes the answer fails a test here rather than returning six
-passages in production.
+and takes the daemon's timing out of the question. `HnswDeadEntriesTest` pins that sixty
+imports through the importer leave no dead tuples and the top-k whole, and keeps the defect
+itself under observation -- sixty delete-and-reinserts return fewer than eight through the
+index, a vacuum restores them -- so a pgvector release that fixes it is noticed here, and the
+guard reconsidered, rather than assumed.
 
 ### Cross-lingual retrieval
 

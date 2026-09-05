@@ -223,11 +223,10 @@ as the database is concerned.
   startup.
 - **The importer vacuums `vector_store` after every import**, outside the transaction. Each
   import leaves the previous rows as dead tuples whose HNSW entries stay in the index until a
-  vacuum; the .NET implementation saw an index scan return fewer rows than its LIMIT once the
-  index was mostly dead entries. That starvation did not reproduce here on pgvector 0.8.6
-  (`HnswDeadEntriesTest` tries both write patterns thirty times with autovacuum off), but
-  725 dead tuples and a doubled index did. Do not move the `VACUUM` inside the transaction;
-  Postgres refuses it there.
+  vacuum, and an HNSW scan drops dead candidates only after collecting them. Measured here on
+  pgvector 0.8.6 with the real corpus (`HnswDeadEntriesTest`, autovacuum off, index scan
+  forced): sixty delete-and-reinserts return **6 of 8** through the index, a vacuum restores
+  8. Do not move the `VACUUM` inside the transaction; Postgres refuses it there.
 - **Readiness includes the `corpus` indicator.** A context with `app.rag.import-mode=off` and
   an empty database reports readiness (and `/actuator/health`) DOWN, correctly. Tests that
   assert health is UP need `import-mode=startup`.
