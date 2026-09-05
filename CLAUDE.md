@@ -219,6 +219,14 @@ as the database is concerned.
   advisory locks intact. A test here took a lock on a pooled connection, closed it, and blocked
   the next test for 25 minutes until Hikari retired it at `maxLifetime` — both tests green.
   Anything testing session lifetime needs `DriverManager`, not the pool.
+- **CI dies at the sixteenth Spring test context that holds an ONNX session**, and it does
+  not look like a test failure: the job step reads "The operation was canceled" with every
+  test so far green, reproducibly at the same class, and `./mvnw verify` passes locally. Every
+  distinct `@SpringBootTest` configuration (annotations, properties, imports) is one cached
+  context, and an `all`-target context loads the embedding model. A new integration test must
+  reuse an existing configuration exactly (a `@MockitoBean` makes a context unique too;
+  `CustomerServiceApplicationTests` is the mock-free one with a real port) and set up its
+  data through beans rather than through properties of its own. Found on PR #22.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`

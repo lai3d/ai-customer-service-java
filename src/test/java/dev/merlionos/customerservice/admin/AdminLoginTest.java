@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
@@ -26,15 +27,20 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Staff login end to end, over real HTTP with a real cookie jar, against the seeded first
- * admin. The claims: a stranger is turned away (a redirect for the page, a {@code 401} for
- * the API); a signed-in support member is not an admin; every mutation needs the CSRF
- * token; signing out ends the session in Postgres, not just in the browser; and the public
- * chat side never sees any of it.
+ * Staff login end to end, over real HTTP with a real cookie jar. The claims: a stranger is
+ * turned away (a redirect for the page, a {@code 401} for the API); a signed-in support
+ * member is not an admin; every mutation needs the CSRF token; signing out ends the session
+ * in Postgres, not just in the browser; and the public chat side never sees any of it.
+ *
+ * <p>The context configuration is deliberately identical to {@code CustomerServiceApplicationTests}'
+ * (the one without a mocked chat model) so the two share one cached context. An {@code all}-target context holds an ONNX session,
+ * and the CI runner survives fifteen of them and not sixteen -- see CLAUDE.md. The first
+ * admin is therefore created through {@link StaffAccounts} here rather than by the seed
+ * properties, whose decision logic {@code StaffAccountsTest} covers.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "app.admin.seed.username=Root",
-        "app.admin.seed.password=first-admin-password"})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "app.rag.import-mode=startup")
+@AutoConfigureObservability
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class AdminLoginTest {
@@ -45,10 +51,17 @@ class AdminLoginTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    StaffAccounts accounts;
+
+    @Autowired
+    StaffSeeder seeder;
+
     @BeforeEach
-    void onlyTheSeededAdminAndNoSessions() {
-        jdbc.update("DELETE FROM staff_account WHERE username <> 'root'");
+    void oneAdminAndNoSessions() {
+        jdbc.update("DELETE FROM staff_account");
         jdbc.update("DELETE FROM spring_session");
+        accounts.create("root", "first-admin-password", StaffRole.ADMIN, StaffSeeder.CREATED_BY);
     }
 
     @Test
@@ -98,7 +111,14 @@ class AdminLoginTest {
     }
 
     @Test
-    @DisplayName("the seeded admin signs in, holds a session in Postgres, and signs out of it")
+    @DisplayName("the seed runner is wired, and with the table populated it changes nothing")
+    void seedIsWiredAndIdle() {
+        assertThat(seeder.seed()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_account", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the admin signs in, holds a session in Postgres, and signs out of it")
     void adminSignsInAndOut() throws Exception {
         Browser browser = new Browser();
         browser.get("/admin/login");
