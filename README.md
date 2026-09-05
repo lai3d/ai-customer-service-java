@@ -366,9 +366,19 @@ understanding, not the code — and none of the three was caught from the inside
 argument for the exercise, more than any latency number: two implementations mean two readers
 who share the context to know where to look and none of the assumptions about what is settled.
 
-The runtime comparison's most useful result is the same kind of thing. Three constraints this
-codebase enforces with tests are enforced by Go's type system instead, so the corresponding
-bugs cannot be written there at all.
+The runtime comparison's most useful result is the same kind of thing, and it runs both ways.
+Three constraints this codebase defends with tests — advisor ordering, a tool's context being
+non-empty, which embedding overload applies the `query:` marker — are structural in Go, so those
+bugs cannot be written there. Three move the other way: Go's scheduler answers a blocked cgo
+call by making another OS thread, so the same ONNX model that costs this service 52 platform
+threads costs it 135–276 until concurrency is bounded deliberately; `http.Client{}` has no
+default timeout at all, where Spring at least ships a bad one loudly enough to be overridden;
+and a nil map, an unchecked error and a data race all remain available there, two of which this
+compiler refuses.
+
+So the pair does not rank the runtimes. It shows the same class of problem moving between the
+compiler, the test suite and the author's discipline depending on which one you pick — and the
+migrations are the part worth reading, in both directions.
 
 ---
 
