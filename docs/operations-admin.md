@@ -1,6 +1,154 @@
-# Java operations admin proposal
+# Operations admin
 
-Status: proposed, not implemented. This document defines product scope and implementation stages; it does not change the existing deployment decisions.
+Status: the first slice is built and merged -- staff login and the ticket loop, PRs #22, #24
+and #26 on 2026-09-05. This document is in two parts. The record of what was built, where it
+departs from the proposal and what was found while building it comes first. The proposal as
+reviewed in PR #16 follows, kept as written, because the departures only mean something
+against the text they depart from.
+
+## The record (2026-09-05)
+
+### What was decided
+
+The proposal's first release was five pages plus login and audit. The owner cut the first
+slice to **one workflow, complete**: a ticket the AI created is claimed, handled and closed by
+a person, with the originating conversation visible. Four decisions, all in the owner's
+session on 2026-09-05:
+
+1. **Scope: the ticket loop only.** List and detail with filters; claim, assign, note, change
+   state; every transition attributed to an actor and a time; the conversation behind the
+   ticket, as recorded today. No FAQ editing, no answer feedback, no live takeover, no
+   operational overview in this slice.
+2. **Staff login ships with it**, because the admin shows customer conversation content.
+   Spring Security form login, bcrypt accounts in Postgres, two roles (`admin`, `support`),
+   permissions enforced on the server. This crosses CLAUDE.md's "no customer authentication
+   without asking" deliberately; it is *staff* authentication, and the public chat endpoints
+   are untouched.
+3. **The page is in the demo page's style**: one static file under `/admin`, `fetch` against
+   `/admin/api/**`, no frontend build chain. Re-confirmed by the owner when asked on
+   2026-09-05 whether to separate the frontend: the interface is already separated (the API
+   only speaks JSON); the deployment is not, and stays that way.
+4. **No new deployment role.** The admin lives in the chat role, in `all` and `chat`
+   processes; its tables are Flyway migrations in the same schema.
+
+Two more, taken after the Go implementation's live walk of its own admin
+(`ai-customer-service-go`, `docs/operations.md` there): opening a customer conversation is
+recorded as an action, and refused actions are recorded too.
+
+### What was built
+
+| Piece | Where | PR |
+| --- | --- | --- |
+| Staff accounts (`staff_account`, bcrypt with Spring Security's `{id}` prefix), form login on `/admin/**` only, sessions in Postgres (Spring Session JDBC, `V4`), CSRF via a readable `XSRF-TOKEN` cookie, `401`/`403` by path, the first admin seeded by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD` into an empty table only | `admin/`, `V4__staff_accounts.sql` | [#22](https://github.com/lai3d/ai-customer-service-java/pull/22) |
+| The workflow model: `support_ticket` gains `state`, `owner`, `updated_at`, `version`; `ticket_event` is the append-only history; `TicketWorkflow` in `ticket/api` is the seam; `JdbcTicketWorkflow` is one transaction shape for every change | `ticket/`, `V5__ticket_workflow.sql` | [#24](https://github.com/lai3d/ai-customer-service-java/pull/24) |
+| `/admin/api/tickets`: queue, detail with history, seven actions, the conversation behind a ticket; the page; `TicketWorkflowController` and `HttpTicketWorkflow` as the seam for the split topology; `admin_audit` | `admin/`, `ticket/`, `clients/`, `V6__admin_audit.sql` | [#26](https://github.com/lai3d/ai-customer-service-java/pull/26) |
+
+The state machine, as built:
+
+```
+open ──claim / assign──▶ claimed ──resolve──▶ resolved ──close──▶ closed
+  ▲                        │  │                   │                  │
+  └────────release─────────┘  └───────close───────┘                  │
+  ▲                                                                  │
+  └───────────────────────────reopen─────────────────────────────────┘  (also from resolved)
+```
+
+Claiming is first come, first served on an unowned open ticket, atomic across replicas by a
+row lock. Release, resolve, close and reassign are the owner's, or an admin's. Reopening
+clears the owner: a reopened ticket goes back to the queue. Every mutation carries the version
+the page read; a stale one is `409` and writes nothing, which is also what makes a
+double-submitted form land once. Resolving requires a conclusion, stored on the resolving
+event and never on the ticket row.
+
+What the conversation view shows is what is persisted: the messages in
+`spring_ai_chat_memory`, with their types and times, and the tickets raised in that
+conversation. It says, above the transcript, that retrieval evidence and tool results are not
+persisted -- they exist only in the SSE stream of the turn that produced them -- and that
+the messages are the model's windowed memory, not a complete operational record. That is the
+proposal's stage 2, not this slice.
+
+### Where it departs from the proposal
+
+| The proposal said | What was built | Why |
+| --- | --- | --- |
+| `/admin` for pages, `/api/admin/v1/**` for endpoints | `/admin` and `/admin/api/**` | One path prefix, one security filter chain bound to it with `securityMatcher`; nothing else in the application passes through Spring Security, and `AdminLoginTest` asserts that |
+| Prefer the organisation's identity provider; three roles | Local bcrypt accounts; `admin` and `support` | There is no identity provider to prefer; a third role (knowledge operator) has nothing to operate on in this slice |
+| `OPEN → IN_PROGRESS → RESOLVED → CLOSED`; reopen into `IN_PROGRESS` with a mandatory reason | `open → claimed → resolved → closed`; reopen goes to `open`, unowned, reason optional as a note | A reopened ticket is nobody's until claimed again; sending it back to its last owner presumes that person is still the right one. The conclusion is mandatory on resolve; the reason on reopen is not, and a note carries it when there is one |
+| Deduplicate admin mutations by operation id | Version checks only | The second copy of a double-submitted request carries the version the first one moved past and is a `409`; history gets one row. Operation ids stay where an ambiguous timeout is the problem, the tool path |
+| Disable the admin entry point in split deployments for the first release; `chat` must not read or write ticket tables directly | The seam was built: `/internal/v1/ticket-workflow` in a `ticket` process, `HttpTicketWorkflow` in a `chat` process | A `chat` process with the admin and without a `JdbcTicketWorkflow` would not have started at all; the seam was the smaller change, and `TopologyParityTest` proves the two answer alike, refusals included. The actor crosses in the command body and is trusted because the bearer token authenticates the calling `chat` process; the `ticket` process does not re-check roles, which is the proposal's propagation protocol in its simplest form |
+| Audit ticket changes and permission changes | `ticket_event` holds every change to a ticket; `admin_audit` holds conversation views and refused actions | A change to a ticket *is* its history; a second copy in an audit table would be a denormalisation. What `ticket_event` cannot hold is what did not change a ticket: a view, and a refusal |
+| Show retrieval and tool execution evidence | Shown as not persisted | Nothing records them today; a panel that is empty implies they were recorded and lost |
+
+### What was found
+
+- **CI dies at the sixteenth Spring test context holding an ONNX session, and does not say
+  so.** PR #22's job was killed twice at the same test class with every test green and the
+  step reading "The operation was canceled"; `./mvnw clean verify` passed locally both times.
+  Main's green run loads the embedding model 15 times across cached contexts; the new login
+  test's own properties made a 16th. The test now shares `CustomerServiceApplicationTests`'
+  configuration and sets up its data through beans; every later admin test does the same.
+  CLAUDE.md records the ceiling. The count is a ceiling of the hosted runner's memory, not of
+  anything in the code, and the same test suite with one more `@SpringBootTest` configuration
+  will find it again.
+- **`updated_at` from the column default was earlier than `created_at`.** `now()` is the
+  transaction's start; the JVM's `Instant.now()` a few milliseconds later. The first assertion
+  written against a fresh ticket found it. `JdbcTicketOperations` now writes both from the
+  same clock.
+- **Browsers compile the HTML `pattern` attribute with the `v` regex flag**, where a `-`
+  inside a character class must be escaped. Found by driving the page in a real browser, not
+  by any test; `[a-z0-9._-]` became `[a-z0-9._\-]`.
+- **A resolution stored on the ticket row survives a reopen.** The Go side found this in its
+  live walk: reopening a resolved ticket resubmitted the old conclusion. The Java model had no
+  conclusion at all, the same defect one step earlier. The conclusion now lives on the
+  resolving `ticket_event`; nothing on the row remembers it, so reopen has nothing to carry,
+  and every conclusion a ticket ever had stays in its history. The Go side kept its column and
+  recorded the difference rather than converging.
+- **An audit trail of what succeeded is missing the rows an investigation opens it for.**
+  Also the Go side's: a viewer's write returned a correct `403` and left no trace, because the
+  deny path returned before anything recorded it. `admin_audit` records refusals by rule
+  (`422`, from the workflow) and by role (`403`, from the access-denied handler, with the
+  method and path). A lost race (`409`) is not a refusal and is not recorded.
+- **Spring Security chooses the "not signed in" response by `Accept` header, and a `fetch()`
+  without one is sent to the login page.** The admin's entry point is chosen by path instead:
+  `/admin/api/**` answers `401`, everything else redirects. The test client had no `Accept`
+  header, which is how this surfaced before a browser did.
+- **Signing in rotates the CSRF token.** The old cookie is cleared on authentication and a new
+  one is issued on the next request that reads it. A browser's page load does that read; the
+  test's browser helper had to be taught to.
+- **Markdown shown to an operator as literal asterisks.** The Go side's first live-walk
+  finding, in its conversation view; the Java view was built after and renders assistant text
+  through the demo page's subset (bold, inline code, hyphen lists), DOM nodes only, no links,
+  so an operator reads what the customer saw.
+
+### What is not built
+
+- Disabling an account, changing a role, resetting a password. `enabled` is stored and
+  honoured at login; nothing sets it yet.
+- A conversation list, answer feedback, knowledge editing and publication, the operational
+  overview: stages 2, 3 and 5 of the proposal below, each its own PR series. Knowledge editing
+  in particular changes `faq.json`, the one fixture that keeps the Java and Go retrieval
+  numbers comparable; both sides have agreed to leave it untouched until that stage is
+  designed.
+- Filtering the queue by created time on the page; the API takes `from` and `to`.
+- The resolve dialog is a browser `prompt()`, single-line.
+- Session timeout is idle-based, 30 minutes by default (`ADMIN_SESSION_TIMEOUT`); there is no
+  absolute lifetime and no concurrent-session limit.
+
+### Operating it
+
+`ADMIN_SEED_USERNAME` and `ADMIN_SEED_PASSWORD` create the first admin at startup, only
+when `staff_account` is empty; they never overwrite or reset an account and are safe to leave
+set; one without the other refuses to start. Read by `all` and `chat` processes. After that
+admin has signed in, accounts are created in the page. On Kubernetes the two go in the same
+Secret as the API key; see [Deployment](deployment.md#kubernetes). If the first admin's
+password is lost, delete its row and restart with the seed set, or insert a row by hand with
+a bcrypt hash carrying the `{bcrypt}` prefix.
+
+---
+
+# The proposal, as reviewed (PR #16)
+
+Status when written: proposed, not implemented. This section defined product scope and implementation stages; it did not change the existing deployment decisions. It is kept as written; the record above says what was built and what departs from it.
 
 ## Purpose and recommendation
 
