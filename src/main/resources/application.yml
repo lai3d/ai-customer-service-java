@@ -36,6 +36,15 @@ spring:
     hikari:
       maximum-pool-size: 20
 
+  # The schema is versioned in db/migration and owned here. Spring AI's own initialisers are
+  # off (below); V1 recreates their tables IF NOT EXISTS, and baseline-on-migrate lets it run
+  # against a database those initialisers already populated, keeping every row. Flyway takes a
+  # Postgres advisory lock for the whole migration, so two replicas starting against an empty
+  # database take turns rather than racing on CREATE EXTENSION.
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+
   ai:
     model:
       # Mandatory now that more than one chat starter is on the classpath. Each provider's
@@ -161,7 +170,8 @@ spring:
 
     vectorstore:
       pgvector:
-        initialize-schema: true
+        # Flyway owns the table; see db/migration/V1. Leaving this on would race it.
+        initialize-schema: false
         # Must match the embedding model's output width (multilingual-e5-small = 384).
         dimensions: 384
         index-type: hnsw
@@ -176,10 +186,17 @@ spring:
       memory:
         repository:
           jdbc:
-            # Defaults to `embedded`, which is a no-op against a real Postgres.
-            initialize-schema: always
+            # Flyway owns the table; see db/migration/V1.
+            initialize-schema: never
 
 app:
+  chat:
+    # How long one turn may hold its conversation. A second request on a conversation with a
+    # turn in flight is refused with 409 rather than interleaving two histories; the lease
+    # expires so a crashed replica cannot hold a conversation forever. Must exceed
+    # spring.http.client.read-timeout, or a slow but healthy turn loses its own conversation.
+    turn-lease: ${TURN_LEASE:150s}
+
   # What this process is: all (the default, every role in one JVM), or one of chat, knowledge,
   # ticket. Only `all` is runnable until role composition lands; the others fail at startup
   # and say so. See docs/adr/001-deployment-targets.md.
@@ -191,9 +208,11 @@ app:
     # customer to a human, which is the right outcome for a conversation this long anyway.
     # 0 disables the cap.
     conversation-token-budget: ${CONVERSATION_TOKEN_BUDGET:200000}
-    # Spend is held in a bounded LRU map -- per replica, reset on restart. It limits blast
-    # radius rather than enforcing a ledger; Redis or Postgres would be the real thing.
-    tracked-conversations: 10000
+    # Spend lives in Postgres (conversation_budget), shared by every replica and kept across
+    # restarts. Rows untouched for this long are swept, because a table keyed by conversation
+    # id grows without bound otherwise -- the same leak the old in-memory map was bounded
+    # against. Longer than any conversation is likely to be resumed after.
+    budget-retention: 30d
     # Dollars per million tokens. Keep in step with the provider's published pricing; nothing
     # here can detect that it has drifted. A model with no entry has its tokens counted but
     # not costed.
@@ -219,7 +238,15 @@ app:
 
   rag:
     corpus-location: classpath:/faq/faq.json
-    ingest-on-startup: true
+    # startup: import the bundled corpus when the application is ready, then serve (the
+    #          default; what `all` and a laptop want).
+    # once:    import, then exit -- for a Kubernetes Job or a run-once Compose service, so
+    #          serving replicas of the knowledge role never re-embed on every restart.
+    # off:     never import; serve whatever the database holds.
+    # Whichever mode, the importer holds a database advisory lock and records the corpus
+    # version it completed in corpus_import, so an already-imported version is skipped and
+    # readiness can tell a fresh database from an imported one.
+    import-mode: ${APP_RAG_IMPORT_MODE:startup}
     # Passages per question. Each one is re-sent on every turn it informs, so this trades
     # recall against tokens -- and the trade was measured rather than guessed, because the
     # relevant and irrelevant passages for a multi-intent question sit within about 0.03 of
@@ -269,6 +296,11 @@ management:
       show-details: always
       probes:
         enabled: true
+      group:
+        readiness:
+          # A process with no corpus imported can answer nothing grounded. On a fresh database
+          # this is DOWN until the importer has finished; liveness is unaffected.
+          include: readinessState,corpus
   metrics:
     tags:
       application: ${spring.application.name}

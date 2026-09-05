@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * through. The claim is parity: a search through the seam returns the passages, in the
  * order, with the scores, that {@code QuestionAnswerAdvisor}'s own request would.
  */
-@SpringBootTest(properties = "app.rag.ingest-on-startup=true")
+@SpringBootTest(properties = "app.rag.import-mode=startup")
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class LocalKnowledgeSearchTest {

@@ -30,6 +30,8 @@ the measured numbers below are from that run, not estimates.
 | `POSTGRES_USER` | no | `csagent` | |
 | `POSTGRES_PASSWORD` | no | `csagent` | Change this anywhere that is not a laptop. |
 | `APP_TARGET` | no | `all` | What the process is. `all` is every role in one JVM; `chat`, `knowledge` and `ticket` are defined but fail at startup until role composition lands. See [ADR 001](adr/001-deployment-targets.md). |
+| `APP_RAG_IMPORT_MODE` | no | `startup` | `startup` imports the bundled corpus when the application is ready, then serves. `once` imports and exits (a Kubernetes `Job`). `off` serves whatever the database holds. An already-imported version is skipped in every mode, and readiness is DOWN until one is recorded. |
+| `TURN_LEASE` | no | `150s` | How long one turn may hold its conversation; a second request meanwhile gets `409`. Must exceed `HTTP_READ_TIMEOUT`. |
 | `APP_PORT` | no | `8080` | Compose only: host port for the app. |
 | `APP_IMAGE` | no | `ai-customer-service-java:local` | Compose only: lets you run a pre-built image instead of building. |
 
@@ -295,7 +297,10 @@ Highlights:
   `management.endpoint.health.probes.enabled: true` is already set:
   `/actuator/health/liveness` and `/actuator/health/readiness`. A `startupProbe`
   (30 × 5s) absorbs the variable boot so the liveness probe can stay tight without ever
-  killing a pod that is merely still starting.
+  killing a pod that is merely still starting. Readiness also includes the `corpus`
+  indicator: a pod against a database with no imported corpus is not ready, so a fresh
+  install serves no retrieval until the importer has recorded a version in `corpus_import`.
+  Liveness is unaffected -- a process with no corpus is waiting, not broken.
 - **Resources**: requests `500m` / `1Gi`, memory limit `2Gi`, no CPU limit. The JVM sizes
   its heap from the limit via `-XX:MaxRAMPercentage=70`, so `2Gi` means ~1.4 GB heap and
   ~600 MB for native. That headroom is not padding — a 470 MB ONNX model and an

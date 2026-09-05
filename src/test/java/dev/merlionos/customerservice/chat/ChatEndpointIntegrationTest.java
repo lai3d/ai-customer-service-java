@@ -40,6 +40,21 @@ class ChatEndpointIntegrationTest {
     ChatService chatService;
 
     @Test
+    @DisplayName("a turn on a conversation that already has one in flight is a 409, not a 500")
+    void overlappingTurnIsAConflict() {
+        given(chatService.ask(eq("busy-conversation"), any()))
+                .willThrow(new ConversationBusyException("busy-conversation"));
+
+        ResponseEntity<String> response = rest.postForEntity(
+                "/api/v1/chat", new ChatRequest("busy-conversation", "Again?"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody())
+                .as("a ProblemDetail body that says what to do, not a bare status")
+                .contains("Conversation busy").contains("still answering");
+    }
+
+    @Test
     @DisplayName("a new conversation gets an id assigned and echoed back")
     void assignsConversationIdWhenAbsent() {
         given(chatService.ask(any(), eq("Where is my order?"))).willReturn("It shipped on Monday.");

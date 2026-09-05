@@ -32,4 +32,4 @@ data:
   # (documents are keyed "faq:<slug>", not random UUIDs) so several replicas starting at
   # once converge on the same rows. Set to "false" if you would rather ingest once from a
   # Job and keep pod startup lean.
-  APP_RAG_INGEST_ON_STARTUP: "true"
+  APP_RAG_IMPORT_MODE: "startup"

@@ -31,18 +31,20 @@ public class ChatService {
     private final ChatMemory chatMemory;
     private final TurnEventBus turnEventBus;
     private final ConversationBudget budget;
+    private final ConversationLease lease;
     private final ObjectProvider<Tracer> tracer;
     private final Counter streamsCompleted;
     private final Counter streamsCancelled;
     private final Counter streamsFailed;
 
     ChatService(ChatClient chatClient, ChatMemory chatMemory, TurnEventBus turnEventBus,
-                ConversationBudget budget, ObjectProvider<Tracer> tracer,
+                ConversationBudget budget, ConversationLease lease, ObjectProvider<Tracer> tracer,
                 MeterRegistry meterRegistry) {
         this.chatClient = chatClient;
         this.chatMemory = chatMemory;
         this.turnEventBus = turnEventBus;
         this.budget = budget;
+        this.lease = lease;
         this.tracer = tracer;
         this.streamsCompleted = terminationCounter(meterRegistry, "completed");
         this.streamsCancelled = terminationCounter(meterRegistry, "cancelled");
@@ -66,7 +68,16 @@ public class ChatService {
         // No stream is listening, so nothing consumes the events; the id still has to exist
         // because tools and the retrieval advisor read it unconditionally.
         String turnId = UUID.randomUUID().toString();
+        lease.acquire(conversationId, turnId);
+        try {
+            return askHoldingLease(conversationId, turnId, message);
+        }
+        finally {
+            lease.release(conversationId, turnId);
+        }
+    }
 
+    private String askHoldingLease(String conversationId, String turnId, String message) {
         // Deliberately not `.content()`. That discards the response metadata, and with it the
         // token usage -- so this path would spend money that the budget and the cost meters
         // never saw. Found by a test asserting the second request over budget was refused; it
@@ -120,15 +131,21 @@ public class ChatService {
         // link a turn to its trace.
         String traceId = currentTraceId();
 
+        // Also before the Flux: a conversation with a turn in flight is a 409, not an error
+        // event on a stream that has already been committed as 200. The turn id is chosen here
+        // so the lease and the event channel name the same turn.
+        String turnId = UUID.randomUUID().toString();
+        lease.acquire(conversationId, turnId);
+
         return Flux.defer(() -> {
             // The channel is per turn. Closing by conversation id used to complete whichever
             // turn registered last and orphan the other one's stream forever.
-            TurnEventBus.Channel channel = turnEventBus.open();
+            TurnEventBus.Channel channel = turnEventBus.open(turnId);
             Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), traceId, message)
                     .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
             return Flux.merge(modelEvents, channel.events());
-        });
+        }).doFinally(signal -> lease.release(conversationId, turnId));
     }
 
     private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String traceId,

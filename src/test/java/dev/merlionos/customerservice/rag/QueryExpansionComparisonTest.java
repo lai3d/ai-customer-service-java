@@ -32,7 +32,7 @@ import java.util.Map;
  * <pre>./mvnw test -Dexcluded.test.groups= -Dtest=QueryExpansionComparisonTest</pre>
  */
 @Tag("benchmark")
-@SpringBootTest(properties = "app.rag.ingest-on-startup=true")
+@SpringBootTest(properties = "app.rag.import-mode=startup")
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class QueryExpansionComparisonTest {

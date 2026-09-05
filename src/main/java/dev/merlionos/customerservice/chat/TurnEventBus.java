@@ -39,7 +39,11 @@ public class TurnEventBus {
     }
 
     Channel open() {
-        String turnId = UUID.randomUUID().toString();
+        return open(UUID.randomUUID().toString());
+    }
+
+    /** With a caller-chosen id, so the lease taken at admission and the channel share one turn. */
+    Channel open(String turnId) {
         Sinks.Many<TurnEvent> sink = Sinks.many().multicast().onBackpressureBuffer();
         sinksByTurn.put(turnId, sink);
         return new Channel(turnId, sink.asFlux());

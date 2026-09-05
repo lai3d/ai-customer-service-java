@@ -133,7 +133,8 @@ curl -s localhost:8080/actuator/health | jq .
 curl -s localhost:8080/actuator/health/readiness
 ```
 
-A healthy first start logs `Ingested 18 FAQ documents`. If a pod sits in
+A healthy first start logs `Ingested 36 FAQ documents` (18 entries, two languages) and a
+restart against the same database logs `already imported; skipping`. If a pod sits in
 `CrashLoopBackOff`, the usual cause is Postgres being unreachable or missing the `vector`
 extension.
 

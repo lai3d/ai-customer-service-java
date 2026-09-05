@@ -38,6 +38,19 @@ class ChatExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(ConversationBusyException.class)
+    ProblemDetail handleBusy(ConversationBusyException exception) {
+        // Two turns on one conversation would interleave its history; the second is refused
+        // before anything is written, and the client can retry once the first has finished.
+        log.info("Refused an overlapping turn on conversation {}", exception.conversationId());
+
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        problem.setTitle("Conversation busy");
+        problem.setDetail("This conversation is still answering a previous message. Wait for it "
+                + "to finish, then send again.");
+        return problem;
+    }
+
     @ExceptionHandler(TransientAiException.class)
     ProblemDetail handleTransient(TransientAiException exception) {
         log.warn("Transient failure from the model provider", exception);

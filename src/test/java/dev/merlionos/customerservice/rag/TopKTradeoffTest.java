@@ -20,7 +20,7 @@ import java.util.List;
  * each other, so which one ranks first is close to noise. Retrieving more is the cheap answer;
  * the question is what it costs. Passages are short, so this measures both sides.
  */
-@SpringBootTest(properties = "app.rag.ingest-on-startup=true")
+@SpringBootTest(properties = "app.rag.import-mode=startup")
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class TopKTradeoffTest {

@@ -3,7 +3,6 @@ package dev.merlionos.customerservice.tools;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.chat.TurnEventBusProbe;
-import dev.merlionos.customerservice.ticket.LocalTicketOperations;
 import dev.merlionos.customerservice.ticket.api.TicketResult;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -26,7 +25,7 @@ class SupportTicketToolsTest {
     private static final String CONVERSATION = "conversation-7";
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
-    private final LocalTicketOperations operations = new LocalTicketOperations();
+    private final FakeTicketOperations operations = new FakeTicketOperations();
     private final TurnEventBus turnEventBus = new TurnEventBus();
     private final SupportTicketTools tools = new SupportTicketTools(operations, meterRegistry, turnEventBus);
 

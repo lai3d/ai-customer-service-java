@@ -7,8 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 
@@ -31,9 +29,10 @@ import java.util.List;
  * also makes two replicas ingesting the same version at once harmless: they converge on the
  * same rows instead of racing to delete each other's work.
  *
- * <p>Re-embedding the whole corpus on every start is only reasonable because the corpus is
- * small and the embedding model runs in-process. A corpus large enough for that to hurt would
- * want per-document change detection and an incremental sync instead.
+ * <p>Re-embedding the whole corpus is only reasonable because the corpus is small and the
+ * embedding model runs in-process. A corpus large enough for that to hurt would want
+ * per-document change detection and an incremental sync instead. When this runs, and under
+ * which lock, is {@link CorpusImporter}'s decision; this class only knows how to write a corpus.
  */
 @Service
 public class FaqIngestionService {
@@ -53,13 +52,14 @@ public class FaqIngestionService {
         this.properties = properties;
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    void ingestOnStartup() {
-        if (!properties.ingestOnStartup()) {
-            log.info("FAQ ingestion disabled (app.rag.ingest-on-startup=false)");
-            return;
-        }
-        ingest();
+    /** The version string carried by the bundled corpus; what {@code corpus_import} records. */
+    public String bundledVersion() {
+        return String.valueOf(readCorpus().getFirst().getMetadata().get(FaqDocumentReader.METADATA_VERSION));
+    }
+
+    private List<Document> readCorpus() {
+        return new FaqDocumentReader(
+                resourceLoader.getResource(properties.corpusLocation()), objectMapper).get();
     }
 
     /**
@@ -68,8 +68,7 @@ public class FaqIngestionService {
     public int ingest() {
         Instant started = Instant.now();
 
-        List<Document> documents = new FaqDocumentReader(
-                resourceLoader.getResource(properties.corpusLocation()), objectMapper).get();
+        List<Document> documents = readCorpus();
 
         String version = String.valueOf(
                 documents.getFirst().getMetadata().get(FaqDocumentReader.METADATA_VERSION));

@@ -9,6 +9,7 @@ import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.tools.OrderTools;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * The chat role: the public API and SSE, the advisor chain, the tool adapters, the order
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnTarget(DeploymentTarget.CHAT)
+@EnableScheduling // the budget sweep
 @ComponentScan(basePackageClasses = {
         ChatService.class,          // chat
         ChatRoleConfiguration.class, // config
