@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.chat;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -30,10 +32,18 @@ public class ConversationLease {
 
     private final JdbcTemplate jdbc;
     private final Duration ttl;
+    private final Counter conflicts;
 
-    ConversationLease(JdbcTemplate jdbc, ChatProperties properties) {
+    ConversationLease(JdbcTemplate jdbc, ChatProperties properties, MeterRegistry meterRegistry) {
         this.jdbc = jdbc;
         this.ttl = properties.turnLease() == null ? Duration.ofSeconds(150) : properties.turnLease();
+        // The refusal is also a 409 on the request timer, but that series appears with the
+        // first refusal and reads as nothing happening until then. Registered at zero here so
+        // the dashboard shows 0, and so the count is the lease's own rather than inferred from
+        // a status code that other things could one day return.
+        this.conflicts = Counter.builder("chat.lease.conflicts")
+                .description("Turns refused because another turn held the conversation's lease")
+                .register(meterRegistry);
     }
 
     /**
@@ -53,6 +63,7 @@ public class ConversationLease {
                 """, (rs, i) -> rs.getString(1),
                 conversationId, turnId, Timestamp.from(now.plus(ttl)), Timestamp.from(now));
         if (holder.isEmpty()) {
+            conflicts.increment();
             throw new ConversationBusyException(conversationId);
         }
     }

@@ -5,6 +5,7 @@ import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -51,8 +52,8 @@ public class RemoteClientsConfiguration {
     }
 
     @Bean
-    KnowledgeSearch knowledgeSearch(RestClient knowledgeClient) {
-        return new HttpKnowledgeSearch(knowledgeClient);
+    KnowledgeSearch knowledgeSearch(RestClient knowledgeClient, MeterRegistry meterRegistry) {
+        return new HttpKnowledgeSearch(knowledgeClient, meterRegistry);
     }
 
     /** The bean {@code QuestionAnswerAdvisor} is built on; pgvector is switched off in this role. */

@@ -68,7 +68,7 @@ class DashboardMetricsTest {
     private static final Set<String> ONLY_WHEN_IT_HAPPENS = Set.of("chat_unpriced_model_calls_total");
 
     private static final Pattern METRIC = Pattern.compile(
-            "\\b([a-z][a-z0-9_]*_(?:total|bucket|count|sum|max|bytes|threads|usage|connections_active|seconds))\\b");
+            "\\b([a-z][a-z0-9_]*_(?:total|bucket|count|sum|max|bytes|threads|usage|connections_active|seconds|documents))\\b");
 
     private static final Pattern EXPR = Pattern.compile("\"expr\": \"((?:[^\"\\\\]|\\\\.)*)\"");
 

@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice.chat;
 
 import dev.merlionos.customerservice.MigratedPostgres;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -27,7 +28,8 @@ class ConversationLeaseTest {
     @BeforeAll
     static void start() {
         postgres = MigratedPostgres.start();
-        lease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150)));
+        lease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150)),
+                new SimpleMeterRegistry());
     }
 
     @AfterAll
@@ -45,15 +47,22 @@ class ConversationLeaseTest {
     }
 
     @Test
-    @DisplayName("a second turn on a conversation with one in flight is refused")
+    @DisplayName("a second turn on a conversation with one in flight is refused, and counted")
     void refusesOverlap() {
+        // Its own registry: the shared lease's counter also moves under the race test below.
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        ConversationLease metered = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150)), meters);
         String conversation = conversation();
-        lease.acquire(conversation, "turn-1");
+        metered.acquire(conversation, "turn-1");
+        assertThat(meters.get("chat.lease.conflicts").counter().count())
+                .as("registered at zero before any refusal, so the panel reads 0 rather than nothing")
+                .isZero();
 
-        assertThatThrownBy(() -> lease.acquire(conversation, "turn-2"))
+        assertThatThrownBy(() -> metered.acquire(conversation, "turn-2"))
                 .isInstanceOf(ConversationBusyException.class)
                 .hasMessageContaining(conversation);
         assertThat(holder(conversation)).isEqualTo("turn-1");
+        assertThat(meters.get("chat.lease.conflicts").counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -83,7 +92,8 @@ class ConversationLeaseTest {
     @Test
     @DisplayName("an expired lease can be taken over, so a dead replica holds nothing forever")
     void expiredLeaseIsTakenOver() throws InterruptedException {
-        ConversationLease shortLease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofMillis(200)));
+        ConversationLease shortLease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofMillis(200)),
+                new SimpleMeterRegistry());
         String conversation = conversation();
         shortLease.acquire(conversation, "turn-from-a-dead-replica");
         assertThatThrownBy(() -> shortLease.acquire(conversation, "too-soon")).isInstanceOf(ConversationBusyException.class);

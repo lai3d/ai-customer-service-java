@@ -122,6 +122,20 @@ class TopologyParityTest {
         return RestClient.builder().baseUrl("http://localhost:" + port(context)).build();
     }
 
+    /** One counter as the process's own Prometheus exposition reports it; absent is a failure, not zero. */
+    private static double counter(ConfigurableApplicationContext context, String name) {
+        String exposition = http(context).get().uri("/actuator/prometheus").retrieve().body(String.class);
+        return exposition.lines()
+                .filter(line -> line.startsWith(name + "{") || line.startsWith(name + " "))
+                .mapToDouble(line -> {
+                    int labelsEnd = line.indexOf('}');
+                    String rest = (labelsEnd < 0 ? line.substring(name.length()) : line.substring(labelsEnd + 1)).trim();
+                    return Double.parseDouble(rest.split("\\s+")[0]);
+                })
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(name + " is not in the process's exposition"));
+    }
+
     // --- each role is only what it is ------------------------------------------------------
 
     @Test
@@ -299,8 +313,11 @@ class TopologyParityTest {
 
     @Test
     @Order(10)
-    @DisplayName("with the knowledge process gone, a turn fails rather than answering ungrounded, and chat is not ready")
+    @DisplayName("with the knowledge process gone, a turn fails rather than answering ungrounded, chat is not ready, and the failure is counted")
     void knowledgeProcessGone() {
+        assertThat(counter(chat, "chat_knowledge_unavailable_total"))
+                .as("registered at zero from startup, before the seam has ever failed")
+                .isZero();
         knowledge.close();
         given(chatModel.call(any(Prompt.class))).willReturn(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Should never be reached.")))));
@@ -309,5 +326,8 @@ class TopologyParityTest {
                 .isInstanceOf(KnowledgeUnavailableException.class);
         assertThatThrownBy(() -> http(chat).get().uri("/actuator/health/readiness").retrieve().toBodilessEntity())
                 .isInstanceOf(org.springframework.web.client.HttpServerErrorException.ServiceUnavailable.class);
+        assertThat(counter(chat, "chat_knowledge_unavailable_total"))
+                .as("the lost turn is on the counter the alert watches, not only in a log line")
+                .isGreaterThanOrEqualTo(1);
     }
 }

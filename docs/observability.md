@@ -97,6 +97,9 @@ This repository's, where Spring AI's were wrong or absent:
 | `chat_unpriced_model_calls_total{model}` | Calls whose model had no price: tokens counted, cost silently zero. Alerted on above zero |
 | `chat_tool_invocations_total{tool,outcome}` | `found`/`not_found`; `created`/`duplicate_suppressed`/`capped`/`unavailable` |
 | `chat_stream_terminations_total{outcome}` | `completed`, `cancelled` (the customer left), `failed` (an error event after the 200) |
+| `chat_lease_conflicts_total` | Turns refused because another turn held the conversation's lease: the direct count behind the 409s, incremented where the lease refuses |
+| `chat_knowledge_unavailable_total` | Knowledge searches over the seam that failed, each a turn ended with a 503. Registered at zero in every topology, can only rise in the roles one. Alerted on above zero |
+| `corpus_import_seconds{outcome}`, `corpus_documents` | How long a start spent under the import lock, `imported` or `already_present`; and the document count recorded for the bundled corpus version, 0 until it is imported, read from the database on each scrape |
 
 And the platform's: `http_server_requests_seconds` for the public endpoints and the
 internal ones, `http_client_requests_seconds` for the model provider and, in the roles
@@ -152,14 +155,17 @@ Two dashboards in `observability/grafana/dashboards/`, provisioned read-only:
 
 - **Customer service** — turns per second by status, turn latency percentiles with exemplars,
   where the time goes (model call versus retrieval), model errors, stream terminations, tokens
-  and dollars by model, unpriced calls, budget and overlap refusals, tool outcomes.
+  and dollars by model, unpriced calls, budget and overlap refusals (the 409s beside the
+  lease's own count), tool outcomes.
 - **Customer service roles** — memory, threads, CPU and connection pool per role; the seams
   (calls and latency from chat to knowledge and ticket, ticket writes that fell back to
-  `unavailable`); Tempo's service graph edges; the pipeline's own health.
+  `unavailable`, knowledge searches that failed, the corpus's document count and how long its
+  import took); Tempo's service graph edges; the pipeline's own health.
 
-Eight alert rules in `observability/prometheus/rules/`, each with a paragraph saying why it
+Nine alert rules in `observability/prometheus/rules/`, each with a paragraph saying why it
 exists: a target down, turn error rate, slow turns, unpriced model calls, cost burn rate,
-stream failures, ticket writes that fell back to `unavailable`, overlapping-turn refusals.
+stream failures, ticket writes that fell back to `unavailable`, the knowledge seam failing,
+overlapping-turn refusals.
 Prometheus rules rather than Grafana's, because they live in git, `promtool check rules` can
 check them in CI, and the same file is what a `PrometheusRule` carries on a cluster.
 

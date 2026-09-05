@@ -2,6 +2,9 @@ package dev.merlionos.customerservice.rag;
 
 import dev.merlionos.customerservice.rag.api.ImportMode;
 import dev.merlionos.customerservice.rag.api.RagProperties;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -17,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Decides whether, and under what protection, the bundled corpus is written.
@@ -58,16 +62,39 @@ public class CorpusImporter {
     private final RagProperties properties;
     private final ConfigurableApplicationContext context;
     private final ObjectProvider<ExitHandler> exitHandler;
+    private final Timer imported;
+    private final Timer alreadyPresent;
+    /** Memoised: reading the version parses the bundled corpus, fine once and not per scrape. */
+    private volatile String bundledVersion;
 
     CorpusImporter(FaqIngestionService ingestion, JdbcTemplate jdbc,
                    PlatformTransactionManager transactionManager, RagProperties properties,
-                   ConfigurableApplicationContext context, ObjectProvider<ExitHandler> exitHandler) {
+                   ConfigurableApplicationContext context, ObjectProvider<ExitHandler> exitHandler,
+                   MeterRegistry meterRegistry) {
         this.ingestion = ingestion;
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.properties = properties;
         this.context = context;
         this.exitHandler = exitHandler;
+        // Both outcomes registered up front so the timer exists at zero, the way the tool
+        // counters do; a start that skipped the import is a data point, not an absence.
+        this.imported = importTimer(meterRegistry, "imported");
+        this.alreadyPresent = importTimer(meterRegistry, "already_present");
+        // Read from the database on each scrape rather than remembered from this process's
+        // own import, because with several replicas the one that imported is usually not the
+        // one being scraped. It is the query readiness already runs, at the scrape interval.
+        Gauge.builder("corpus.documents", this, CorpusImporter::documentCount)
+                .description("Documents recorded for the bundled corpus version; 0 until it is imported")
+                .strongReference(true)
+                .register(meterRegistry);
+    }
+
+    private static Timer importTimer(MeterRegistry registry, String outcome) {
+        return Timer.builder("corpus.import")
+                .description("Time a start spent under the import lock, by what it found there")
+                .tag("outcome", outcome)
+                .register(registry);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -102,9 +129,10 @@ public class CorpusImporter {
      * Serialised across processes by an advisory lock held for the transaction.
      */
     public Outcome importIfMissing() {
-        String version = ingestion.bundledVersion();
+        String version = bundledVersion();
+        long started = System.nanoTime();
 
-        return transaction.execute(status -> {
+        Outcome outcome = transaction.execute(status -> {
             jdbc.queryForObject("SELECT pg_advisory_xact_lock(?)", Object.class, IMPORT_LOCK_KEY);
 
             if (recordedDocumentCount(version).isPresent()) {
@@ -117,6 +145,28 @@ public class CorpusImporter {
                     version, written, Timestamp.from(Instant.now()));
             return Outcome.IMPORTED;
         });
+        // The lock wait is included: a replica that waited on another's import was not ready
+        // for that long, which is what the timer is for. A failed import records nothing; it
+        // propagates, and in `once` mode ends the process non-zero.
+        (outcome == Outcome.IMPORTED ? imported : alreadyPresent)
+                .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+        return outcome;
+    }
+
+    /** What the {@code corpus.documents} gauge reports. */
+    int documentCount() {
+        // A database that cannot be reached makes the gauge NaN: Micrometer catches the
+        // exception, logs it, and reports "unknown", which is more honest than 0.
+        return recordedDocumentCount(bundledVersion()).orElse(0);
+    }
+
+    private String bundledVersion() {
+        String version = bundledVersion;
+        if (version == null) {
+            version = ingestion.bundledVersion();
+            bundledVersion = version;
+        }
+        return version;
     }
 
     /** The document count recorded for a version, or empty if that version was never completed. */
