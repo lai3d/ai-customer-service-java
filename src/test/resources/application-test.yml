@@ -7,6 +7,13 @@ spring:
       # Tests never reach the Anthropic API; this only has to satisfy startup.
       api-key: test-key-not-used
 
+  datasource:
+    hikari:
+      # Every cached test context keeps its pool for the life of the JVM, and they all share
+      # one Postgres now (PostgresTestcontainer). An idle context holding a full pool is what
+      # ran the server out of clients; one idle connection each is plenty.
+      minimum-idle: 1
+
 app:
   rag:
     # Off by default so unrelated tests do not pay for embedding the corpus. Tests that need
