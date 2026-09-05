@@ -271,10 +271,30 @@ than a one-off download into a cache that then persists.
 
 ## Running the roles separately
 
-The same jar and the same image run as one process or as three. `docker compose up` and the
-manifests in `k8s/` run `all`; the distributed Compose file and the per-role manifests are the
-next phase of ADR 001. Until then, this is what the split looks like by hand, against one
-Postgres, with the corpus imported once by a run-once knowledge process:
+The same jar and the same image run as one process or as three. `docker compose up` and
+`k8s/base` run `all`. The split is `docker-compose.services.yml` locally and `k8s/roles` on a
+cluster:
+
+```bash
+export INTERNAL_TOKEN=$(openssl rand -hex 16)
+docker compose -f docker-compose.services.yml up --build --wait   # import, then knowledge, ticket, chat
+scripts/verify-services.sh                                        # the same, plus the assertions below
+kubectl apply -k k8s/roles                                         # after creating the Secret with INTERNAL_TOKEN
+k8s/kind/verify.sh --roles [--fit]                                 # the manifests on a throwaway cluster
+```
+
+In Compose the `import` service runs the knowledge role once and exits; `knowledge` waits
+for it to complete, `chat` waits for `knowledge` and `ticket` to be healthy, and only `chat`
+has a host port. On Kubernetes the same order falls out of readiness: the `knowledge-import`
+Job records the corpus version, the knowledge pods' readiness reads that record, and the chat
+pods' readiness reads the knowledge Service's. `scripts/verify-services.sh` asserts the
+importer exited 0, readiness crossed the seam, a call without the token is 401, twelve
+concurrent ticket writes from outside the JVM left three rows and twelve recorded operations,
+a turn reached the provider through the seam (502 with a placeholder key, not 503), and that
+chat went not-ready and a turn 503 while `knowledge` was stopped and recovered when it came
+back. The Services workflow runs that in CI.
+
+By hand, against one Postgres, the same thing looks like this:
 
 ```bash
 export INTERNAL_TOKEN=$(openssl rand -hex 16)

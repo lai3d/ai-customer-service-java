@@ -1,0 +1,8 @@
+# The throwaway Postgres as its own kustomization, so that both harness overlays -- k8s/kind
+# for the single-process base and k8s/kind-roles for the split -- can include it. Kustomize
+# refuses to reference a file outside the kustomization's directory; a directory it allows.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - postgres.yaml

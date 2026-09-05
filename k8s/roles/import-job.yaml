@@ -1,0 +1,65 @@
+# Imports the bundled corpus once: migrate, embed, record the version, exit 0. Runs the
+# knowledge role with APP_RAG_IMPORT_MODE=once, so it needs the model and the same memory a
+# knowledge pod does. Re-running it against a database that already holds this corpus version
+# does nothing and exits 0 -- the importer skips a recorded version -- so it is safe to apply
+# with every release.
+#
+# The knowledge pods' readiness reads the same record, which is why they can be applied at the
+# same time as this and simply stay not-ready until it finishes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: knowledge-import
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: knowledge-import
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-customer-service-java
+        app.kubernetes.io/component: knowledge-import
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: import
+          image: ghcr.io/lai3d/ai-customer-service-java:0.1.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APP_TARGET
+              value: knowledge
+            - name: APP_RAG_IMPORT_MODE
+              value: once
+          envFrom:
+            - configMapRef:
+                name: ai-customer-service-roles-config
+            - secretRef:
+                name: ai-customer-service-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "3Gi"
+            limits:
+              memory: "4Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

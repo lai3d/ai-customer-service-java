@@ -71,6 +71,56 @@ class ComposeEnvironmentTest {
                 .containsAll(declared);
     }
 
+    // --- the distributed file ---------------------------------------------------------------
+
+    private static final Path SERVICES = Path.of("docker-compose.services.yml");
+
+    /** The map form: a key with no value passes through, the same as a bare name in the list form. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> servicesEnvironment(String service) throws IOException {
+        try (InputStream in = Files.newInputStream(SERVICES)) {
+            Map<String, Object> root = new Yaml().load(in);
+            Map<String, Map<String, Object>> services = (Map<String, Map<String, Object>>) root.get("services");
+            return (Map<String, Object>) services.get(service).get("environment");
+        }
+    }
+
+    @Test
+    @DisplayName("in the distributed file, every documented variable reaches the role that reads it")
+    void documentedVariablesReachTheirRole() throws IOException {
+        Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
+        Set<String> declared = matcher.results().map(result -> result.group(1)).collect(Collectors.toSet());
+        // Compose-only knobs, and the two the file sets for the reader rather than passing through.
+        declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "JAEGER_UI_PORT", "OTLP_HTTP_PORT",
+                "KNOWLEDGE_URL", "TICKET_URL", "APP_TARGET", "APP_RAG_IMPORT_MODE"));
+
+        Set<String> chat = servicesEnvironment("chat").keySet();
+        assertThat(chat)
+                .as("the chat role reads the model, cost and lease settings; missing ones silently default")
+                .containsAll(declared);
+        for (String role : List.of("knowledge", "ticket", "import")) {
+            assertThat(servicesEnvironment(role).keySet())
+                    .as(role + " authenticates to the others and reaches Postgres and Jaeger")
+                    .contains("INTERNAL_TOKEN", "POSTGRES_HOST", "OTLP_TRACING_ENDPOINT", "APP_TARGET");
+        }
+    }
+
+    @Test
+    @DisplayName("each role is what its APP_TARGET says, and only chat reaches the model")
+    void rolesAreWhatTheySay() throws IOException {
+        assertThat(servicesEnvironment("chat")).containsEntry("APP_TARGET", "chat")
+                .containsEntry("KNOWLEDGE_URL", "http://knowledge:8080")
+                .containsEntry("TICKET_URL", "http://ticket:8080")
+                .containsKey("ANTHROPIC_API_KEY");
+        assertThat(servicesEnvironment("knowledge")).containsEntry("APP_TARGET", "knowledge")
+                .containsEntry("APP_RAG_IMPORT_MODE", "off")
+                .doesNotContainKey("ANTHROPIC_API_KEY");
+        assertThat(servicesEnvironment("import")).containsEntry("APP_TARGET", "knowledge")
+                .containsEntry("APP_RAG_IMPORT_MODE", "once");
+        assertThat(servicesEnvironment("ticket")).containsEntry("APP_TARGET", "ticket")
+                .doesNotContainKey("ANTHROPIC_API_KEY");
+    }
+
     @Test
     @DisplayName("tracing in Compose points at the bundled Jaeger, not at localhost")
     void tracingTargetsTheBundledJaeger() throws IOException {

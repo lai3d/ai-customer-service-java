@@ -11,7 +11,9 @@ Plain YAML, no Helm. Kustomize only for the two things a deployment actually cha
 | `base/kustomization.yaml` | — | Lists exactly those four. Generates and transforms nothing. |
 | `overlays/example/` | — | The image reference and the Postgres coordinates, as an overlay. Copy it; do not edit the base. |
 | `examples/secret.yaml` | Secret `ai-customer-service-secrets` | **Template. Placeholder values only.** Outside `base/`, so nothing that applies the base can reach it. |
-| `kind/` | — | A throwaway-cluster harness that applies the base **unmodified** and asserts eleven things about the running pods. |
+| `kind/` | — | A throwaway-cluster harness that applies the base **unmodified** and asserts eleven things about the running pods. `--roles` does the same for the split. |
+| `roles/` | Deployments `chat`, `knowledge`, `ticket`; Services of the same names; Job `knowledge-import`; a ConfigMap; a NetworkPolicy | The distributed topology of [ADR 001](../docs/adr/001-deployment-targets.md): the same image as three roles, the corpus imported once by a Job, internal endpoints reachable only from chat pods. Applied with `kubectl apply -k k8s/roles`; needs `INTERNAL_TOKEN` in the Secret. |
+| `kind-roles/` | — | `roles/` plus the throwaway Postgres, for `kind/verify.sh --roles`. |
 
 **Why an overlay at all, when the previous answer was "no Kustomize".** This README used to
 say: edit `deployment.yaml`'s image and `configmap.yaml`'s `POSTGRES_HOST` before applying.
@@ -97,10 +99,23 @@ Running the old files through this script fails with
 | --- | --- |
 | The memory limit OOM-killed the pod during startup | The comment above it predicted this failure exactly and then set the number too low anyway. Measured: 2Gi and 2560Mi are OOMKilled; 3Gi starts at 94% of the limit; 4Gi at 70%. Peak plateaus at ~2.8 GiB, steady state is 1.65 GiB. Lowering `-XX:InitialRAMPercentage` does not help — the footprint is native, and heap in use is 0.13 GiB. |
 | `kubectl apply -f k8s/` replaced a working Secret with `REPLACE_ME_*` | This README warned about it in prose one screen above the command, and the warning stopped nothing. The template is outside the applied path now — first by moving it to `examples/`, and since the Kustomize split, by not being listed in any kustomization. |
-| On a cold database, one replica always loses a `CREATE EXTENSION` race and restarts | **Fixed** by `SchemaInitializationLock`, a `BeanPostProcessor` holding a Postgres advisory lock across the two beans that issue schema DDL. The race is real and is now reproduced deterministically in `SchemaInitializationLockTest` rather than by hoping threads collide: an uncommitted `CREATE EXTENSION` is invisible to another session, so its `IF NOT EXISTS` finds nothing, proceeds, and collides on the catalogue's unique index. Measured cost of the lock: one replica waited 102 ms. Was: |
+| On a cold database, one replica always loses a `CREATE EXTENSION` race and restarts | **Fixed**, twice. First by `SchemaInitializationLock`, a `BeanPostProcessor` holding a Postgres advisory lock across the two Spring AI beans that issued schema DDL, with the race reproduced deterministically in its test: an uncommitted `CREATE EXTENSION` is invisible to another session, so its `IF NOT EXISTS` finds nothing, proceeds, and collides on the catalogue's unique index. Then the schema moved into Flyway migrations (`db/migration`) with Spring AI's initialisers switched off, and Flyway's own advisory lock does the same job for every statement; the application-level lock and its test were removed. Was: |
 | ~~On a cold database, one replica always loses a `CREATE EXTENSION` race~~ | **The original finding, kept because it is the reason the lock exists.** `CREATE EXTENSION IF NOT EXISTS vector` is not concurrency-safe in Postgres: two replicas starting together, and one gets `duplicate key value violates unique constraint "pg_extension_name_index"`, fails its Spring context, and is restarted. It recovers on the retry because the extension now exists, so the cost is a slower first rollout and a `CrashLoopBackOff`-shaped event every time a fresh database is deployed against. Reproduces on every cold-database run, exactly one replica of two. Only visible with `replicas > 1`, which is why neither the Compose stack nor the Testcontainers suite has ever seen it. |
 | Fixing that race removed an accidental stagger, and a capacity problem surfaced | The crash it caused was spacing out the two replicas' 470 MB model loads. With both starting cleanly they load together, and a default single-node kind cluster — 7.75 GiB, with 2 × 4Gi limits on it, 108% of the node — OOM-kills one intermittently. Nothing wrong with the manifests: on a real cluster the replicas land on different nodes. `verify.sh` now checks node capacity up front and says so, because an OOM reported at the end reads as the manifests' fault when it is the laptop's. **A bug can be load-bearing.** |
 | The requests were below the real steady state | 1Gi requested against 1.65 GiB steady, and the peak is at *startup* — so a node packed to requests does not degrade the pod, it crash-loops it. Now 3Gi. |
+
+### What running the split found
+
+`k8s/kind/verify.sh --roles` applies `k8s/roles` the same way. Its first run failed before
+asserting anything and the next two failed for reasons worth keeping:
+
+| | |
+| --- | --- |
+| The roles layout does not fit this laptop's node, and the Job is what starves | Two knowledge replicas request 3Gi each and the import Job 3Gi, on a 7.9 GiB node that also holds chat, ticket and Postgres. The second knowledge pod and the Job sit `Pending` with `Insufficient memory` forever, and without the Job no knowledge pod is ever ready, so nothing else is either. The script now applies Postgres and the Job first and the Deployments after the Job completes -- order only, the manifests are unchanged -- and `--fit` scales knowledge to one replica *after* applying the committed manifests, printing a `FIT` line and reporting that replica count as scaled. On a real cluster none of this applies. |
+| Each role's real footprint, from the cgroup | `memory.peak` inside the containers, at startup with no traffic: **knowledge 2848--2911 MiB**, chat **432--494 MiB**, ticket **333--372 MiB**. Knowledge's peak is the single-process pod's 2.8 GiB peak, which says the ONNX session was the whole footprint all along; the other two roles are ordinary Spring MVC processes. The requests and limits in `roles/*.yaml` are these numbers with room, not guesses. |
+| A negative assertion passed against a pod that did not exist | "a chat pod did not unpack ONNX Runtime" was green while no chat pod was ready: `! kubectl exec '' ...` fails, and the negation made that a pass. Every negative exec assertion is now guarded by the pod's existence. The same shape as the fixture-shaped tests the cross-review kept finding, in a shell script. |
+| A fresh cluster pulls `pgvector/pgvector:pg17` before anything else can happen | 3m45s on this machine's network, against a 180s rollout timeout, so the first roles run died at Postgres. 480s now, for both layouts. |
+| `python3 - <<PY` inside a pipeline hands python the pipe as its script | The capacity check summed limits over the rendered manifests and read them from stdin -- which is where the heredoc had just put the script. The script lives in a variable now and runs with `-c`. `bash -n` caught neither this nor the quoting error before it. |
 
 ### Which of these assertions has ever been seen to fail
 
@@ -111,13 +126,16 @@ listed here rather than counted as evidence:
 
 - **the Secret untouched by a directory apply** — passes, and has never been observed failing
   since the template moved to `examples/`.
-- **no replica lost the `CREATE EXTENSION` race** — passes with the lock. Forcing it red needs
-  two replicas starting together against a cold database with
-  `app.schema.serialize-initialization=false`, and this machine's single 7.75 GiB kind node
-  cannot hold that reliably: the attempt thrashed the API server into TLS timeouts. The
-  mechanism is proven deterministically in `SchemaInitializationLockTest` instead, which is
-  better evidence than a flaky cluster run would have been — but it is not the same as having
-  watched *this* check fail, and it is not written down as if it were.
+- **no replica lost the `CREATE EXTENSION` race** — passes under Flyway, with a caveat about
+  what was watched: in the runs recorded here the database was cold only when the import Job
+  migrated it alone, so two replicas racing Flyway itself on a cold database has not been
+  observed on this cluster. Forcing it red needs
+  two replicas starting together against a cold database with `spring.flyway.enabled=false`
+  and Spring AI's initialisers turned back on, and this machine's single 7.75 GiB kind node
+  cannot hold that reliably: the attempt thrashed the API server into TLS timeouts. The race
+  itself was reproduced deterministically in the now-removed `SchemaInitializationLockTest`,
+  which is better evidence than a flaky cluster run would have been — but it is not the same
+  as having watched *this* check fail, and it is not written down as if it were.
 
 Also worth knowing, from watching the OOM run: **`both replicas ready` stayed green while a
 container was being OOM-killed and restarted**. The two checks look redundant and are not — a

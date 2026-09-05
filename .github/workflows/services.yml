@@ -1,0 +1,66 @@
+# The distributed topology, as separate containers: the assertions in scripts/verify-services.sh
+# are the ones a single JVM cannot make -- an importer that exits, serving processes that wait
+# for it, readiness across a container boundary, concurrent writes from outside the JVM, and
+# what the public port does while a downstream container is stopped.
+#
+# A separate workflow because it builds the image, which the unit-and-integration job does
+# not, and the image bakes a 470 MB model and 170 MB of libtorch. It runs on pushes to main
+# and on pull requests that touch what it verifies; anything else gets the cheaper CI.
+name: Services
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - docker-compose.services.yml
+      - scripts/verify-services.sh
+      - src/main/resources/application.yml
+      - src/main/resources/db/migration/**
+      - src/main/java/dev/merlionos/customerservice/target/**
+      - src/main/java/dev/merlionos/customerservice/clients/**
+      - src/main/java/dev/merlionos/customerservice/internal/**
+      - .github/workflows/services.yml
+  workflow_dispatch:
+
+concurrency:
+  group: services-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Distributed Compose smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Built once here and reused by Compose, so the layer cache does the work across runs.
+      # The build stage's Maven downloads and the model stage are the expensive layers and
+      # change only when pom.xml or the model URI does.
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ai-customer-service-java:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bring the roles up and assert
+        env:
+          INTERNAL_TOKEN: ci-${{ github.run_id }}
+        run: scripts/verify-services.sh
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.services.yml logs --no-color --tail=200
+
+      - name: Tear down
+        if: always()
+        run: scripts/verify-services.sh --down

@@ -1,0 +1,34 @@
+# The token is one half of internal-endpoint security; this is the other. Only chat pods and
+# the import Job may open a connection to knowledge and ticket pods; nothing else in the
+# cluster can reach /internal/** to try a token against it. Chat itself stays reachable from
+# anywhere, which is what an Ingress in front of it needs.
+#
+# Kubelet probes are not subject to NetworkPolicy on the common CNIs, so readiness keeps
+# working. Two caveats worth knowing: a CNI that does not implement NetworkPolicy (kind's
+# default, kindnet, is one) accepts this object and enforces nothing, so the kind harness
+# applies it but cannot prove it; and a CNI that does enforce it also needs egress to Postgres
+# and to your collector allowed, which is your cluster's policy, not this file's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: internal-endpoints-from-chat-only
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [knowledge, ticket]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [chat, knowledge-import]
+      ports:
+        - port: 8080
+          protocol: TCP

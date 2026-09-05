@@ -1,0 +1,121 @@
+# The chat role. The public API, SSE, the advisor chain, the tool adapters, memory and budget.
+# Retrieval and tickets go over the Services in the ConfigMap; there is no model here either
+# except the chat model's HTTP client, so this pod is far lighter than the single-process one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: chat
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-customer-service-java
+      app.kubernetes.io/component: chat
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-customer-service-java
+        app.kubernetes.io/component: chat
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      # Above SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE (30s) in the ConfigMap.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/lai3d/ai-customer-service-java:0.1.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APP_TARGET
+              value: chat
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ai-customer-service-roles-config
+            - secretRef:
+                name: ai-customer-service-secrets
+          resources:
+            # No ONNX session; the model is an HTTP client. Measured on kind (cgroup memory.peak):
+            # 494 MiB at startup with no traffic. The request covers that with room for a
+            # thousand in-flight SSE streams; the limit leaves room for a heap dump.
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              memory: "1536Mi"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness includes the knowledge indicator: a chat pod is ready only while the knowledge Service is.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: chat
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: chat
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  sessionAffinity: None

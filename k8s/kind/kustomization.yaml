@@ -13,4 +13,4 @@ kind: Kustomization
 
 resources:
   - ../base
-  - postgres.yaml
+  - postgres

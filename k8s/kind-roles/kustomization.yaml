@@ -1,0 +1,9 @@
+# The kind harness for the distributed topology: k8s/roles plus the throwaway Postgres, and
+# nothing patched -- for the same reason k8s/kind patches nothing. `verify.sh --roles` diffs
+# this build against k8s/roles and fails if anything but the added Postgres differs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../roles
+  - ../kind/postgres
