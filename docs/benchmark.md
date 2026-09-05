@@ -32,6 +32,41 @@ statements on a pool of 20 that a thousand concurrent requests already contended
 thread columns did not move, which is the result the benchmark exists to defend. The 2.9x
 ratio stands.
 
+### The same load, with the roles in separate processes
+
+`ServicesTopologyBenchmark` runs the identical load against a `chat` process whose retrieval
+goes over HTTP to a `knowledge` process (which embeds the query and searches pgvector) instead
+of in-process, with a `ticket` process alongside. Same machine, same day, the three roles in
+one JVM on loopback as in `TopologyParityTest`:
+
+```
+./mvnw test -Dexcluded.test.groups= -Dtest='ServicesTopologyBenchmark*'
+```
+
+| threads | wall | req/s | p50 | p95 | p99 | chat Tomcat platform threads | JVM platform threads\* |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| platform | 6119 ms | 163 | 3790 ms | 5946 ms | 6024 ms | **202** | 333 |
+| virtual | 2232 ms | 448 | 1819 ms | 2195 ms | 2224 ms | **2** | 161 |
+
+\* the JVM also hosts the knowledge and ticket servers and the load driver, so this column is
+not a chat pod's number; the per-role memory in [k8s/README.md](../k8s/README.md#what-running-the-split-found)
+is the measurement to use for that.
+
+Against the single-process rows above -- 450 req/s and 1767 ms p50 on the virtual run -- the
+seam costs about half a percent of throughput and 50 ms at the median, on loopback. The
+work is the same work; it moved across a socket without getting more expensive, and the chat
+process's thread count is the same two platform threads. What a real network adds is latency
+and a failure mode, and the failure mode is what `TopologyParityTest` and
+`scripts/verify-services.sh` cover: with knowledge gone a turn fails rather than answering
+ungrounded, with ticket gone the tool returns a value the model can act on.
+
+The worker column was zero on the first two runs. Tomcat names a `server.port=0` connector's
+threads `http-nio-auto-N-exec-M`, and a filter built from the bound port -- and then one built
+from the connector's own `getName()`, which turns out to be `"http-nio-auto-3-50426"` with
+quotes and the port appended -- matched nothing. A platform-thread run reporting zero workers
+under a thousand requests is the kind of number that should have been impossible, and it was
+the reason to look rather than to report it.
+
 Three times the throughput, and the median customer waits 1.6 seconds instead of 4.0 for an
 operation that takes 1.0. But the thread column is the real result: with virtual threads the
 server holds a thousand in-flight requests on **two** platform threads — Tomcat's acceptor and

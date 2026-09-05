@@ -1,6 +1,8 @@
 # ADR 001: One artifact, four deployment targets
 
-- **Status:** decided. The [addendum](#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings)
+- **Status:** built. Every phase of the [plan](#plan) landed on 2026-09-05 (PRs #8, #10, #11,
+  #13 and the documentation change after them); the plan table records what each one did and
+  where it departed from this text. The [addendum](#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings)
   records Codex's revised position after reading both proposals, the four points on which
   the two authors still differed, and the owner's rulings on them. The three items marked
   *owner's call* were confirmed on 2026-09-05.
@@ -319,11 +321,11 @@ depends on how sessions are spaced.
 
 | # | Phase | Hours | Waits for |
 | --- | --- | --- | --- |
-| 1 | Boundaries: `OrderLookup`, `KnowledgeSearch`, `TicketOperations` with local implementations; `app.target` and the role configurations; the ArchUnit rule. Only `all` exposed. | 2–3 | |
-| 2 | Shared correctness: Flyway; ticket, operation, budget and lease tables; the guard row; the `409`; the serialised importer, its status and readiness gate, and `app.knowledge.import`. Two-replica concurrency tests. Benchmark re-run. | 5–6 | 1, `claude/ddl-race` |
-| 3 | Role composition: `knowledge` and `ticket` internal endpoints; the `chat`-side adapters, operation ids and recovery; the service token; the single-JVM parity test. | 4–5 | 2 |
-| 4 | Deployment: distributed Compose, Kubernetes overlays and `Job`, probes, the multi-process concurrency job in CI, `kind` verification of both layouts. | 3–4 | 3 |
-| 5 | Switching and rollback procedure, README architecture diagram, CLAUDE.md constraints, both proposals marked superseded, both benchmarks side by side. | 1–2 | 4 |
+| 1 | Boundaries: `OrderLookup`, `KnowledgeSearch`, `TicketOperations` with local implementations; `app.target` and the role configurations; the ArchUnit rule. Only `all` exposed. **Done, PR #8.** The ArchUnit rule was checked to fail on a planted violation before being trusted. | 2–3 | |
+| 2 | Shared correctness: Flyway; ticket, operation, budget and lease tables; the guard row; the `409`; the serialised importer, its status and readiness gate, and `app.knowledge.import`. Two-replica concurrency tests. Benchmark re-run. **Done, PR #10.** Departures: the property is `app.rag.import-mode` (the existing prefix, and `import` is a Java keyword); the operation table waited for phase 3, where it is used. Benchmark: 500 to 450 req/s on the virtual run, thread columns unchanged. | 5–6 | 1, `claude/ddl-race` |
+| 3 | Role composition: `knowledge` and `ticket` internal endpoints; the `chat`-side adapters, operation ids and recovery; the service token; the single-JVM parity test. **Done, PR #11.** Found on the way: a phased `ConfigurationCondition` is skipped in the registration phase and admitted scanned controllers everywhere; it became a plain `Condition`. | 4–5 | 2 |
+| 4 | Deployment: distributed Compose, Kubernetes overlays and `Job`, probes, the multi-process concurrency job in CI, `kind` verification of both layouts. **Done, PR #13.** Departure: `verify.sh --fit` scales knowledge to one replica *after* applying the committed manifests and labels every affected line, because a 7.9 GiB node cannot hold two 3Gi knowledge pods plus the 3Gi Job. Role memory measured from the cgroup: knowledge 2.8 GiB peak, chat and ticket under 0.5 GiB. | 3–4 | 3 |
+| 5 | Switching and rollback procedure, README architecture diagram, CLAUDE.md constraints, both proposals marked superseded, both benchmarks side by side. **Done**, the change after PR #13. | 1–2 | 4 |
 
 Sixteen to twenty-one session hours. Phase 2 is worth doing on its own.
 

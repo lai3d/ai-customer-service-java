@@ -1,5 +1,9 @@
 # Dual Deployment Design — Codex Proposal
 
+> **Status: superseded.** This is Codex's original proposal, preserved as written. What was
+> decided, and what was built, is [ADR 001](adr/001-deployment-targets.md); Codex's revised
+> position after reading both proposals is [CODEX_DUAL_DEPLOYMENT_DECISION.md](CODEX_DUAL_DEPLOYMENT_DECISION.md).
+
 - **Author:** Codex
 - **Date:** 2026-09-05
 - **Status:** Proposed; awaiting comparison with Claude Code's independent design.
