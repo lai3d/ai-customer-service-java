@@ -1,6 +1,6 @@
 # AI Customer Service System — Java / Spring AI
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh.md)
 
 [![CI](https://github.com/lai3d/ai-customer-service-java/actions/workflows/ci.yml/badge.svg)](https://github.com/lai3d/ai-customer-service-java/actions/workflows/ci.yml)
 [![Java 21](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org/projects/jdk/21/)
