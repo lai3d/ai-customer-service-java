@@ -56,7 +56,10 @@ public class SupportTicketTools {
             genuinely is not known. Do not use it to answer questions that documentation \
             already covers. Summarise the customer's problem in the summary; do not paste the \
             whole conversation.
-            """)
+            """,
+            // What the model reads is a string, and the default converter writes
+            // LocalDate as [2026,9,3]. See ReadableToolResultConverter.
+            resultConverter = ReadableToolResultConverter.class)
     public TicketResult createSupportTicket(
             @ToolParam(description = "One or two sentences describing what the customer needs")
             String summary,

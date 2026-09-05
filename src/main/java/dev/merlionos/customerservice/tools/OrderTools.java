@@ -52,7 +52,10 @@ public class OrderTools {
             details when they exist. Does not modify the order. If the order number cannot be \
             found the result says so, which means the customer should be asked to check it \
             rather than told the order does not exist.
-            """)
+            """,
+            // What the model reads is a string, and the default converter writes
+            // LocalDate as [2026,9,3]. See ReadableToolResultConverter.
+            resultConverter = ReadableToolResultConverter.class)
     public OrderLookupResult lookupOrderStatus(
             @ToolParam(description = "The order number, for example ORD-10042") String orderNumber,
             ToolContext toolContext) {
