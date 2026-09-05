@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.RagProperties;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.transformers.TransformersEmbeddingModel;
 import org.springframework.context.annotation.Bean;

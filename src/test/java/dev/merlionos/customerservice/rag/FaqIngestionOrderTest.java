@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.RagProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
