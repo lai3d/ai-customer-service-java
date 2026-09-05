@@ -4,10 +4,15 @@ import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.clients.KnowledgeUnavailableException;
+import dev.merlionos.customerservice.clients.HttpKnowledgeAdmin;
 import dev.merlionos.customerservice.clients.HttpTicketWorkflow;
 import dev.merlionos.customerservice.clients.RemoteKnowledgeVectorStore;
 import dev.merlionos.customerservice.rag.ActiveVersionVectorStore;
+import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
+import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
+import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
+import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.RagProperties;
 import dev.merlionos.customerservice.rag.api.SearchQuery;
@@ -331,6 +336,32 @@ class TopologyParityTest {
 
     @Test
     @Order(9)
+    @DisplayName("the knowledge-admin seam: a draft and a publication from the chat process are the knowledge process's rows and its active version")
+    void knowledgeAdminParity() {
+        KnowledgeAdmin remote = chat.getBean(KnowledgeAdmin.class);
+        assertThat(remote).isInstanceOf(HttpKnowledgeAdmin.class);
+        KnowledgeAdmin local = knowledge.getBean(KnowledgeAdmin.class);
+        String before = remote.activeVersion().orElseThrow();
+        assertThat(before).isEqualTo(local.activeVersion().orElseThrow());
+        assertThat(remote.entries()).hasSize(local.entries().size()).hasSize(18);
+
+        remote.createEntry("seam-entry", "orders", "alice");
+        remote.saveDraft("seam-entry", "en", "Is there a seam?", "Yes, and it carries drafts.", null, "alice");
+        assertThat(local.entry("seam-entry")).hasValueSatisfying(e -> assertThat(e.revisions()).hasSize(1));
+        assertThatThrownBy(() -> remote.createEntry("seam-entry", "orders", "alice")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> remote.publish("late", "root", "nope")).isInstanceOf(KnowledgeConflictException.class);
+
+        KnowledgeVersion published = remote.publish("over the seam", "root", before);
+        assertThat(published.state()).isEqualTo("active");
+        assertThat(local.activeVersion()).hasValue(published.version());
+        assertThat(remote.preview(new SearchQuery("is there a seam", 3, 0), null))
+                .extracting(p -> p.metadata().get("entry_id")).contains("seam-entry");
+        assertThat(remote.rollback(before, published.version(), "root").state()).isEqualTo("active");
+        assertThat(local.activeVersion()).hasValue(before);
+    }
+
+    @Test
+    @Order(10)
     @DisplayName("a request built from the chat process's client builder carries the trace across the seam")
     void traceCrossesTheSeam() throws Exception {
         // The internal clients are built from the auto-configured RestClient.Builder, which is
@@ -360,7 +391,7 @@ class TopologyParityTest {
     // --- when a downstream process is gone ---------------------------------------------------
 
     @Test
-    @Order(10)
+    @Order(11)
     @DisplayName("with the ticket process gone, the tool returns an unavailable value, never an exception")
     void ticketProcessGone() {
         ticket.close();
@@ -376,7 +407,7 @@ class TopologyParityTest {
     }
 
     @Test
-    @Order(11)
+    @Order(12)
     @DisplayName("with the knowledge process gone, a turn fails rather than answering ungrounded, chat is not ready, and the failure is counted")
     void knowledgeProcessGone() {
         assertThat(counter(chat, "chat_knowledge_unavailable_total"))

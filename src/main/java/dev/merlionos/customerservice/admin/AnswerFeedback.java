@@ -26,9 +26,10 @@ public class AnswerFeedback {
     public static final Set<String> STATES = Set.of("open", "handled", "dismissed");
     public static final int MAX_SIZE = 100;
 
+    /** @param revisionId the knowledge revision that fixed it, when handling named one */
     public record Report(long id, String turnId, String conversationId, String issue, String note, String state,
                          String conclusion, String reportedBy, Instant reportedAt, String handledBy,
-                         Instant handledAt, int version) {
+                         Instant handledAt, int version, Long revisionId) {
     }
 
     public record Page(List<Report> reports, long total, int page, int size) {
@@ -58,7 +59,7 @@ public class AnswerFeedback {
             rs.getString("conversation_id"), rs.getString("issue"), rs.getString("note"), rs.getString("state"),
             rs.getString("conclusion"), rs.getString("reported_by"), rs.getTimestamp("reported_at").toInstant(),
             rs.getString("handled_by"), rs.getTimestamp("handled_at") == null ? null : rs.getTimestamp("handled_at").toInstant(),
-            rs.getInt("version"));
+            rs.getInt("version"), rs.getObject("revision_id", Long.class));
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
@@ -125,6 +126,11 @@ public class AnswerFeedback {
      * (conclusion optional). Only an open flag can be closed; closing is final.
      */
     public Report handle(long id, String state, String conclusion, String actor, int expectedVersion) {
+        return handle(id, state, conclusion, null, actor, expectedVersion);
+    }
+
+    /** @param revisionId the knowledge revision that fixed the answer, or null */
+    public Report handle(long id, String state, String conclusion, Long revisionId, String actor, int expectedVersion) {
         String target = state == null ? "" : state.strip().toLowerCase(Locale.ROOT);
         if (!target.equals("handled") && !target.equals("dismissed")) {
             throw new Rule("a flag is closed as handled or dismissed");
@@ -143,10 +149,14 @@ public class AnswerFeedback {
             if (!current.state().equals("open")) {
                 throw new Rule("Feedback " + id + " is already " + current.state());
             }
+            if (revisionId != null && jdbc.queryForObject("SELECT count(*) FROM knowledge_revision WHERE id = ?", Integer.class, revisionId) == 0) {
+                throw new Rule("no knowledge revision " + revisionId + " to link");
+            }
             jdbc.update("""
-                    UPDATE answer_feedback SET state = ?, conclusion = ?, handled_by = ?, handled_at = ?, version = version + 1
+                    UPDATE answer_feedback SET state = ?, conclusion = ?, handled_by = ?, handled_at = ?, revision_id = ?,
+                        version = version + 1
                     WHERE id = ?
-                    """, target, text, actor, Timestamp.from(Instant.now()), id);
+                    """, target, text, actor, Timestamp.from(Instant.now()), revisionId, id);
             return find(id).orElseThrow();
         });
     }

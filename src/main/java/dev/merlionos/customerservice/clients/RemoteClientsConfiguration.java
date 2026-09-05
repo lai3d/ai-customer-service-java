@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice.clients;
 
 import dev.merlionos.customerservice.internal.InternalProperties;
+import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
@@ -55,6 +56,12 @@ public class RemoteClientsConfiguration {
     @Bean
     KnowledgeSearch knowledgeSearch(RestClient knowledgeClient, MeterRegistry meterRegistry) {
         return new HttpKnowledgeSearch(knowledgeClient, meterRegistry);
+    }
+
+    /** The operations admin's side of the knowledge seam. */
+    @Bean
+    KnowledgeAdmin knowledgeAdmin(RestClient knowledgeClient) {
+        return new HttpKnowledgeAdmin(knowledgeClient);
     }
 
     /** The bean {@code QuestionAnswerAdvisor} is built on; pgvector is switched off in this role. */

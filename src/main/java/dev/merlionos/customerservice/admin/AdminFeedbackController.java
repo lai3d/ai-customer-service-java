@@ -53,12 +53,14 @@ class AdminFeedbackController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
-    record Handling(String state, String conclusion, int expectedVersion) {
+    /** @param revisionId the knowledge revision that fixed the answer, optional */
+    record Handling(String state, String conclusion, Long revisionId, int expectedVersion) {
     }
 
     @PostMapping("/{id}/handle")
     AnswerFeedback.Report handle(@PathVariable long id, @RequestBody Handling request, Authentication authentication) {
-        return feedback.handle(id, request.state(), request.conclusion(), authentication.getName(), request.expectedVersion());
+        return feedback.handle(id, request.state(), request.conclusion(), request.revisionId(), authentication.getName(),
+                request.expectedVersion());
     }
 
     @ExceptionHandler(AnswerFeedback.NotFound.class)
