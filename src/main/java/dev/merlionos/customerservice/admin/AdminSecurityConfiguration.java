@@ -152,6 +152,11 @@ public class AdminSecurityConfiguration {
     }
 
     @Bean
+    AdminOverview adminOverview(JdbcTemplate jdbcTemplate) {
+        return new AdminOverview(jdbcTemplate);
+    }
+
+    @Bean
     AnswerFeedback answerFeedback(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
         return new AnswerFeedback(jdbcTemplate, transactionManager);
     }
