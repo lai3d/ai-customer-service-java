@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%228%22%20fill%3D%22%230f766e%22%2F%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h11%22%20stroke%3D%22%23fff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2223%22%20cy%3D%2222%22%20r%3D%222.5%22%20fill%3D%22%23fff%22%2F%3E%3C%2Fsvg%3E">
+<title>AI Customer Service — staff sign in</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
+    --line: #e3e3e8; --accent: #2f6f4f; --accent-soft: #eaf3ee; --warn: #a4402c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e24; --ink: #e9e9ee; --muted: #9a9aa6;
+      --line: #2e2e37; --accent: #7fc0a0; --accent-soft: #23302a; --warn: #e08a76;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh;
+    display: grid; place-items: center;
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  form {
+    width: min(360px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 26px 26px 22px; display: flex; flex-direction: column; gap: 12px;
+  }
+  h1 { font-size: 16px; margin: 0 0 2px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
+  input {
+    font: inherit; color: inherit; padding: 9px 11px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    font: inherit; margin-top: 6px; background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    border-radius: 7px; padding: 8px 14px; cursor: pointer;
+  }
+  .note { font-size: 13px; margin: 0; }
+  .note.err { color: var(--warn); }
+  .note.ok { color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<form method="post" action="/admin/login" autocomplete="on">
+  <h1>Operations admin</h1>
+  <p class="sub">Staff sign in. Customer conversations are behind this door.</p>
+  <p id="error" class="note err" hidden>Wrong username or password.</p>
+  <p id="logout" class="note ok" hidden>You have signed out.</p>
+  <label>Username <input name="username" autocomplete="username" required autofocus></label>
+  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+  <input type="hidden" name="_csrf" id="csrf">
+  <button type="submit">Sign in</button>
+</form>
+<script>
+  // The CSRF token arrives in a readable cookie (CookieCsrfTokenRepository); the form carries
+  // it back as _csrf. Read at submit time so a token rotated by another tab is the one sent.
+  function csrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+  const params = new URLSearchParams(location.search);
+  document.getElementById("error").hidden = !params.has("error");
+  document.getElementById("logout").hidden = !params.has("logout");
+  document.querySelector("form").addEventListener("submit", () => {
+    document.getElementById("csrf").value = csrfToken();
+  });
+</script>
+</body>
+</html>

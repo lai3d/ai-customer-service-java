@@ -1,4 +1,12 @@
 server:
+  servlet:
+    session:
+      cookie:
+        # The session cookie is the staff login. HttpOnly is the default; SameSite=Lax keeps
+        # it off cross-site POSTs, with CSRF tokens as the second layer. `secure` is left to
+        # the request: set behind TLS, not set on a laptop over plain HTTP.
+        http-only: true
+        same-site: lax
   # Rolling deploys otherwise cut in-flight requests mid-answer, and an SSE stream is in flight
   # for as long as the model is still talking. Graceful shutdown stops accepting new requests
   # and lets the current ones finish.
@@ -28,6 +36,17 @@ spring:
     client:
       connect-timeout: ${HTTP_CONNECT_TIMEOUT:10s}
       read-timeout: ${HTTP_READ_TIMEOUT:120s}
+
+  # Staff sessions for the operations admin, in Postgres. The chat role runs as replicas
+  # behind one Service; a session held in one JVM would sign a person out whenever the
+  # Service picked the other replica. Flyway owns the tables (V4), so the initialiser is off
+  # for the same reason Spring AI's are. Only /admin/** ever opens a session.
+  session:
+    jdbc:
+      initialize-schema: never
+    # Idle time before a staff session ends. Sessions carry access to customer conversations,
+    # so the default is short; raise it deliberately.
+    timeout: ${ADMIN_SESSION_TIMEOUT:30m}
 
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:csagent}
@@ -204,6 +223,15 @@ app:
     # For internal calls only. The model client's 120s read timeout is for a model that takes
     # that long; a tool call that waits that long holds the customer with it.
     timeout: ${SERVICES_TIMEOUT:5s}
+
+  admin:
+    # The seed command for the first staff admin: with both set, the process creates that
+    # admin at startup if -- and only if -- staff_account is empty, then logs what it did.
+    # Never overwrites or resets an account, so it is safe to leave set; one without the
+    # other refuses to start. See docs/operations-admin.md.
+    seed:
+      username: ${ADMIN_SEED_USERNAME:}
+      password: ${ADMIN_SEED_PASSWORD:}
 
   chat:
     # How long one turn may hold its conversation. A second request on a conversation with a
