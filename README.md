@@ -295,6 +295,7 @@ against evidence, and says what the evidence was.
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
 | [Deployment targets](docs/adr/001-deployment-targets.md) | Decided, not yet built: one artifact run as one process or as several. Reconciles two independent proposals, [Claude](docs/dual-target.md) and [Codex](docs/CODEX_DUAL_DEPLOYMENT_DESIGN.md), and records what was kept from each |
+| [Codex deployment decision](docs/CODEX_DUAL_DEPLOYMENT_DECISION.md) | Codex's revised recommendation after comparing both deployment proposals; implementation gates and remaining decisions |
 
 ---
 
