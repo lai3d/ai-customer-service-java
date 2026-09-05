@@ -11,8 +11,9 @@
 # volume the public port opens only once there is something grounded to answer with, and the
 # ordering is the file's, not the reader's memory of it.
 #
-# Everything reaches Postgres and Jaeger the way the single-process stack does. A trace of one
-# turn now has spans in three containers; that is what OTLP_TRACING_* is on for here.
+# Everything reaches Postgres and the Grafana stack the way the single-process stack does. A
+# trace of one turn now has spans in three containers, and Tempo's service graph draws the
+# edges between them from those spans; that is what OTLP_TRACING_* is on for here.
 #
 # This is the distributed topology of ADR 001 (docs/adr/001-deployment-targets.md), for
 # running the split on one machine and for scripts/verify-services.sh. docker-compose.yml
@@ -33,7 +34,9 @@ x-common-env: &common-env
   POSTGRES_USER: ${POSTGRES_USER:-csagent}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-csagent}
   OTLP_TRACING_EXPORT_ENABLED: "true"
-  OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+  OTLP_TRACING_ENDPOINT: ${OTLP_TRACING_ENDPOINT:-http://tempo:4318/v1/traces}
+  OTLP_METRICS_EXPORT_ENABLED:
+  OTLP_METRICS_ENDPOINT: ${OTLP_METRICS_ENDPOINT:-http://otel-collector:4318/v1/metrics}
   # Required: every /internal/** call between roles carries it. The `:?` guard is right here
   # because this file has no single-service workflow that could run without it.
   INTERNAL_TOKEN: ${INTERNAL_TOKEN:?set INTERNAL_TOKEN -- the roles authenticate to each other with it}
@@ -73,11 +76,91 @@ services:
       retries: 12
       start_period: 10s
 
-  jaeger:
-    image: jaegertracing/jaeger:2.20.0
+  # --- The Grafana stack ---------------------------------------------------------------------
+  # Tempo for traces (OTLP in, TraceQL out, and span-derived metrics pushed to Prometheus),
+  # Prometheus pulling /actuator/prometheus, Loki for logs with Alloy tailing the containers,
+  # Grafana provisioned with the three datasources, their cross-links and the dashboards in
+  # observability/grafana/dashboards. See docs/observability.md.
+  tempo:
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
     ports:
-      - "${JAEGER_UI_PORT:-16686}:16686"
-      - "${OTLP_HTTP_PORT:-4318}:4318"
+      - "${OTLP_HTTP_PORT:-4318}:4318"     # OTLP/HTTP, what the app exports to
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+      # Micrometer attaches the current trace id to histogram observations; this keeps them.
+      - --enable-feature=exemplar-storage
+      # Tempo's metrics-generator and the optional Collector push here.
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./observability/prometheus/prometheus-roles.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.5
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.11.0
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only: Alloy lists containers and tails their logs, nothing more.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      # A local stack with no login: anyone who can reach the port is an admin. Do not copy
+      # this into anything that is not a laptop.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    restart: unless-stopped
+
+  # Optional, `docker compose --profile collector up`: the application pushes traces and
+  # metrics to the Collector over OTLP and it fans them out to Tempo and Prometheus. Point the
+  # application at it with, in .env:
+  #   OTLP_TRACING_ENDPOINT=http://otel-collector:4318/v1/traces
+  #   OTLP_METRICS_EXPORT_ENABLED=true
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    profiles: ["collector"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - tempo
+      - prometheus
     restart: unless-stopped
 
   # Runs once and exits: the Kubernetes Job, in Compose clothing.
@@ -104,7 +187,7 @@ services:
         condition: service_healthy
       import:
         condition: service_completed_successfully
-      jaeger:
+      tempo:
         condition: service_started
     environment:
       <<: *common-env
@@ -119,7 +202,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      jaeger:
+      tempo:
         condition: service_started
     environment:
       <<: *common-env
@@ -135,7 +218,7 @@ services:
         condition: service_healthy
       ticket:
         condition: service_healthy
-      jaeger:
+      tempo:
         condition: service_started
     environment:
       <<: *common-env
@@ -165,3 +248,6 @@ services:
 
 volumes:
   pgdata:
+  tempo-data:
+  prometheus-data:
+  loki-data:

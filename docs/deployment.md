@@ -440,24 +440,24 @@ model comes from `file:` — but the directory has to be creatable.
 
 ## Tracing
 
-`docker compose up` also starts Jaeger (`jaegertracing/jaeger:2.20.0`), which ingests OTLP
-directly — no separate collector is needed for local work. A real deployment would put an
-OpenTelemetry Collector between the application and its tracing backend.
+`docker compose up` also starts the Grafana stack -- Tempo for traces, Prometheus for metrics,
+Loki and Alloy for logs, Grafana in front -- and points the application's OTLP exporter at
+Tempo. The application-side variables:
 
-| Variable | Compose value | Meaning |
+| Variable | Compose sets | Notes |
 | --- | --- | --- |
 | `OTLP_TRACING_EXPORT_ENABLED` | `true` | Off by default, so running the app without a collector does not log export failures on every span |
-| `OTLP_TRACING_ENDPOINT` | `http://jaeger:4318/v1/traces` | OTLP/HTTP traces endpoint |
+| `OTLP_TRACING_ENDPOINT` | `http://tempo:4318/v1/traces` | OTLP/HTTP traces endpoint; the `collector` profile points it at the Collector instead |
+| `OTLP_METRICS_EXPORT_ENABLED` | unset (`false`) | Push metrics over OTLP as well as serving them for pull; only with the `collector` profile |
 | `TRACING_SAMPLE_RATE` | `1.0` | Spring Boot's default is `0.1`; lower this deliberately under real traffic |
 | `TRACE_INCLUDE_QUERY_CONTENT` | unset (`false`) | Attaches the customer's question to vector-store spans. Debugging only — see the README's Observability section |
 
-Jaeger's UI is on port 16686 and its OTLP/HTTP ingest on 4318; both are overridable with
-`JAEGER_UI_PORT` and `OTLP_HTTP_PORT`.
-
-The Kubernetes manifests do not deploy a tracing backend. Set `OTLP_TRACING_EXPORT_ENABLED` and
-`OTLP_TRACING_ENDPOINT` in the ConfigMap to point at whatever collector the cluster already has.
-Jaeger's storage here is in-memory and resets when the container restarts, which is fine for
-local work and not a production configuration.
+Grafana is on port 3000 with anonymous admin access (a laptop setting; do not copy it), and
+Prometheus on 9090; both, and Tempo's OTLP ingest on 4318, are overridable with `GRAFANA_PORT`,
+`PROMETHEUS_PORT` and `OTLP_HTTP_PORT`. Storage for all three backends is a named volume with
+a one- to two-day retention, which is fine for local work and would be object storage in a
+cluster. See [docs/observability.md](observability.md) for the stack, the dashboards and the
+links between the signals.
 
 ---
 

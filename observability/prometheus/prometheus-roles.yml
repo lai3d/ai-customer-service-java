@@ -1,0 +1,38 @@
+# Prometheus for the roles stack (docker-compose.services.yml): one job per role, so every
+# panel can be split by `role` and the seams between them show up as http_client_requests on
+# the chat side and http_server_requests on the other.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: chat
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["chat:8080"]
+        labels:
+          role: chat
+  - job_name: knowledge
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["knowledge:8080"]
+        labels:
+          role: knowledge
+  - job_name: ticket
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ticket:8080"]
+        labels:
+          role: ticket
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]

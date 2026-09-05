@@ -5,6 +5,7 @@
 #      export ANTHROPIC_API_KEY=sk-ant-...   # or put it in .env (git-ignored)
 #      docker compose up --build
 #      curl localhost:8080/actuator/health
+#      open http://localhost:3000            # Grafana: dashboards, traces (Tempo), logs (Loki)
 #
 # 2. Dependencies only -- run the app yourself from an IDE or ./mvnw spring-boot:run:
 #
@@ -49,7 +50,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      jaeger:
+      tempo:
         condition: service_started
     environment:
       # Name-only entry: the value is taken from the shell environment or .env at run
@@ -70,11 +71,14 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-csagent}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-csagent}
 
-      # Container-specific: the app exports to Jaeger over the compose network, and tracing is
-      # on here because `docker compose up` brings Jaeger up with it. Running the app directly
-      # leaves export off so the log is not filled with failures against nothing.
+      # Container-specific: the app exports to Tempo over the compose network, and tracing is
+      # on here because `docker compose up` brings Tempo up with it. Running the app directly
+      # leaves export off so the log is not filled with failures against nothing. The Collector
+      # profile overrides the endpoint from .env; see otel-collector below.
       - OTLP_TRACING_EXPORT_ENABLED=true
-      - OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTLP_TRACING_ENDPOINT=${OTLP_TRACING_ENDPOINT:-http://tempo:4318/v1/traces}
+      - OTLP_METRICS_EXPORT_ENABLED
+      - OTLP_METRICS_ENDPOINT=${OTLP_METRICS_ENDPOINT:-http://otel-collector:4318/v1/metrics}
 
       # Name-only, so an unset variable stays unset in the container and the application's own
       # default applies. Compose reads .env for interpolation but does NOT inject undeclared
@@ -126,15 +130,95 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # Jaeger ingests OTLP natively, so no separate collector is needed for local work.
-  # A real deployment would put an OpenTelemetry Collector in front of it.
-  jaeger:
-    image: jaegertracing/jaeger:2.20.0
-    container_name: csagent-jaeger
+  # --- The Grafana stack ---------------------------------------------------------------------
+  # Tempo for traces (OTLP in, TraceQL out, and span-derived metrics pushed to Prometheus),
+  # Prometheus pulling /actuator/prometheus, Loki for logs with Alloy tailing the containers,
+  # Grafana provisioned with the three datasources, their cross-links and the dashboards in
+  # observability/grafana/dashboards. See docs/observability.md.
+  tempo:
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
     ports:
-      - "${JAEGER_UI_PORT:-16686}:16686"   # web UI
       - "${OTLP_HTTP_PORT:-4318}:4318"     # OTLP/HTTP, what the app exports to
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+      # Micrometer attaches the current trace id to histogram observations; this keeps them.
+      - --enable-feature=exemplar-storage
+      # Tempo's metrics-generator and the optional Collector push here.
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.5
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.11.0
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only: Alloy lists containers and tails their logs, nothing more.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      # A local stack with no login: anyone who can reach the port is an admin. Do not copy
+      # this into anything that is not a laptop.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    restart: unless-stopped
+
+  # Optional, `docker compose --profile collector up`: the application pushes traces and
+  # metrics to the Collector over OTLP and it fans them out to Tempo and Prometheus. Point the
+  # application at it with, in .env:
+  #   OTLP_TRACING_ENDPOINT=http://otel-collector:4318/v1/traces
+  #   OTLP_METRICS_EXPORT_ENABLED=true
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    profiles: ["collector"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - tempo
+      - prometheus
     restart: unless-stopped
 
 volumes:
   pgdata:
+  tempo-data:
+  prometheus-data:
+  loki-data:

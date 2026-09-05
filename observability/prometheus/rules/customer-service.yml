@@ -1,0 +1,98 @@
+# Alerts, as Prometheus rules rather than Grafana's, so they live in git, are checked by
+# `promtool check rules` in CI, and are the same file a PrometheusRule CRD carries on a cluster.
+# Each one says why it exists; an alert nobody can explain is noise with a pager attached.
+groups:
+  - name: customer-service
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not being scraped"
+          description: "No metrics from {{ $labels.instance }} for 2 minutes. Readiness may still be fine; this is about the process being reachable at all."
+
+      - alert: TurnErrorRate
+        # 5xx on the public endpoints as a share of all turns. 502 is the provider (bad key,
+        # rejected request), 503 is knowledge unavailable or the provider overloaded; both are
+        # a customer being told to try again.
+        expr: |
+          sum(rate(http_server_requests_seconds_count{uri=~"/api/v1/chat.*", status=~"5.."}[5m]))
+            /
+          sum(rate(http_server_requests_seconds_count{uri=~"/api/v1/chat.*"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of turns are failing"
+          description: "Check gen_ai_client_operation errors (the provider) and the knowledge seam before assuming the model is at fault."
+
+      - alert: SlowTurns
+        # A turn is retrieval plus one or two model calls; twenty seconds at p95 means the
+        # customer is watching a spinner, whatever the cause.
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri=~"/api/v1/chat.*"}[5m])) by (le)) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 turn latency above 20 s"
+          description: "Split by gen_ai_client_operation_seconds (the model) and db_vector_client_operation_seconds (retrieval) to see which leg it is."
+
+      - alert: UnpricedModelCalls
+        # A model with no configured price has its tokens counted and its cost recorded as
+        # zero. This is the quiet version of a billing bug, and the counter exists so it is
+        # never quiet.
+        expr: increase(chat_unpriced_model_calls_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model {{ $labels.model }} has no configured price"
+          description: "Add it under app.cost.prices, keyed on the id the provider reports, not the one requested."
+
+      - alert: CostBurnRate
+        # Dollars per hour across every model. The threshold is a starting point for a demo;
+        # set it from the invoice you are prepared to explain.
+        expr: sum(rate(chat_cost_usd_total[1h])) * 3600 > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spending more than $5/hour on model calls"
+          description: "Per-conversation budgets bound one conversation; this bounds all of them."
+
+      - alert: StreamFailures
+        # Streams that ended with an error event, as a share of streams that ended. Cancelled
+        # is the customer closing the tab and is not counted.
+        expr: |
+          sum(rate(chat_stream_terminations_total{outcome="failed"}[10m]))
+            /
+          sum(rate(chat_stream_terminations_total{outcome!="cancelled"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of streams end in an error event"
+
+      - alert: TicketServiceUnavailable
+        # The tool adapter returned the unavailable value: two attempts and a recovery read
+        # all failed. The model told the customer a human would follow up; someone has to.
+        expr: increase(chat_tool_invocations_total{tool="create_support_ticket", outcome="unavailable"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ticket creation fell back to 'unavailable' in the last 10 minutes"
+          description: "Tickets promised to customers in this window were not written. Check the ticket role and its Postgres."
+
+      - alert: ConversationConflicts
+        # 409s are a client sending a second turn before the first finished. A trickle is a
+        # retrying client; a rate is a client bug or two clients sharing a conversation id.
+        expr: sum(rate(http_server_requests_seconds_count{uri=~"/api/v1/chat.*", status="409"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than one overlapping-turn refusal per second"

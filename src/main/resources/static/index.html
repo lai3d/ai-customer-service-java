@@ -135,7 +135,7 @@ const TEXT = {
     emptyTitle: "Ask the assistant something",
     emptyBody: "It answers from an 18-entry FAQ and two mock tools. Every passage it retrieves, every tool it calls and every token it spends appears on the right.",
     retrieval: "Retrieved", tools: "Tools",
-    relative: "Bars are relative within this set — e5 similarity compresses into a narrow band.", cost: "Cost", trace: "View this trace in Jaeger",
+    relative: "Bars are relative within this set — e5 similarity compresses into a narrow band.", cost: "Cost", trace: "View this trace in Grafana",
     tokensIn: "in", tokensOut: "out", noAnswer: "The assistant was interrupted. Please try again.",
     starters: ["Where is my order ORD-10042?", "How long do I have to return something?",
                "My card was declined", "I want to speak to a person"]
@@ -148,7 +148,7 @@ const TEXT = {
     emptyTitle: "问点什么",
     emptyBody: "助手依据 18 条 FAQ 和两个模拟工具作答。它检索到的每一段、调用的每个工具、花掉的每个 token，右侧全部可见。",
     retrieval: "检索", tools: "工具",
-    relative: "条形为本组内的相对排名 —— e5 的相似度分布被压缩在很窄的区间。", cost: "开销", trace: "在 Jaeger 中查看这条 trace",
+    relative: "条形为本组内的相对排名 —— e5 的相似度分布被压缩在很窄的区间。", cost: "开销", trace: "在 Grafana 中查看这条 trace",
     tokensIn: "输入", tokensOut: "输出", noAnswer: "回复中断了，请重试。",
     starters: ["我的订单 ORD-10042 到哪了？", "退货有时间限制吗？",
                "刷卡付款失败了", "我要找人工客服"]
@@ -415,7 +415,10 @@ async function send(question) {
         c.appendChild(row);
         if (payload.traceId) {
           const a = document.createElement("a");
-          a.href = `http://localhost:16686/trace/${payload.traceId}`;
+          // Grafana's Explore, with the Tempo datasource and this trace id as the TraceQL
+          // query; from there the trace's log lines are one click away in Loki.
+          const panes = { a: { datasource: "tempo", queries: [{ refId: "A", datasource: { type: "tempo", uid: "tempo" }, queryType: "traceql", query: payload.traceId }], range: { from: "now-1h", to: "now" } } };
+          a.href = `http://localhost:3000/explore?schemaVersion=1&orgId=1&panes=${encodeURIComponent(JSON.stringify(panes))}`;
           a.target = "_blank";
           a.rel = "noreferrer";
           a.style.fontSize = "12px";

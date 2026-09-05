@@ -320,6 +320,21 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      # Histogram buckets, not just count/sum/max, for the timers a dashboard needs a
+      # percentile of. Without these Prometheus sees a summary, histogram_quantile has nothing
+      # to work on, and there is no bucket for an exemplar to hang a trace id from.
+      percentiles-histogram:
+        http.server.requests: true
+        http.client.requests: true
+        gen_ai.client.operation: true
+        db.vector.client.operation: true
+      # Turns take seconds and model calls take longer; the default buckets top out too early.
+      maximum-expected-value:
+        http.server.requests: 120s
+        gen_ai.client.operation: 120s
+        http.client.requests: 30s
+        db.vector.client.operation: 5s
 
   # --- Distributed tracing ---
   #
@@ -335,12 +350,26 @@ management:
       # 1.0 for a demo; lower this deliberately under real traffic.
       probability: ${TRACING_SAMPLE_RATE:1.0}
   otlp:
+    # Metrics over OTLP, pushed, as an alternative to Prometheus pulling /actuator/prometheus.
+    # Off by default: pull needs no collector and is what Kubernetes expects. On, the same
+    # Micrometer meters go to the endpoint below every `step`; the names arrive with dots and
+    # a Prometheus-compatible backend translates them (chat.tokens -> chat_tokens_total), which
+    # the dashboard test checks against both paths.
+    metrics:
+      export:
+        enabled: ${OTLP_METRICS_EXPORT_ENABLED:false}
+        url: ${OTLP_METRICS_ENDPOINT:http://localhost:4318/v1/metrics}
+        step: 15s
+        # Micrometer's OTLP registry reports timers in milliseconds by default; Prometheus
+        # renders that as http_server_requests_milliseconds_bucket and every dashboard query
+        # written against the pull path stops matching. Seconds, same as the pull path.
+        base-time-unit: seconds
     tracing:
       endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
       export:
         # Off unless a collector is actually running, otherwise `./mvnw spring-boot:run` on its
         # own fills the log with export failures. `docker compose up` turns it on, because that
-        # brings Jaeger up alongside the app.
+        # brings Tempo up alongside the app.
         enabled: ${OTLP_TRACING_EXPORT_ENABLED:false}
 
 logging:

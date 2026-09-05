@@ -75,7 +75,7 @@ flowchart LR
     Corpus[/"faq.json<br/>18 条"/]
     Embed["ONNX multilingual-e5-small<br/>进程内 · 384 维 · 中英双语"]
     Prom["/actuator/prometheus<br/>模型调用 · 流式结局"]
-    Jaeger["Jaeger<br/>OTLP spans"]
+    Tempo["Grafana 栈<br/>Tempo · Loki · Prometheus"]
 
     Client -->|"POST /api/v1/chat<br/>POST /api/v1/chat/stream"| Ctl
     Ctl --> Svc
@@ -93,7 +93,7 @@ flowchart LR
     Svc -.->|"断连时的<br/>部分回复"| CM
     Svc -.-> Prom
     CC -.-> Prom
-    CC -.->|"OTLP"| Jaeger
+    CC -.->|"OTLP"| Tempo
 
 ```
 
@@ -172,7 +172,7 @@ sequenceDiagram
 | 嵌入 | Spring AI Transformers — `multilingual-e5-small` ONNX，进程内 |
 | 向量库 | pgvector |
 | 记忆 | Spring AI JDBC chat memory repository |
-| 可观测性 | Actuator + Micrometer → Prometheus；Micrometer Tracing → OTLP → Jaeger |
+| 可观测性 | Micrometer → Prometheus（直方图、exemplar）；Micrometer Tracing → OTLP → Tempo；Alloy → Loki；Grafana 预置 dashboard、告警和三者之间的互跳 |
 | 构建 | Maven（含 wrapper） |
 | 测试 | JUnit 5 + Testcontainers |
 
@@ -194,7 +194,7 @@ $EDITOR .env               # 设置 ANTHROPIC_API_KEY
 docker compose up -d       # 先 Postgres，等它健康后再起应用
 curl -s localhost:8080/actuator/health | jq
 open http://localhost:8080         # 演示界面
-open http://localhost:16686        # Jaeger：每一轮对话的 trace
+open http://localhost:3000         # Grafana：dashboard，以及每一轮对话的 trace 和日志
 ```
 
 镜像里烤进了嵌入模型，所以冷启动不会在运行时下载任何东西，几秒钟就 ready。
@@ -296,13 +296,14 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 - [x] **3 · 工具调用** — 订单状态查询与工单创建
 - [x] **4 · 部署** — Dockerfile、一条命令的 Docker Compose 栈、经 kind 验证过的 Kubernetes 清单
 - [x] **5 · 双语检索** — 中文语料、多语言嵌入、跨语言测试
-- [x] **6 · 链路追踪** — 经 OTLP 到 Jaeger 的 OpenTelemetry span，排除客户消息
+- [x] **6 · 链路追踪** — 经 OTLP 到 Tempo 的 OpenTelemetry span，排除客户消息
 - [x] **7 · 多 provider** — Anthropic、OpenAI、Gemini 和 xAI，四家全部真实调用验证
 - [x] **8 · 演示界面** — 一个玻璃盒页面，逐轮展示检索、工具调用和 token 成本
 - [x] **9 · 成本与失败** — 按会话的 token 预算、HTTP 超时、有界重试、成本指标
 - [x] **10 · 基准测试** — 虚拟线程这个决策的证据：3 倍吞吐、202 线程降到 2
 - [x] **11 · 加固** — 有界工具副作用、优雅停机、SSE keep-alive
 - [x] **12 · 部署形态** — 同一个制品既能作为单进程跑，也能拆成 chat、knowledge、ticket 三个角色跑，由两份独立设计在 [ADR 001](docs/adr/001-deployment-targets.md) 中调和后决定；共享状态迁入 Postgres 并由 Flyway 管理；两种拓扑在 Compose、kind 和 CI 上都经过验证
+- [x] **13 · 可观测性** — Grafana 栈：带直方图和 exemplar 的 Prometheus、能从 span 生成服务拓扑图的 Tempo、日志与 trace 互跳的 Loki，两个 dashboard 和八条告警以代码形式入库，OTLP 推送路径用同一套 dashboard 验证
 
 每一条都已完成，整个系统也已对真实 API 端到端跑过：中文问题会检索到中文段落并用中文作答，
 两个工具都能完整往返，真实 token 用量会进到预算和 span 里，问一个语料没覆盖的问题时，

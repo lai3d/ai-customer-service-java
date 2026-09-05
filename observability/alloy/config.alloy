@@ -1,0 +1,54 @@
+// Alloy: tail every container's stdout/stderr through the Docker socket and ship it to Loki.
+//
+// Two labels only -- the compose service and the container -- because labels are what Loki
+// indexes and a label per trace id would be a cardinality bomb. The trace id is parsed out of
+// Spring Boot's correlation prefix, `[<traceId>-<spanId>]`, into structured metadata,
+// which is indexed per line rather than per stream: cheap to store, filterable in LogQL, and
+// what Grafana's trace-to-logs correlation queries on.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.correlation.receiver]
+}
+
+loki.process "correlation" {
+  // Spring Boot's correlation prefix, `[<traceId>-<spanId>]`, written after the thread name
+  // whenever Micrometer Tracing is on the classpath; an empty bracket when no span is current.
+  // The first version of this regex was written from memory of the documented pattern,
+  // `[app,traceId,spanId]`, and matched nothing; the line format is what the container prints.
+  stage.regex {
+    expression = "\\[(?P<traceId>[0-9a-f]{32})-(?P<spanId>[0-9a-f]{16})\\]"
+  }
+  stage.structured_metadata {
+    values = {
+      traceId = "",
+      spanId  = "",
+    }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
