@@ -232,6 +232,47 @@
     <div class="status" id="fb-status"></div>
   </section>
 
+  <section id="knowledge">
+    <h2>Knowledge</h2>
+    <p class="hint" id="k-active"></p>
+    <div class="row">
+      <label>New entry id <input id="k-new-id" placeholder="e.g. gift-wrap" autocomplete="off"></label>
+      <label>Category <input id="k-new-category" placeholder="e.g. orders" autocomplete="off"></label>
+      <button type="button" id="k-create">Create entry</button>
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="k-publish">Publish…</button>
+    </div>
+    <div class="status" id="k-status"></div>
+    <table>
+      <thead><tr><th>Entry</th><th>Category</th><th>Languages</th><th></th></tr></thead>
+      <tbody id="k-rows"></tbody>
+    </table>
+    <div id="k-editor" hidden>
+      <h3 id="k-editor-title"></h3>
+      <div id="k-editor-languages"></div>
+      <div class="row">
+        <label>Add a language <input id="k-new-lang" placeholder="en, zh, …" size="6" autocomplete="off"></label>
+        <button type="button" id="k-add-lang">Add</button>
+        <button type="button" class="danger" id="k-retire">Retire</button>
+      </div>
+    </div>
+    <h2 style="margin-top:18px">Versions</h2>
+    <table>
+      <thead><tr><th>Version</th><th>State</th><th>Docs</th><th>Created</th><th>Note / error</th><th></th></tr></thead>
+      <tbody id="k-versions"></tbody>
+    </table>
+    <h2 style="margin-top:18px">Retrieval preview</h2>
+    <form class="row" id="k-preview">
+      <label>Question <input name="text" size="40" placeholder="what a customer might ask" autocomplete="off"></label>
+      <label>Version <select name="version" id="k-preview-version"></select></label>
+      <button type="submit">Search</button>
+    </form>
+    <table>
+      <thead><tr><th>#</th><th>Entry</th><th>Language</th><th>Score</th><th>Text</th></tr></thead>
+      <tbody id="k-preview-rows"></tbody>
+    </table>
+  </section>
+
   <section id="staff" hidden>
     <h2>Staff accounts</h2>
     <p class="hint">Admins manage accounts; support staff handle tickets and see the conversations behind them. Usernames are lower case; passwords are at least 12 characters.</p>
@@ -697,6 +738,186 @@
   $("fb-prev").addEventListener("click", () => { fbQuery.page = Math.max(0, fbQuery.page - 1); loadFeedback(); });
   $("fb-next").addEventListener("click", () => { fbQuery.page += 1; loadFeedback(); });
 
+  // --- knowledge ---------------------------------------------------------------------------
+  let kEntries = [];
+  let kActive = null;
+  let kCurrentEntry = null;
+  async function loadKnowledge() {
+    const [entriesResponse, versionsResponse] = await Promise.all([api("/knowledge/entries"), api("/knowledge/versions")]);
+    if (!entriesResponse.ok || !versionsResponse.ok) { setStatus("k-status", "Could not load the knowledge base.", true); return; }
+    kEntries = await entriesResponse.json();
+    const versions = await versionsResponse.json();
+    kActive = versions.active;
+    $("k-active").textContent = kActive ? "Active version: " + kActive + ". Drafts change nothing until published." : "No active version.";
+    renderEntries();
+    renderVersions(versions.versions);
+    if (kCurrentEntry) renderEditor(kEntries.find((e) => e.entryId === kCurrentEntry) || null);
+    $("k-publish").hidden = me.role !== "admin";
+  }
+  function renderEntries() {
+    const rows = $("k-rows");
+    rows.replaceChildren();
+    for (const entry of kEntries) {
+      const tr = el("tr", "pick");
+      tr.appendChild(el("td", "mono", entry.entryId + (entry.retired ? " (retired)" : "")));
+      tr.appendChild(el("td", null, entry.category));
+      const langs = el("td");
+      const seen = new Set();
+      for (const r of entry.revisions) {
+        const key = r.language + ":" + r.state;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const b = el("span", "badge " + (r.state === "draft" ? "open" : ""), r.language + " " + r.state);
+        b.style.marginRight = "4px";
+        langs.appendChild(b);
+      }
+      tr.appendChild(langs);
+      const actions = el("td");
+      const edit = el("button", null, "Edit"); edit.type = "button";
+      edit.addEventListener("click", () => { kCurrentEntry = entry.entryId; renderEditor(entry); });
+      actions.appendChild(edit);
+      tr.appendChild(actions);
+      rows.appendChild(tr);
+    }
+  }
+  function renderEditor(entry) {
+    const box = $("k-editor");
+    if (!entry) { box.hidden = true; return; }
+    box.hidden = false;
+    $("k-editor-title").textContent = entry.entryId + " · " + entry.category + (entry.retired ? " · retired" : "");
+    $("k-retire").textContent = entry.retired ? "Un-retire" : "Retire";
+    $("k-retire").hidden = me.role !== "admin";
+    const languages = $("k-editor-languages");
+    languages.replaceChildren();
+    const byLanguage = new Map();
+    for (const r of entry.revisions) {
+      if (!byLanguage.has(r.language)) byLanguage.set(r.language, {});
+      byLanguage.get(r.language)[r.state] = r;
+    }
+    for (const [language, revs] of byLanguage) languages.appendChild(languageForm(entry, language, revs.draft || null, revs.published || null));
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function languageForm(entry, language, draft, published) {
+    const form = el("form", "turn");
+    const current = draft || published;
+    form.appendChild(el("h4", null, language + (draft ? " · draft" : published ? " · published" : " · new")));
+    if (published && draft) {
+      const was = el("div", "hint");
+      was.appendChild(document.createTextNode("Published text: " + published.question + " — " + published.answer));
+      form.appendChild(was);
+    }
+    const q = el("input"); q.name = "question"; q.size = 60; q.value = current ? current.question : ""; q.placeholder = "Question";
+    const a = el("textarea"); a.name = "answer"; a.value = current ? current.answer : ""; a.placeholder = "Answer";
+    const n = el("input"); n.name = "note"; n.size = 40; n.placeholder = "why this change (optional)";
+    const ql = el("label", null, "Question "); ql.appendChild(q);
+    const al = el("label", null, "Answer "); al.appendChild(a);
+    const nl = el("label", null, "Note "); nl.appendChild(n);
+    form.appendChild(ql); form.appendChild(al); form.appendChild(nl);
+    const buttons = el("div", "row");
+    const save = el("button", "primary", "Save draft"); save.type = "submit";
+    buttons.appendChild(save);
+    if (draft) {
+      const discard = el("button", null, "Discard draft"); discard.type = "button";
+      discard.addEventListener("click", async () => {
+        const response = await api("/knowledge/entries/" + encodeURIComponent(entry.entryId) + "/drafts/" + encodeURIComponent(language), { method: "DELETE" });
+        if (response.ok || response.status === 204) await loadKnowledge(); else setStatus("k-status", await problem(response), true);
+      });
+      buttons.appendChild(discard);
+    }
+    form.appendChild(buttons);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await api("/knowledge/entries/" + encodeURIComponent(entry.entryId) + "/drafts/" + encodeURIComponent(language),
+          { method: "PUT", body: { question: q.value, answer: a.value, note: n.value } });
+      if (response.ok) { setStatus("k-status", "Draft saved for " + entry.entryId + " (" + language + ")."); await loadKnowledge(); }
+      else setStatus("k-status", await problem(response), true);
+    });
+    return form;
+  }
+  $("k-add-lang").addEventListener("click", () => {
+    const entry = kEntries.find((e) => e.entryId === kCurrentEntry);
+    const language = $("k-new-lang").value.trim();
+    if (!entry || !language) return;
+    $("k-editor-languages").appendChild(languageForm(entry, language, null, null));
+    $("k-new-lang").value = "";
+  });
+  $("k-create").addEventListener("click", async () => {
+    const id = $("k-new-id").value.trim();
+    const response = await api("/knowledge/entries/" + encodeURIComponent(id), { method: "POST", body: { category: $("k-new-category").value.trim() } });
+    if (response.status === 201) { $("k-new-id").value = ""; $("k-new-category").value = ""; kCurrentEntry = id; await loadKnowledge(); }
+    else setStatus("k-status", await problem(response), true);
+  });
+  $("k-retire").addEventListener("click", async () => {
+    const entry = kEntries.find((e) => e.entryId === kCurrentEntry);
+    if (!entry) return;
+    const response = await api("/knowledge/entries/" + encodeURIComponent(entry.entryId) + "/retire", { method: "POST", body: { retired: !entry.retired } });
+    if (response.ok) await loadKnowledge(); else setStatus("k-status", await problem(response), true);
+  });
+  function renderVersions(versions) {
+    const rows = $("k-versions");
+    rows.replaceChildren();
+    const select = $("k-preview-version");
+    select.replaceChildren();
+    const activeOption = el("option", null, "active"); activeOption.value = ""; select.appendChild(activeOption);
+    for (const v of versions) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "mono", v.version));
+      const st = el("td"); st.appendChild(badge(v.state)); tr.appendChild(st);
+      tr.appendChild(el("td", null, v.documentCount === null || v.documentCount === undefined ? "" : String(v.documentCount)));
+      tr.appendChild(el("td", null, when(v.createdAt) + " by " + v.createdBy));
+      tr.appendChild(el("td", v.error ? "failure" : null, v.error || v.note || ""));
+      const actions = el("td");
+      if (v.state === "ready" && me.role === "admin") {
+        const activate = el("button", null, "Activate"); activate.type = "button";
+        activate.addEventListener("click", async () => {
+          const response = await api("/knowledge/rollback", { method: "POST", body: { version: v.version, expectedActive: kActive } });
+          if (response.ok) { setStatus("k-status", "Activated " + v.version + "."); await loadKnowledge(); }
+          else { setStatus("k-status", await problem(response), true); if (response.status === 409) await loadKnowledge(); }
+        });
+        actions.appendChild(activate);
+      }
+      tr.appendChild(actions);
+      rows.appendChild(tr);
+      if (v.state === "ready" || v.state === "active") {
+        const option = el("option", null, v.version + " (" + v.state + ")"); option.value = v.version; select.appendChild(option);
+      }
+    }
+  }
+  $("k-publish").addEventListener("click", async () => {
+    const note = window.prompt("What does this publication change? (optional)");
+    if (note === null) return;
+    const response = await api("/knowledge/publish", { method: "POST", body: { note, expectedActive: kActive } });
+    if (response.status !== 202) { setStatus("k-status", await problem(response), true); if (response.status === 409) await loadKnowledge(); return; }
+    setStatus("k-status", "Publishing… embedding the documents.");
+    const started = Date.now();
+    const poll = async () => {
+      await loadKnowledge();
+      const building = kEntries && (await (await api("/knowledge/versions")).json()).versions.some((v) => v.state === "building");
+      if (building && Date.now() - started < 120000) setTimeout(poll, 1500);
+      else setStatus("k-status", building ? "Still building after two minutes; reload later." : "Publication finished. Active version: " + kActive + ".");
+    };
+    setTimeout(poll, 1500);
+  });
+  $("k-preview").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const f = event.target.elements;
+    const response = await api("/knowledge/preview", { method: "POST", body: { text: f.text.value, version: f.version.value || null, topK: 5 } });
+    const rows = $("k-preview-rows");
+    rows.replaceChildren();
+    if (!response.ok) { setStatus("k-status", await problem(response), true); return; }
+    const passages = await response.json();
+    passages.forEach((p, i) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", null, String(i + 1)));
+      tr.appendChild(el("td", "mono", String(p.metadata.entry_id)));
+      tr.appendChild(el("td", null, String(p.metadata.language)));
+      tr.appendChild(el("td", null, (p.score || 0).toFixed(4)));
+      tr.appendChild(el("td", null, p.text));
+      rows.appendChild(tr);
+    });
+    if (passages.length === 0) rows.appendChild(el("tr")).appendChild(el("td", "hint", "Nothing found."));
+  });
+
   // --- staff (admins) -----------------------------------------------------------------------
   function renderStaff(accounts) {
     const rows = $("staff-rows");
@@ -739,6 +960,7 @@
     await loadTickets();
     await loadConversations();
     await loadFeedback();
+    await loadKnowledge();
     if (me.role === "admin") {
       $("staff").hidden = false;
       await loadStaff();
