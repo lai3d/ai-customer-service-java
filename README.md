@@ -404,9 +404,10 @@ migrations are the part worth reading, in both directions.
 ├── src/main/java/dev/merlionos/customerservice/
 │   ├── CustomerServiceApplication.java   # imports one gated configuration per role
 │   ├── target/              # app.target: all (default) or one role
-│   ├── chat/ config/ cost/ orders/ provider/ tools/   # the chat role
+│   ├── chat/ clients/ config/ cost/ orders/ provider/ tools/   # the chat role
 │   ├── rag/                 # the knowledge role; rag/api/ is its contract
-│   └── ticket/              # the ticket role; ticket/api/ is its contract
+│   ├── ticket/              # the ticket role; ticket/api/ is its contract
+│   └── internal/            # the token filter on /internal/** when the roles are split
 ├── src/main/resources/
 └── src/test/java/           # Testcontainers-backed integration tests
 ```

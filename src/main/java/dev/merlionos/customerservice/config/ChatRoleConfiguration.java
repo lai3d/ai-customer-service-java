@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice.config;
 
 import dev.merlionos.customerservice.chat.ChatService;
+import dev.merlionos.customerservice.clients.ServicesProperties;
 import dev.merlionos.customerservice.cost.ConversationBudget;
 import dev.merlionos.customerservice.orders.OrderLookup;
 import dev.merlionos.customerservice.provider.XaiChatConfig;
@@ -24,6 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling // the budget sweep
 @ComponentScan(basePackageClasses = {
         ChatService.class,          // chat
+        ServicesProperties.class,   // clients: the HTTP adapters, present only when exactly chat
         ChatRoleConfiguration.class, // config
         ConversationBudget.class,   // cost
         OrderLookup.class,          // orders

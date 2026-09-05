@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.ticket;
 
+import dev.merlionos.customerservice.ticket.api.OperationConflictException;
 import dev.merlionos.customerservice.ticket.api.SupportTicket;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
 import dev.merlionos.customerservice.ticket.api.TicketRequest;
@@ -15,6 +16,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Creating a ticket is a write, and writes need different care from lookups.
@@ -45,6 +47,16 @@ import java.util.Locale;
  * conversation queue on that lock and see each other's inserts; creators for different
  * conversations do not touch each other's rows and run in parallel. The unique constraint
  * stays as the backstop it is.
+ *
+ * <h2>Why an operation row</h2>
+ *
+ * <p>Over HTTP a write can commit and its response still be lost, and the caller then has to
+ * choose between repeating a write it cannot see and telling the customer something failed
+ * that did not. So every attempt carries an operation id, and the outcome is recorded against
+ * it in {@code ticket_operation} inside the same transaction as the ticket. A retry with the
+ * same id gets the recorded outcome back; a caller that gave up can read it later. The
+ * fingerprint of the input is stored with it, because an id reused with different input is
+ * not a retry and must not be answered as one.
  */
 public class JdbcTicketOperations implements TicketOperations {
 
@@ -71,21 +83,53 @@ public class JdbcTicketOperations implements TicketOperations {
         String conversationId = request.conversationId();
         String deduplicationKey = normalise(request.summary());
 
+        String fingerprint = fingerprint(request);
+
         TicketResult result = transaction.execute(status -> {
             // The row exists after this whether or not it existed before, and the FOR UPDATE
-            // below is what every competing creator for this conversation waits on.
+            // below is what every competing creator for this conversation waits on -- including
+            // a retry of an operation that is still being committed by its first attempt.
             jdbc.update("INSERT INTO conversation_ticket_guard (conversation_id) VALUES (?) ON CONFLICT DO NOTHING",
                     conversationId);
             int count = jdbc.queryForObject(
                     "SELECT ticket_count FROM conversation_ticket_guard WHERE conversation_id = ? FOR UPDATE",
                     Integer.class, conversationId);
 
+            Optional<RecordedOperation> replay = recordedOperation(request.operationId());
+            if (replay.isPresent()) {
+                if (!replay.get().fingerprint().equals(fingerprint)) {
+                    throw new OperationConflictException(request.operationId());
+                }
+                return replay.get().result();
+            }
+
+            TicketResult outcome = decide(conversationId, deduplicationKey, request);
+            jdbc.update("""
+                    INSERT INTO ticket_operation
+                        (operation_id, conversation_id, fingerprint, status, ticket_number, explanation, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, request.operationId(), conversationId, fingerprint, outcome.status().name(),
+                    outcome.ticket() == null ? null : outcome.ticket().ticketNumber(), outcome.explanation(),
+                    Timestamp.from(Instant.now()));
+            return outcome;
+        });
+
+        logOutcome(conversationId, result);
+        return result;
+    }
+
+    /** The dedupe-or-cap-or-create decision, under the guard row's lock. */
+    private TicketResult decide(String conversationId, String deduplicationKey, TicketRequest request) {
+        {
             List<SupportTicket> duplicate = jdbc.query(
                     "SELECT * FROM support_ticket WHERE conversation_id = ? AND dedupe_key = ?",
                     TICKET, conversationId, deduplicationKey);
             if (!duplicate.isEmpty()) {
                 return TicketResult.existing(withAlreadyExisted(duplicate.getFirst()));
             }
+            int count = jdbc.queryForObject(
+                    "SELECT ticket_count FROM conversation_ticket_guard WHERE conversation_id = ?",
+                    Integer.class, conversationId);
             if (count >= MAX_TICKETS_PER_CONVERSATION) {
                 return TicketResult.refused(
                         "This conversation already has the maximum number of open tickets. A "
@@ -109,10 +153,37 @@ public class JdbcTicketOperations implements TicketOperations {
             jdbc.update("UPDATE conversation_ticket_guard SET ticket_count = ticket_count + 1 WHERE conversation_id = ?",
                     conversationId);
             return TicketResult.created(ticket);
-        });
+        }
+    }
 
-        logOutcome(conversationId, result);
-        return result;
+    @Override
+    public Optional<TicketResult> recorded(String operationId) {
+        return recordedOperation(operationId).map(RecordedOperation::result);
+    }
+
+    private record RecordedOperation(String fingerprint, TicketResult result) {
+    }
+
+    private Optional<RecordedOperation> recordedOperation(String operationId) {
+        return jdbc.query("""
+                SELECT o.fingerprint, o.status, o.explanation, t.*
+                FROM ticket_operation o LEFT JOIN support_ticket t ON t.ticket_number = o.ticket_number
+                WHERE o.operation_id = ?
+                """, (rs, i) -> {
+            TicketResult.Status status = TicketResult.Status.valueOf(rs.getString("status"));
+            SupportTicket ticket = rs.getString("ticket_number") == null ? null
+                    : new SupportTicket(rs.getString("ticket_number"), rs.getString("conversation_id"),
+                    rs.getString("category"), rs.getString("summary"), rs.getString("order_number"),
+                    rs.getTimestamp("created_at").toInstant(), status == TicketResult.Status.EXISTING);
+            return new RecordedOperation(rs.getString("fingerprint"),
+                    new TicketResult(status, status == TicketResult.Status.CREATED, ticket, rs.getString("explanation")));
+        }, operationId).stream().findFirst();
+    }
+
+    /** What makes two requests "the same request": everything the caller chose, normalised. */
+    static String fingerprint(TicketRequest request) {
+        return String.join("\u001f", request.conversationId(), normalise(request.summary()),
+                normalise(request.category()), request.orderNumber() == null ? "" : request.orderNumber().strip());
     }
 
     @Override
