@@ -72,11 +72,20 @@ class AdminKnowledgeApiTest {
         return knowledge.activeVersion().orElseThrow();
     }
 
-    /** The publication runs off the request thread; wait for its version row to exist and settle. */
+    /**
+     * The publication runs off the request thread; wait for its version row to reach a
+     * terminal state. {@code ready} is not one on this path: the build marks the row ready
+     * and the switch marks it active a moment later, and CI once read it in between. A row
+     * that stays ready because the switch lost a race is recorded as a refusal, which is the
+     * one case ready is final.
+     */
     private KnowledgeVersion awaitPublication(String createdBy, String note) throws InterruptedException {
         for (int i = 0; i < 240; i++) {
             Optional<KnowledgeVersion> version = knowledge.versions().stream()
-                    .filter(v -> createdBy.equals(v.createdBy()) && note.equals(v.note()) && !v.state().equals("building"))
+                    .filter(v -> createdBy.equals(v.createdBy()) && note.equals(v.note()))
+                    .filter(v -> v.state().equals("active") || v.state().equals("failed")
+                            || (v.state().equals("ready") && jdbc.queryForObject(
+                            "SELECT count(*) FROM admin_audit WHERE action = 'refused' AND target = 'knowledge'", Integer.class) > 0))
                     .findFirst();
             if (version.isPresent()) {
                 return version.get();
