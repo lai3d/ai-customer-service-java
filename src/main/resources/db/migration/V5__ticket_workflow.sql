@@ -32,6 +32,9 @@ CREATE TABLE ticket_event (
     to_state      varchar(16),
     from_owner    varchar(64),
     to_owner      varchar(64),
+    -- A note's text, or a resolution's conclusion. The conclusion is here and not on the
+    -- ticket row so that reopening carries nothing forward and every conclusion a ticket
+    -- ever had stays in its history.
     note          text,
     occurred_at   timestamptz NOT NULL
 );

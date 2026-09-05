@@ -52,8 +52,14 @@ public interface TicketWorkflow {
     /** {@code claimed} back to {@code open} and unowned. Owner or override. */
     TicketRecord release(String ticketNumber, TicketActor actor, int expectedVersion);
 
-    /** {@code claimed} to {@code resolved}. Owner or override. */
-    TicketRecord resolve(String ticketNumber, TicketActor actor, int expectedVersion);
+    /**
+     * {@code claimed} to {@code resolved}, with the conclusion: what was done for the customer.
+     * Required, because a resolved ticket with no conclusion is a closed door with nothing
+     * written on it. The conclusion lives on the event, not on the ticket row, so reopening
+     * has nothing to carry forward and the history keeps every conclusion a ticket ever had.
+     * Owner or override.
+     */
+    TicketRecord resolve(String ticketNumber, String conclusion, TicketActor actor, int expectedVersion);
 
     /** {@code claimed} or {@code resolved} to {@code closed}. Owner or override. */
     TicketRecord close(String ticketNumber, TicketActor actor, int expectedVersion);

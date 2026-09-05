@@ -161,8 +161,12 @@ public class JdbcTicketWorkflow implements TicketWorkflow {
     }
 
     @Override
-    public TicketRecord resolve(String ticketNumber, TicketActor actor, int expectedVersion) {
-        return change(ticketNumber, actor, expectedVersion, TicketEvent.Kind.RESOLVED, null, current -> {
+    public TicketRecord resolve(String ticketNumber, String conclusion, TicketActor actor, int expectedVersion) {
+        String text = conclusion == null ? "" : conclusion.strip();
+        if (text.isEmpty()) {
+            throw new TicketRuleException(ticketNumber, "cannot be resolved without a conclusion");
+        }
+        return change(ticketNumber, actor, expectedVersion, TicketEvent.Kind.RESOLVED, text, current -> {
             requireState(current, EnumSet.of(TicketState.CLAIMED), "resolved");
             requireOwnerOrOverride(current, actor);
             return new Target(TicketState.RESOLVED, current.owner());
