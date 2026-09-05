@@ -24,7 +24,7 @@ Testcontainers.
 
 docker compose up -d postgres                   # database only, for running from an IDE
 set -a && source .env && set +a && ./mvnw spring-boot:run
-docker compose up -d                            # Postgres and the app
+docker compose up -d                            # Postgres, the app, and the operations UI on :8084
 COMPOSE_PROFILES=observability docker compose up -d   # plus Tempo, Prometheus, Loki, Alloy, Grafana
 
 ./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'   # opt-in benchmark
@@ -324,18 +324,28 @@ see `docs/retrieval.md`.
 
 ### Staff login for the operations admin
 
-`/admin/**` is the operations admin (`admin/`, on the chat side) behind Spring Security form
-login with staff accounts in `staff_account` (bcrypt) and two roles, `admin` and `support`.
-It is **staff** authentication for a page that shows customer conversations; it is not
-customer authentication. The filter chain is bound to `/admin/**` with `securityMatcher`, so
-the public chat endpoints, the demo page, the actuator and `/internal/**` never pass through
-Spring Security; `AdminLoginTest` asserts that. Sessions are Spring Session JDBC rows
-(`spring_session`, Flyway-owned, initialiser off) because the chat role runs as replicas.
-CSRF tokens travel in a readable `XSRF-TOKEN` cookie and come back as `X-XSRF-TOKEN` or
-`_csrf`. `knowledge` and `ticket` processes exclude the security and session
+`/admin/api/**` is the operations admin's API (`admin/`, on the chat side) behind Spring
+Security with staff accounts in `staff_account` (bcrypt) and two roles, `admin` and
+`support`. It is **staff** authentication for an API that shows customer conversations; it
+is not customer authentication. The filter chain is bound to `/admin/api/**` with
+`securityMatcher`, so the public chat endpoints, the demo page, the actuator and
+`/internal/**` never pass through Spring Security; `AdminLoginTest` asserts that. Sessions
+are Spring Session JDBC rows (`spring_session`, Flyway-owned, initialiser off) because the
+chat role runs as replicas. Sign in and out are JSON (`POST /admin/api/login`,
+`POST /admin/api/logout`); an anonymous request is `401`, never a redirect. CSRF tokens
+travel in a readable `XSRF-TOKEN` cookie (`GET /admin/api/csrf` issues one) and come back as
+`X-XSRF-TOKEN`. `knowledge` and `ticket` processes exclude the security and session
 auto-configurations outright (`TargetEnvironmentPostProcessor`); left on, Boot's default
 chain would put a generated password in front of `/internal/**`. The first admin is seeded
 by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table.
+
+**The UI is a separate deployable**: `admin-ui/` (Vite + React + TypeScript, its own nginx
+image on 8084) proxies `/admin/api` to the app, so the browser sees one origin, the session
+stays a cookie, and the app needs no CORS and serves nothing under `/admin`. The upstream is
+`ADMIN_API_UPSTREAM` (`app:8080` in `docker-compose.yml`, `chat:8080` in the split, the
+Service on Kubernetes). `npm test` there includes the grep that no source uses
+`dangerouslySetInnerHTML` or any other string-to-markup sink; assistant text renders
+through `components/Markdown.tsx`, the demo page's subset as React elements, no links.
 
 The ticket loop is `/admin/api/tickets` over `TicketWorkflow` (`ticket/api`): local
 `JdbcTicketWorkflow` in `all`, `HttpTicketWorkflow` over `/internal/v1/ticket-workflow` in a

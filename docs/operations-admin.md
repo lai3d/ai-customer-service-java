@@ -1,12 +1,13 @@
 # Operations admin
 
-Status: built and merged, in two rounds. The first slice -- staff login and the ticket loop
+Status: built and merged, in three rounds. The first slice -- staff login and the ticket loop
 -- landed as PRs #22, #24 and #26 on 2026-09-05; the rest of the proposal's first release --
 the turn record, conversations, answer feedback, knowledge editing and publication, and the
 overview -- as PRs #28, #30, #31, #33, #34 and #35 on 2026-09-06, with #32 fixing the test
-infrastructure in between. This document is in three parts: the record of the first round,
-the record of the second, and then the proposal as reviewed in PR #16, kept as written,
-because the departures only mean something against the text they depart from.
+infrastructure in between; and the front end as a separate deployable in the third. This
+document is in four parts: the record of each round, and then the proposal as reviewed in
+PR #16, kept as written, because the departures only mean something against the text they
+depart from.
 
 ## The record (2026-09-05)
 
@@ -244,6 +245,75 @@ behind the same bearer token and reachable only from `chat` pods under the roles
 NetworkPolicy. Publishing embeds every managed entry in every language on the knowledge
 role; for the bundled corpus that is 36 documents and about a second. Retained versions
 keep their documents in `vector_store`; retention removes them after the newest three.
+
+## The record, third round (2026-09-06): the front end deployed separately
+
+### What was decided
+
+Asked twice whether the front end should be separated, the owner first kept the static page
+(the interface was already separated, the deployment was not) and then, with every slice
+built, chose full separation. The shape is the .NET sibling's, so the three implementations
+stay comparable: `admin-ui/` in the same repository, Vite + React + TypeScript, its own nginx
+image on 8084 that serves the bundle and proxies `/admin/api` to the app. The browser sees
+one origin, so the session stays a cookie and a row in Postgres, CSRF stays the readable
+cookie, and the app needs no CORS. Nothing under `/admin` is served by the app any more.
+
+### What was built
+
+- **The service side** kept its API and lost its pages: `AdminPageController`, the two HTML
+  files, the form login and the redirecting entry point are gone. `POST /admin/api/login`
+  takes JSON and answers `{username, role}` after rotating the session id and the CSRF
+  token; `POST /admin/api/logout` ends the session; `GET /admin/api/csrf` issues the token
+  a fresh page needs before its first post; an anonymous request to anything else is
+  `401`. A wrong password and a disabled account get one sentence, so the endpoint cannot
+  tell accounts apart.
+- **`admin-ui/`**: one API client that copies the CSRF cookie into a header on every
+  mutation and drops back to sign-in on any `401`; pages for the overview, tickets and a
+  ticket, conversations and a conversation, feedback, knowledge and staff, with inline
+  forms where the static page had browser prompts; a Markdown component that renders the
+  demo page's subset as React elements. `npm test` runs the API client, the formatting, the
+  renderer against a link and a tag that must stay literal, and a grep of every source
+  file for `dangerouslySetInnerHTML` and the other string-to-markup sinks. The nginx config
+  is a template with `ADMIN_API_UPSTREAM` substituted at container start, so one image
+  points at `app:8080` in the single-process stack, `chat:8080` in the split, and the
+  Service on Kubernetes.
+- **Deployment**: an `admin-ui` service in both Compose files (`ADMIN_UI_PORT`, 8084), an
+  `admin-ui` Deployment and Service in `k8s/base` and `k8s/roles`, the kind harness building
+  and loading the image and asserting the page is served and `/admin/api` is proxied (a
+  `401` from the app, not a `404` or a `502`), and an Admin UI job in CI (typecheck, tests,
+  build, image).
+
+### Where it departs from the proposal
+
+The proposal said to keep pages and APIs on the same origin initially and choose a
+framework during implementation. Both were done, in that order: the static page shipped the
+workflows, the framework came once every workflow existed to be moved. The proposal's path
+of `/api/admin/v1/**` stays `/admin/api/**`; the UI's own routes are the browser's and never
+reach the service.
+
+### What was found
+
+- **`Map.of` is unordered, and a test that compares JSON text notices.** The login answer
+  is a record now, so the keys come out in one order.
+- **A `.dockerignore` is not optional when `node_modules` exists on the host.** The first
+  image build copied macOS native binaries into the Linux build stage and failed in
+  `npm run build`; the ignore file fixed it, and the test that greps the source tree needed
+  Node's types declared for the container's TypeScript to accept it.
+- **8084 was in use on the development machine**, by something unrelated; the local walk
+  used another host port and the Compose port stays configurable (`ADMIN_UI_PORT`).
+
+### What is not built
+
+- Account management beyond creation, still.
+- A browser walk in CI: the UI was driven by hand against the built image and a running
+  service, as the siblings do; a Playwright job would need a service and a database in CI.
+
+### Operating it
+
+`docker compose up -d` brings the UI up on `http://localhost:8084` next to the app; the
+split stack does the same against the chat role. On Kubernetes expose the `admin-ui`
+Service to operators, behind TLS, and leave the app's Service internal. The UI has no
+configuration of its own but the upstream; everything else is the app's.
 
 ---
 

@@ -135,6 +135,14 @@ else
   docker build -t "$IMAGE" "$ROOT"
 fi
 kind load docker-image "$IMAGE" --name "$CLUSTER"
+UI_IMAGE=$(grep -m1 'image: ghcr.io' "$(dirname "$0")/../base/admin-ui.yaml" | awk '{print $2}')
+say "ui     $UI_IMAGE"
+if [[ " $* " == *" --keep "* ]] && docker image inspect "$UI_IMAGE" >/dev/null 2>&1; then
+  echo "  reusing the local image"
+else
+  docker build -t "$UI_IMAGE" "$ROOT/admin-ui"
+fi
+kind load docker-image "$UI_IMAGE" --name "$CLUSTER"
 
 # Does this machine have room for what the manifests ask for? A kind cluster is one node,
 # so both replicas land on it and their limits are added together -- 2 x 4Gi against a
@@ -436,6 +444,17 @@ else
   [[ $status == 502 ]] && ok "a bad key surfaces as 502, not a healthy error" \
                        || bad "a bad key returned $status, want 502"
 fi
+
+# The operations UI, through its own Service: the bundle is served, and /admin/api is
+# proxied to the app, which wants a login -- a 401 from nginx's upstream, not a 404 or a 502.
+kubectl -n "$NS" port-forward svc/admin-ui 18084:8084 >/dev/null 2>&1 &
+UPF=$!; sleep 3
+check "the operations UI serves its page" \
+      sh -c "curl -sf localhost:18084/ | grep -q '<div id=\"root\">'"
+ustatus=$(curl -s -o /dev/null -w '%{http_code}' localhost:18084/admin/api/me || echo 000)
+[[ $ustatus == 401 ]] && ok "the UI proxies /admin/api to the app (401 without a login)" \
+                      || bad "the UI's proxy to /admin/api returned $ustatus, want 401"
+kill "$UPF" 2>/dev/null || true
 
 say "result"
 printf '  %d passed, %d failed\n' "$PASS" "$FAIL"

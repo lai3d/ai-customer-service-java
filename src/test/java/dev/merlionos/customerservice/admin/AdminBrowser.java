@@ -28,18 +28,14 @@ class AdminBrowser {
         this.port = port;
     }
 
-    /** A browser that has signed in as the given account. */
+    /** A browser that has signed in as the given account, the way the UI does: CSRF cookie first, then JSON. */
     static AdminBrowser signedIn(int port, String username, String password) throws IOException, InterruptedException {
         AdminBrowser browser = new AdminBrowser(port);
-        browser.get("/admin/login");
+        browser.get("/admin/api/csrf");
         HttpResponse<String> login = browser.login(username, password);
-        if (login.statusCode() != 302 || !login.headers().firstValue("Location").orElse("").endsWith("/admin")) {
-            throw new AssertionError("login as " + username + " failed: " + login.statusCode() + " "
-                    + login.headers().firstValue("Location").orElse(""));
+        if (login.statusCode() != 200) {
+            throw new AssertionError("login as " + username + " failed: " + login.statusCode() + " " + login.body());
         }
-        // Signing in rotates the CSRF token (the old cookie is cleared); a browser's next page
-        // load fetches the new one, and so does this.
-        browser.get("/admin/api/me");
         return browser;
     }
 
@@ -49,7 +45,7 @@ class AdminBrowser {
     }
 
     HttpResponse<String> login(String username, String password) throws IOException, InterruptedException {
-        return postForm("/admin/login", Map.of("username", username, "password", password, "_csrf", csrf()));
+        return postJson("/admin/api/login", "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}");
     }
 
     HttpResponse<String> postForm(String path, Map<String, String> fields) throws IOException, InterruptedException {

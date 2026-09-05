@@ -253,6 +253,20 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
 
+  # The operations UI, proxying /admin/api to the chat role, which is where the admin lives.
+  admin-ui:
+    build:
+      context: admin-ui
+    image: ${ADMIN_UI_IMAGE:-ai-customer-service-java-admin-ui:local}
+    depends_on:
+      chat:
+        condition: service_healthy
+    environment:
+      ADMIN_API_UPSTREAM: chat:8080
+    ports:
+      - "${ADMIN_UI_PORT:-8084}:8084"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   tempo-data:

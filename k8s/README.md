@@ -8,7 +8,8 @@ Plain YAML, no Helm. Kustomize only for the two things a deployment actually cha
 | `base/configmap.yaml` | ConfigMap `ai-customer-service-config` | Non-secret env: Postgres host/port/db, graceful shutdown. |
 | `base/deployment.yaml` | Deployment `ai-customer-service` | 2 replicas, non-root, read-only rootfs, startup/liveness/readiness probes. |
 | `base/service.yaml` | Service `ai-customer-service` | ClusterIP on port 8080. |
-| `base/kustomization.yaml` | — | Lists exactly those four. Generates and transforms nothing. |
+| `base/admin-ui.yaml` | Deployment and Service `admin-ui` | The operations UI (`admin-ui/`), its own image, nginx proxying `/admin/api` to the app's Service on 8084. `roles/admin-ui.yaml` is the same pointed at the chat Service. Expose this one to operators, behind TLS. |
+| `base/kustomization.yaml` | — | Lists exactly those five. Generates and transforms nothing. |
 | `overlays/example/` | — | The image reference and the Postgres coordinates, as an overlay. Copy it; do not edit the base. |
 | `examples/secret.yaml` | Secret `ai-customer-service-secrets` | **Template. Placeholder values only.** Outside `base/`, so nothing that applies the base can reach it. |
 | `kind/` | — | A throwaway-cluster harness that applies the base **unmodified** and asserts eleven things about the running pods. `--roles` does the same for the split. |

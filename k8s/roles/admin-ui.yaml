@@ -1,0 +1,81 @@
+# The operations UI: its own Deployment and Service, deployed separately from the app it
+# talks to. nginx serves the bundle and proxies /admin/api to the app's Service, so the
+# browser sees one origin and the staff session stays a cookie in Postgres. Expose this
+# Service, not the app's, to the people who operate the system; the app serves nothing
+# under /admin. Put TLS in front: the session cookie is marked Secure only on HTTPS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-ui
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: admin-ui
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-customer-service-java
+      app.kubernetes.io/component: admin-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-customer-service-java
+        app.kubernetes.io/component: admin-ui
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin-ui
+          # Built from admin-ui/ (Dockerfile there). Replace with your registry path.
+          image: ghcr.io/lai3d/ai-customer-service-java-admin-ui:0.1.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          env:
+            # Where nginx proxies /admin/api: the chat Service, which is where the admin lives in the split.
+            - name: ADMIN_API_UPSTREAM
+              value: chat.ai-customer-service.svc.cluster.local:8080
+          ports:
+            - name: http
+              containerPort: 8084
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-ui
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: admin-ui
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: admin-ui
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+      protocol: TCP

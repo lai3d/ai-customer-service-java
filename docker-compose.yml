@@ -144,6 +144,22 @@ services:
   # the dashboards in observability/grafana/dashboards. The app's trace export switches on
   # with the same variable, so nothing exports into a backend that is not running. See
   # docs/observability.md.
+  # The operations UI: its own image (admin-ui/), nginx serving the bundle and proxying
+  # /admin/api to the app, so the browser sees one origin and the staff session stays a
+  # cookie. The app itself serves nothing under /admin any more. See docs/operations-admin.md.
+  admin-ui:
+    build:
+      context: admin-ui
+    image: ${ADMIN_UI_IMAGE:-ai-customer-service-java-admin-ui:local}
+    container_name: csagent-admin-ui
+    depends_on:
+      - app
+    environment:
+      - ADMIN_API_UPSTREAM=app:8080
+    ports:
+      - "${ADMIN_UI_PORT:-8084}:8084"
+    restart: unless-stopped
+
   tempo:
     profiles: ["observability"]
     image: grafana/tempo:2.9.0
