@@ -171,6 +171,14 @@ as the database is concerned.
   help). `ticket_event` is append-only and creation is not an event: the ticket's own
   `created_at` and `ticket_operation` already say how it came to exist. `JdbcTicketWorkflowTest`
   races ten claims over two instances.
+- **A turn's operational record (`conversation_turn`) is written at the service boundary,
+  and its first row may refuse the turn.** `TurnRecorder.start` runs before the model on
+  both paths and throws if it cannot write; nothing after it throws, because by then the
+  model call is in flight and bookkeeping must not fail the customer. A row still `running`
+  past the turn lease is a process that died mid-turn; `TurnRecordSweeper` marks it
+  `unknown`, never `completed`. The blocking path opens a `TurnEventBus` channel of its own
+  so retrieval and tool events reach the record there too. Question and answer are
+  snapshots, not references into chat memory, which is windowed.
 - **Ticket writes over the seam carry an operation id**, generated per tool invocation in
   `SupportTicketTools`, never by the model. `JdbcTicketOperations` records every outcome
   against it in `ticket_operation` inside the ticket's transaction; the same id asked again

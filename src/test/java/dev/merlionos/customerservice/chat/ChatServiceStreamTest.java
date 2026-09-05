@@ -39,7 +39,7 @@ class ChatServiceStreamTest {
         ObjectProvider<io.micrometer.tracing.Tracer> noTracer = Mockito.mock(ObjectProvider.class);
         chatService = new ChatService(Mockito.mock(ChatClient.class), chatMemory,
                 new TurnEventBus(), Mockito.mock(dev.merlionos.customerservice.cost.ConversationBudget.class),
-                Mockito.mock(ConversationLease.class), noTracer, meterRegistry);
+                Mockito.mock(ConversationLease.class), Mockito.mock(TurnRecorder.class), noTracer, meterRegistry);
     }
 
     @Test

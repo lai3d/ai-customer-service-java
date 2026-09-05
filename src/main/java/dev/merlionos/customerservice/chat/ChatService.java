@@ -33,19 +33,21 @@ public class ChatService {
     private final TurnEventBus turnEventBus;
     private final ConversationBudget budget;
     private final ConversationLease lease;
+    private final TurnRecorder recorder;
     private final ObjectProvider<Tracer> tracer;
     private final Counter streamsCompleted;
     private final Counter streamsCancelled;
     private final Counter streamsFailed;
 
     ChatService(ChatClient chatClient, ChatMemory chatMemory, TurnEventBus turnEventBus,
-                ConversationBudget budget, ConversationLease lease, ObjectProvider<Tracer> tracer,
-                MeterRegistry meterRegistry) {
+                ConversationBudget budget, ConversationLease lease, TurnRecorder recorder,
+                ObjectProvider<Tracer> tracer, MeterRegistry meterRegistry) {
         this.chatClient = chatClient;
         this.chatMemory = chatMemory;
         this.turnEventBus = turnEventBus;
         this.budget = budget;
         this.lease = lease;
+        this.recorder = recorder;
         this.tracer = tracer;
         this.streamsCompleted = terminationCounter(meterRegistry, "completed");
         this.streamsCancelled = terminationCounter(meterRegistry, "cancelled");
@@ -71,8 +73,9 @@ public class ChatService {
     public String ask(String conversationId, String message) {
         budget.checkRemaining(conversationId);
 
-        // No stream is listening, so nothing consumes the events; the id still has to exist
-        // because tools and the retrieval advisor read it unconditionally.
+        // No client stream is listening, but the record is: the channel is opened so the
+        // retrieval and tool events the advisor and the tools publish reach the turn's row,
+        // the same as on the streaming path.
         String turnId = UUID.randomUUID().toString();
         lease.acquire(conversationId, turnId);
         try {
@@ -84,6 +87,25 @@ public class ChatService {
     }
 
     private String askHoldingLease(String conversationId, String turnId, String message) {
+        // The first row, before the model. If this throws, the model is never called.
+        recorder.start(turnId, conversationId, TurnRecorder.Path.BLOCKING, message);
+        TurnEventBus.Channel channel = turnEventBus.open(turnId);
+        channel.events().subscribe(event -> recordEvent(turnId, event));
+        String traceId = currentTraceId();
+        try {
+            String answer = callHoldingLease(conversationId, turnId, message);
+            return answer;
+        }
+        catch (RuntimeException e) {
+            recorder.finish(turnId, TurnRecorder.Outcome.FAILED, null, null, null, null, traceId, e);
+            throw e;
+        }
+        finally {
+            turnEventBus.close(turnId);
+        }
+    }
+
+    private String callHoldingLease(String conversationId, String turnId, String message) {
         // Deliberately not `.content()`. That discards the response metadata, and with it the
         // token usage -- so this path would spend money that the budget and the cost meters
         // never saw. Found by a test asserting the second request over budget was refused; it
@@ -97,23 +119,36 @@ public class ChatService {
                 .call()
                 .chatResponse();
 
-        recordUsage(conversationId, response);
-
-        return response == null || response.getResult() == null
+        String answer = response == null || response.getResult() == null
                 ? ""
                 : response.getResult().getOutput().getText();
+        recordUsage(conversationId, turnId, response, answer);
+        return answer;
     }
 
-    private void recordUsage(String conversationId, ChatResponse response) {
+    private void recordUsage(String conversationId, String turnId, ChatResponse response, String answer) {
         if (response == null || response.getMetadata() == null) {
+            recorder.finish(turnId, TurnRecorder.Outcome.COMPLETED, answer, null, null, null, currentTraceId(), null);
             return;
         }
-        String model = response.getMetadata().getModel();
+        String reported = response.getMetadata().getModel();
+        String model = reported == null || reported.isBlank() ? "unknown" : reported;
         TurnUsage usage = new TurnUsage();
         usage.record(response.getMetadata().getUsage());
-        budget.record(conversationId,
-                model == null || model.isBlank() ? "unknown" : model,
-                usage.inputTokens(), usage.outputTokens());
+        budget.record(conversationId, model, usage.inputTokens(), usage.outputTokens());
+        recorder.finish(turnId, TurnRecorder.Outcome.COMPLETED, answer, model,
+                usage.isEmpty() ? null : usage.inputTokens(), usage.isEmpty() ? null : usage.outputTokens(),
+                currentTraceId(), null);
+    }
+
+    /** Retrieval and tool events, from either path, into the turn's record. */
+    private void recordEvent(String turnId, TurnEvent event) {
+        if (event instanceof TurnEvent.Retrieval retrieval) {
+            recorder.retrieved(turnId, retrieval.passages());
+        }
+        else if (event instanceof TurnEvent.ToolCall call) {
+            recorder.toolCalled(turnId, call.tool(), call.outcome());
+        }
     }
 
     /**
@@ -143,22 +178,79 @@ public class ChatService {
         String turnId = UUID.randomUUID().toString();
         lease.acquire(conversationId, turnId);
 
+        // The first row, before the model and before the response is committed: a turn that
+        // cannot be recorded is refused here as a status, not started and lost.
+        try {
+            recorder.start(turnId, conversationId, TurnRecorder.Path.STREAM, message);
+        }
+        catch (RuntimeException e) {
+            lease.release(conversationId, turnId);
+            throw e;
+        }
+        Recording recording = new Recording();
+
         return Flux.defer(() -> {
             // The channel is per turn. Closing by conversation id used to complete whichever
             // turn registered last and orphan the other one's stream forever.
             TurnEventBus.Channel channel = turnEventBus.open(turnId);
-            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), traceId, message)
+            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), traceId, message, recording)
                     .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
-            return Flux.merge(modelEvents, channel.events());
+            // Finished on the signal itself, not in doFinally: doFinally runs after the terminal
+            // signal has been handed downstream, so a client that blocks for the end of the
+            // stream could read the record before it was written. These three run before.
+            return Flux.merge(modelEvents, channel.events())
+                    .doOnNext(event -> {
+                        recordEvent(turnId, event);
+                        recording.saw(event);
+                    })
+                    .doOnComplete(() -> finish(turnId, TurnRecorder.Outcome.COMPLETED, recording, traceId, null))
+                    .doOnError(error -> finish(turnId, TurnRecorder.Outcome.FAILED, recording, traceId, error))
+                    .doOnCancel(() -> finish(turnId, TurnRecorder.Outcome.INTERRUPTED, recording, traceId, null));
         }).doFinally(signal -> lease.release(conversationId, turnId));
     }
 
+    private void finish(String turnId, TurnRecorder.Outcome outcome, Recording recording, String traceId,
+                        Throwable failure) {
+        recorder.finish(turnId, outcome, recording.answer(), recording.model.get(),
+                recording.usage.isEmpty() ? null : recording.usage.inputTokens(),
+                recording.usage.isEmpty() ? null : recording.usage.outputTokens(),
+                traceId, failure);
+    }
+
+    /**
+     * What one streamed turn accumulates for its record: the answer as the customer saw it
+     * (with the same break at a tool boundary that {@link #recordAssistantReplyOnInterruption}
+     * makes), the usage and model as the provider reported them, and the failure if any.
+     */
+    private static final class Recording {
+        final StringBuffer answer = new StringBuffer();
+        final AtomicBoolean textSinceTool = new AtomicBoolean(true);
+        final TurnUsage usage = new TurnUsage();
+        final AtomicReference<String> model = new AtomicReference<>("unknown");
+
+        void saw(TurnEvent event) {
+            if (event instanceof TurnEvent.ToolCall) {
+                textSinceTool.set(false);
+            }
+            else if (event instanceof TurnEvent.Token token && !token.text().isEmpty()) {
+                if (!textSinceTool.getAndSet(true) && !answer.isEmpty()) {
+                    answer.append("\n\n");
+                }
+                answer.append(token.text());
+            }
+        }
+
+        String answer() {
+            return answer.isEmpty() ? null : answer.toString();
+        }
+    }
+
     private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String traceId,
-                                        String message) {
+                                        String message, Recording recording) {
         long started = System.currentTimeMillis();
-        TurnUsage usage = new TurnUsage();
-        AtomicReference<String> model = new AtomicReference<>("unknown");
+        TurnUsage usage = recording.usage;
+        AtomicReference<String> model = recording.model;
 
         Flux<TurnEvent> events = chatClient.prompt()
                 .user(message)
