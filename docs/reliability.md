@@ -195,19 +195,34 @@ demo page and `recordAssistantReplyOnInterruption` know exactly where one call e
 next began, and both now break the paragraph there. `ChatServiceStreamTest` pins it, including
 that a turn whose first call produced no text gains no leading break.
 
-**Where it is not, the honest answer is to leave it.** On a turn that completes normally the
-text is aggregated by Spring AI and written by `MessageChatMemoryAdvisor`, which sits at
+**Where it is not, the defect is kept on purpose.** On a turn that completes normally the text
+is aggregated by Spring AI and written by `MessageChatMemoryAdvisor`, which sits at
 `Integer.MIN_VALUE + 1000` — the outermost link in the chain, with nothing able to wrap it. By
 the time the merged string exists the boundary is gone, exactly as it is gone from the streamed
-usage frames. That is the same failure twice from the same cause: an abstraction that joins two
-model calls into one result and keeps no seam.
+usage frames.
 
-Repairing it from the text is worse than leaving it. The detector would be sentence-ending
-punctuation followed immediately by a letter — and Chinese prose puts no space after `。`, so
-that rule flags every sentence boundary in a Chinese reply. The Go implementation ran exactly
-that check, saw three "seams" in a correct Chinese answer, and nearly reported its own fix as
-broken. A repair built on it would silently rewrite healthy text in one of the two languages
-this system supports.
+The only repair available from there has to *infer* the boundary from the text, and the only
+signal in the text is punctuation: sentence-ending punctuation followed immediately by a letter.
+Chinese prose puts no space after `。`, so that rule flags every sentence boundary in a Chinese
+reply. The Go implementation ran exactly that check, saw three "seams" in a correct Chinese
+answer, and nearly reported its own working fix as broken.
+
+**So the choice is a missing seam in one language against silently rewriting healthy prose in
+the other, and this project keeps the missing seam.** That is a decision, not an omission. A
+defect whose cost is a run-together sentence in a re-sent history is smaller than a repair that
+corrupts correct output on a path that works today, and it is smaller than the cost of not being
+able to tell afterwards which text the system wrote and which it edited. The fix is available
+the moment the boundary is, which is why the seam is broken on every path that still has one.
+
+### The general shape
+
+This is the same loss twice, from the same cause, in two places that look nothing alike:
+reconstructed-by-guesswork usage numbers in one, a run-together sentence in a database row in
+the other. The first was read here as a fact about token accounting, and it is not. **An
+abstraction that discards a call boundary discards it for everything crossing that boundary** —
+tokens, text, timing, anything a caller might later want to attribute to one call rather than
+the turn. The symptoms scatter far enough apart that the second one does not look like a repeat
+of the first, which is what makes it worth writing down: the next one will not look like either.
 
 ---
 
