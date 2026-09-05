@@ -270,10 +270,14 @@ as the database is concerned.
   weight was not the ONNX session but the Postgres container each context used to start and
   keep; `PostgresTestcontainer` now runs one container per JVM and gives each context its own
   database in it (`freshDatabase()`, also what `MigratedPostgres` and the hand-started roles
-  use). The model is still loaded per context, so new integration tests still reuse an
-  existing configuration exactly (a `@MockitoBean` makes a context unique too;
-  `CustomerServiceApplicationTests` is the mock-free one with a real port) and set up their
-  data through beans rather than properties of their own.
+  use). With the containers gone the runner still died at the sixteenth context, so the
+  embedding model is shared too: the same test configuration hands every context the one
+  `TransformersEmbeddingModel` the first context built, through an
+  `InstantiationAwareBeanPostProcessor`. A whole run now loads the model once. New integration
+  tests should still reuse an existing configuration where they can (a `@MockitoBean` makes a
+  context unique too; `CustomerServiceApplicationTests` is the mock-free one with a real port)
+  and set up their data through beans, but a test that genuinely needs its own database, as
+  one that publishes knowledge does, may have its own context.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`

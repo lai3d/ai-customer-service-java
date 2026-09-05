@@ -1,8 +1,12 @@
 package dev.merlionos.customerservice;
 
+import org.springframework.ai.transformers.TransformersEmbeddingModel;
+import org.springframework.beans.factory.config.InstantiationAwareBeanPostProcessor;
 import org.springframework.boot.autoconfigure.jdbc.JdbcConnectionDetails;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -71,6 +75,52 @@ public class PostgresTestcontainer {
         }
         String url = container.getJdbcUrl().replaceFirst("/" + container.getDatabaseName() + "(\\?|$)", "/" + name + "$1");
         return new Database(url, container.getUsername(), container.getPassword());
+    }
+
+    /**
+     * One ONNX session per JVM as well. With the containers gone the runner still died at the
+     * sixteenth context (PR #33): the embedding model, its tokenizer and onnxruntime's arena
+     * are the other few hundred megabytes each cached context keeps. The first context to
+     * build a {@link TransformersEmbeddingModel} keeps it here; every later context is handed
+     * that instance before Spring would instantiate its own, so nothing loads the model twice.
+     * The model is used concurrently in production, so sharing it across contexts is what it
+     * already does across requests. {@code static}, so the post-processor exists before any
+     * other bean in the context, which is what a post-processor needs.
+     *
+     * <p>A context that needs the model's observations in its own meter registry -- the
+     * dashboard test, which asserts the embedding timer exists -- opts out with
+     * {@code app.test.own-embedding-model=true} and loads its own.
+     */
+    @Bean
+    static SharedEmbeddingModel sharedEmbeddingModel() {
+        return new SharedEmbeddingModel();
+    }
+
+    public static final String OWN_EMBEDDING_MODEL = "app.test.own-embedding-model";
+
+    private static volatile TransformersEmbeddingModel SHARED_EMBEDDING_MODEL;
+
+    static class SharedEmbeddingModel implements InstantiationAwareBeanPostProcessor, EnvironmentAware {
+
+        private boolean own;
+
+        @Override
+        public void setEnvironment(Environment environment) {
+            own = environment.getProperty(OWN_EMBEDDING_MODEL, Boolean.class, false);
+        }
+
+        @Override
+        public Object postProcessBeforeInstantiation(Class<?> beanClass, String beanName) {
+            return !own && TransformersEmbeddingModel.class.isAssignableFrom(beanClass) ? SHARED_EMBEDDING_MODEL : null;
+        }
+
+        @Override
+        public Object postProcessAfterInitialization(Object bean, String beanName) {
+            if (!own && bean instanceof TransformersEmbeddingModel model && SHARED_EMBEDDING_MODEL == null) {
+                SHARED_EMBEDDING_MODEL = model;
+            }
+            return bean;
+        }
     }
 
     /**
