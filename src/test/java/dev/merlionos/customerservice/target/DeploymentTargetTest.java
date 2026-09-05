@@ -12,6 +12,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -106,6 +108,18 @@ class DeploymentTargetTest {
                 .containsEntry("spring.ai.model.chat", "none")
                 .containsEntry("spring.ai.model.embedding", "none")
                 .containsEntry("spring.ai.vectorstore.type", "none");
+    }
+
+    @Test
+    @DisplayName("staff login and sessions exist only where the admin does: the chat role")
+    void adminSecurityIsSwitchedOffOutsideTheChatRole() {
+        for (DeploymentTarget role : List.of(DeploymentTarget.KNOWLEDGE, DeploymentTarget.TICKET)) {
+            assertThat(TargetEnvironmentPostProcessor.overridesFor(role))
+                    .as(role + " serves no /admin, so Boot's default chain must not guard its /internal endpoints")
+                    .containsEntry("spring.autoconfigure.exclude", TargetEnvironmentPostProcessor.ADMIN_AUTO_CONFIGURATIONS);
+        }
+        assertThat(TargetEnvironmentPostProcessor.overridesFor(DeploymentTarget.CHAT))
+                .doesNotContainKey("spring.autoconfigure.exclude");
     }
 
     @Test

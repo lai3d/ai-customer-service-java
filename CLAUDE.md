@@ -262,10 +262,26 @@ Confirmed against `claude-opus-5`, `gpt-5`, `gemini-3.8-flash` and `grok-4.6`:
 **Known gap:** one of fourteen multi-intent questions still misses the passage that answers it;
 see `docs/retrieval.md`.
 
+### Staff login for the operations admin
+
+`/admin/**` is the operations admin (`admin/`, on the chat side) behind Spring Security form
+login with staff accounts in `staff_account` (bcrypt) and two roles, `admin` and `support`.
+It is **staff** authentication for a page that shows customer conversations; it is not
+customer authentication. The filter chain is bound to `/admin/**` with `securityMatcher`, so
+the public chat endpoints, the demo page, the actuator and `/internal/**` never pass through
+Spring Security; `AdminLoginTest` asserts that. Sessions are Spring Session JDBC rows
+(`spring_session`, Flyway-owned, initialiser off) because the chat role runs as replicas.
+CSRF tokens travel in a readable `XSRF-TOKEN` cookie and come back as `X-XSRF-TOKEN` or
+`_csrf`. `knowledge` and `ticket` processes exclude the security and session
+auto-configurations outright (`TargetEnvironmentPostProcessor`); left on, Boot's default
+chain would put a generated password in front of `/internal/**`. The first admin is seeded
+by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table.
+
 ## Scope
 
 Do not add customer authentication or multi-tenancy without asking; the bearer token on
-`/internal/**` is service-to-service and is the whole of what exists. Do not introduce LangChain4j, and do
+`/internal/**` is service-to-service, the staff login on `/admin/**` is for staff, and those
+two are the whole of what exists. Do not introduce LangChain4j, and do
 not hand-roll vector retrieval — that belongs to `QuestionAnswerAdvisor`. Check Spring AI's
 actual classes or configuration metadata rather than recalling its API; the naming changed
 repeatedly before 1.0.

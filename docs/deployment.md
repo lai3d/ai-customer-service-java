@@ -37,6 +37,8 @@ the measured numbers below are from that run, not estimates.
 | `TURN_LEASE` | no | `150s` | How long one turn may hold its conversation; a second request meanwhile gets `409`. Must exceed `HTTP_READ_TIMEOUT`. |
 | `APP_PORT` | no | `8080` | Compose only: host port for the app. |
 | `APP_IMAGE` | no | `ai-customer-service-java:local` | Compose only: lets you run a pre-built image instead of building. |
+| `ADMIN_SEED_USERNAME`, `ADMIN_SEED_PASSWORD` | first deploy | none | The seed command for the operations admin's first staff account (`/admin`): with both set, the process creates that admin at startup **only if `staff_account` is empty**, and logs what it did. Never overwrites or resets an account, so it is safe to leave set; one without the other refuses to start. Read by `all` and `chat` processes. Password at least 12 characters. |
+| `ADMIN_SESSION_TIMEOUT` | no | `30m` | Idle time before a staff session ends. Sessions are rows in `spring_session`, shared by every replica. |
 
 `.env.example` documents the first five. Copy it to `.env` (git-ignored) and fill it in,
 or export the variables in your shell — Compose reads both.

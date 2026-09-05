@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.config;
 
+import dev.merlionos.customerservice.admin.AdminSecurityConfiguration;
 import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.clients.ServicesProperties;
 import dev.merlionos.customerservice.cost.ConversationBudget;
@@ -14,8 +15,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * The chat role: the public API and SSE, the advisor chain, the tool adapters, the order
- * mock, memory, budget and the provider set-up. Present in {@code all} and {@code chat}
- * processes.
+ * mock, memory, budget, the provider set-up and the operations admin with its staff login.
+ * Present in {@code all} and {@code chat} processes.
  *
  * <p>Packages are listed by a class in each rather than by name so a rename is a compile
  * error instead of a silently empty scan.
@@ -24,6 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ConditionalOnTarget(DeploymentTarget.CHAT)
 @EnableScheduling // the budget sweep
 @ComponentScan(basePackageClasses = {
+        AdminSecurityConfiguration.class, // admin: the operations admin and its staff login
         ChatService.class,          // chat
         ServicesProperties.class,   // clients: the HTTP adapters, present only when exactly chat
         ChatRoleConfiguration.class, // config

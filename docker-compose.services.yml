@@ -246,6 +246,10 @@ services:
       HTTP_READ_TIMEOUT:
       TURN_LEASE:
       SERVICES_TIMEOUT:
+      # The operations admin lives in the chat role (docs/operations-admin.md).
+      ADMIN_SEED_USERNAME:
+      ADMIN_SEED_PASSWORD:
+      ADMIN_SESSION_TIMEOUT:
     ports:
       - "${APP_PORT:-8080}:8080"
 

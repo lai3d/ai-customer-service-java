@@ -35,6 +35,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -174,6 +175,25 @@ class TopologyParityTest {
         assertThat(chat.containsBean("knowledgeController")).isFalse();
         assertThat(chat.containsBean("ticketController")).isFalse();
         assertThat(chat.containsBean("corpusImporter")).isFalse();
+    }
+
+    @Test
+    @Order(3)
+    @DisplayName("the operations admin and its staff login exist only in the chat process")
+    void adminLivesInTheChatProcess() {
+        assertThat(chat.containsBean("adminSecurityFilterChain")).isTrue();
+        HttpStatusCode chatLogin = http(chat).get().uri("/admin/login")
+                .exchange((request, response) -> response.getStatusCode());
+        assertThat(chatLogin).isEqualTo(HttpStatus.OK);
+        for (ConfigurableApplicationContext other : List.of(knowledge, ticket)) {
+            assertThat(other.getBeanNamesForType(SecurityFilterChain.class))
+                    .as("no filter chain at all, so nothing stands in front of /internal but the token")
+                    .isEmpty();
+            assertThat(other.containsBean("springSessionRepositoryFilter")).isFalse();
+            HttpStatusCode otherLogin = http(other).get().uri("/admin/login")
+                    .exchange((request, response) -> response.getStatusCode());
+            assertThat(otherLogin).as("not a login prompt: the page does not exist there").isEqualTo(HttpStatus.NOT_FOUND);
+        }
     }
 
     @Test

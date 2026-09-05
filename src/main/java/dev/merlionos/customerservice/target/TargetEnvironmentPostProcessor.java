@@ -33,6 +33,22 @@ public class TargetEnvironmentPostProcessor implements EnvironmentPostProcessor 
 
     private static final String NONE = "none";
 
+    /**
+     * The staff login for the operations admin exists only where the admin does: the chat role.
+     * A knowledge or ticket process has no {@code /admin} and no staff session, so Spring
+     * Security's and Spring Session's auto-configurations are switched off there outright --
+     * left on, Boot's default chain would put a generated password in front of every
+     * {@code /internal/**} endpoint the bearer token already guards. Auto-configurations are
+     * switched off by property, like the model types above, because no bean condition of ours
+     * runs early enough to reach them.
+     */
+    static final String ADMIN_AUTO_CONFIGURATIONS = String.join(",",
+            "org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration",
+            "org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration",
+            "org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration",
+            "org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration",
+            "org.springframework.boot.autoconfigure.session.SessionAutoConfiguration");
+
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         DeploymentTarget target = DeploymentTarget.from(environment);
@@ -62,6 +78,7 @@ public class TargetEnvironmentPostProcessor implements EnvironmentPostProcessor 
                 overrides.put("spring.ai.chat.client.enabled", "false");
                 // Serving replicas do not import; a Job with APP_RAG_IMPORT_MODE=once does.
                 overrides.put("app.rag.import-mode", "${APP_RAG_IMPORT_MODE:off}");
+                overrides.put("spring.autoconfigure.exclude", ADMIN_AUTO_CONFIGURATIONS);
             }
             case TICKET -> {
                 overrides.put("spring.ai.model.chat", NONE);
@@ -70,6 +87,7 @@ public class TargetEnvironmentPostProcessor implements EnvironmentPostProcessor 
                 overrides.put("spring.ai.chat.client.enabled", "false");
                 overrides.put("app.rag.import-mode", "off");
                 overrides.put("management.endpoint.health.group.readiness.include", "readinessState");
+                overrides.put("spring.autoconfigure.exclude", ADMIN_AUTO_CONFIGURATIONS);
             }
         }
         return overrides;

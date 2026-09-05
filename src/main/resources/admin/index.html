@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%228%22%20fill%3D%22%230f766e%22%2F%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h11%22%20stroke%3D%22%23fff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2223%22%20cy%3D%2222%22%20r%3D%222.5%22%20fill%3D%22%23fff%22%2F%3E%3C%2Fsvg%3E">
+<title>AI Customer Service — operations admin</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
+    --line: #e3e3e8; --accent: #2f6f4f; --accent-soft: #eaf3ee; --warn: #a4402c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e24; --ink: #e9e9ee; --muted: #9a9aa6;
+      --line: #2e2e37; --accent: #7fc0a0; --accent-soft: #23302a; --warn: #e08a76;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header form { margin: 0; }
+  button {
+    font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; display: grid; gap: 22px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  .hint { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+  td.mono { font-family: var(--mono); font-size: 13px; }
+  .role { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+  .disabled { color: var(--warn); }
+  form.create { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 10px; align-items: end; margin-top: 14px; }
+  @media (max-width: 700px) { form.create { grid-template-columns: 1fr; } }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select {
+    font: inherit; color: inherit; padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .status { font-size: 13px; margin-top: 8px; min-height: 1.3em; }
+  .status.err { color: var(--warn); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Operations admin</h1>
+  <span class="sub" id="who">signing in…</span>
+  <span class="spacer"></span>
+  <form method="post" action="/admin/logout" id="logout">
+    <input type="hidden" name="_csrf" id="logout-csrf">
+    <button type="submit">Sign out</button>
+  </form>
+</header>
+<main>
+  <section id="staff" hidden>
+    <h2>Staff accounts</h2>
+    <p class="hint">Admins manage accounts; support staff handle tickets and see the conversations behind them. Usernames are lower case; passwords are at least 12 characters.</p>
+    <table>
+      <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>By</th></tr></thead>
+      <tbody id="staff-rows"></tbody>
+    </table>
+    <form class="create" id="create">
+      <label>Username <input name="username" required minlength="3" maxlength="64" pattern="[a-z0-9][a-z0-9._\-]{2,63}" autocomplete="off"></label>
+      <label>Password <input name="password" type="password" required minlength="12" autocomplete="new-password"></label>
+      <label>Role
+        <select name="role">
+          <option value="support">support</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <button type="submit" class="primary">Create account</button>
+    </form>
+    <div class="status" id="create-status"></div>
+  </section>
+</main>
+<script>
+  // Every element below is built with createElement/textContent: server data becomes text
+  // nodes, never markup. AdminPageMarkupTest holds that line.
+  function csrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+  async function api(path, options) {
+    const init = Object.assign({ headers: {} }, options || {});
+    init.headers["X-XSRF-TOKEN"] = csrfToken();
+    if (init.body !== undefined) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(init.body);
+    }
+    const response = await fetch("/admin/api" + path, init);
+    if (response.status === 401) { location.href = "/admin/login"; throw new Error("signed out"); }
+    return response;
+  }
+  function cell(text, className) {
+    const td = document.createElement("td");
+    td.textContent = text;
+    if (className) td.className = className;
+    return td;
+  }
+  function roleCell(role) {
+    const td = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "role";
+    badge.textContent = role;
+    td.appendChild(badge);
+    return td;
+  }
+  function renderStaff(accounts) {
+    const rows = document.getElementById("staff-rows");
+    rows.replaceChildren();
+    for (const account of accounts) {
+      const tr = document.createElement("tr");
+      tr.appendChild(cell(account.username + (account.enabled ? "" : " (disabled)"), "mono"));
+      tr.appendChild(roleCell(account.role));
+      tr.appendChild(cell(new Date(account.createdAt).toLocaleString()));
+      tr.appendChild(cell(account.createdBy || ""));
+      rows.appendChild(tr);
+    }
+  }
+  async function loadStaff() {
+    const response = await api("/staff");
+    if (response.ok) renderStaff(await response.json());
+  }
+  document.getElementById("logout").addEventListener("submit", () => {
+    document.getElementById("logout-csrf").value = csrfToken();
+  });
+  document.getElementById("create").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const status = document.getElementById("create-status");
+    status.className = "status";
+    status.textContent = "";
+    const body = {
+      username: form.elements.username.value,
+      password: form.elements.password.value,
+      role: form.elements.role.value,
+    };
+    const response = await api("/staff", { method: "POST", body });
+    if (response.status === 201) {
+      form.reset();
+      status.textContent = "Created " + body.username + ".";
+      await loadStaff();
+    } else {
+      const problem = await response.json().catch(() => ({}));
+      status.className = "status err";
+      status.textContent = problem.error || ("Could not create the account (" + response.status + ").");
+    }
+  });
+  (async () => {
+    const me = await (await api("/me")).json();
+    document.getElementById("who").textContent = me.username + " · " + me.role;
+    if (me.role === "admin") {
+      document.getElementById("staff").hidden = false;
+      await loadStaff();
+    }
+  })();
+</script>
+</body>
+</html>
