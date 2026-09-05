@@ -402,7 +402,7 @@ against evidence, and says what the evidence was.
 
 ## Roadmap
 
-The [operations admin](docs/operations-admin.md) is built: staff login (`/admin`, Spring Security form login, bcrypt accounts, `admin` / `support` roles, sessions in Postgres); the ticket loop; the turn record written at the service boundary; conversations as the record shows them; answer feedback; knowledge editing with versioned publication, an atomic switch, rollback and retention, the bundled corpus adopted as the first version and left untouched; and an overview with a definition next to every number. Opening a conversation or being refused is recorded. It works in both topologies over the internal seams. The record of what was built, where it departs from the proposal and what building it found is at the top of that document, in two rounds; the proposal follows it.
+The [operations admin](docs/operations-admin.md) is built: staff login (`/admin`, Spring Security form login, bcrypt accounts, `admin` / `support` roles, sessions in Postgres); the ticket loop; the turn record written at the service boundary; conversations as the record shows them; answer feedback; knowledge editing with versioned publication, an atomic switch, rollback and retention, the bundled corpus adopted as the first version and left untouched; and an overview with a definition next to every number. Opening a conversation or being refused is recorded. It works in both topologies over the internal seams. The front end is a separate deployable, `admin-ui/`, its own nginx image on 8084 proxying the API, as the .NET sibling does. The record of what was built, where it departs from the proposal and what building it found is at the top of that document, in two rounds; the proposal follows it.
 
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
@@ -536,6 +536,7 @@ migrations are the part worth reading, in both directions.
 ├── docs/                    # the deeper reading linked above
 ├── k8s/                     # base/ for one process, roles/ for three plus an import Job, kind/ harness
 ├── docker-compose.services.yml   # the split as containers; scripts/verify-services.sh asserts it
+├── admin-ui/                # the operations UI: Vite + React + TypeScript, its own image on 8084
 ├── src/main/java/dev/merlionos/customerservice/
 │   ├── CustomerServiceApplication.java   # imports one gated configuration per role
 │   ├── target/              # app.target: all (default) or one role

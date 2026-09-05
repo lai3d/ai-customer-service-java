@@ -39,6 +39,7 @@ the measured numbers below are from that run, not estimates.
 | `APP_IMAGE` | no | `ai-customer-service-java:local` | Compose only: lets you run a pre-built image instead of building. |
 | `ADMIN_SEED_USERNAME`, `ADMIN_SEED_PASSWORD` | first deploy | none | The seed command for the operations admin's first staff account (`/admin`): with both set, the process creates that admin at startup **only if `staff_account` is empty**, and logs what it did. Never overwrites or resets an account, so it is safe to leave set; one without the other refuses to start. Read by `all` and `chat` processes. Password at least 12 characters. |
 | `ADMIN_SESSION_TIMEOUT` | no | `30m` | Idle time before a staff session ends. Sessions are rows in `spring_session`, shared by every replica. |
+| `ADMIN_UI_PORT`, `ADMIN_UI_IMAGE` | no | `8084`, `ai-customer-service-java-admin-ui:local` | Compose only: the operations UI's host port and image. The UI container reads one variable of its own, `ADMIN_API_UPSTREAM`, which the Compose files set to the app or the chat role. |
 
 `.env.example` documents the first five. Copy it to `.env` (git-ignored) and fill it in,
 or export the variables in your shell — Compose reads both.
@@ -311,8 +312,8 @@ APP_TARGET=chat KNOWLEDGE_URL=http://localhost:8081 TICKET_URL=http://localhost:
     ANTHROPIC_API_KEY=... java -jar target/*.jar
 ```
 
-The operations admin lives in the `chat` process: `/admin` and `/admin/api/**` are served
-there, staff sessions are rows every `chat` replica reads, ticket changes reach the
+The operations admin lives in the `chat` process: `/admin/api/**` is served
+there (the UI container proxies to it), staff sessions are rows every `chat` replica reads, ticket changes reach the
 `ticket` process over `/internal/v1/ticket-workflow`, and knowledge edits and publications
 reach the `knowledge` process over `/internal/v1/knowledge-admin`, both with the same token.
 A publication embeds on the knowledge role, which is where the model is. `ADMIN_SEED_*` and
@@ -389,10 +390,11 @@ The two `ADMIN_SEED_*` keys are the seed command for the operations admin: the f
 start against an empty `staff_account` creates that admin and the others log that it exists.
 They never overwrite or reset an account, so the Secret can keep them; in the split layout
 only the `chat` pods read them. The admin's sessions are rows in `spring_session`, which is
-why two replicas behind one Service share a login. `/admin` is served on the same port as
-everything else and has no Ingress of its own here; put it behind whatever already fronts
-the Service, and behind TLS, since the session cookie is only marked `Secure` on an HTTPS
-request. See [Operations admin](operations-admin.md#operating-it).
+why two replicas behind one Service share a login. The UI is the `admin-ui`
+Deployment and Service (`base/admin-ui.yaml`, `roles/admin-ui.yaml`), built from
+`admin-ui/`; expose that Service to operators, behind TLS, since the session cookie is only
+marked `Secure` on an HTTPS request, and leave the app's Service internal: the app serves
+nothing under `/admin`. See [Operations admin](operations-admin.md#operating-it).
 
 Highlights:
 

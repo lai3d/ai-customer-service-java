@@ -35,12 +35,15 @@ class AdminStaffController {
 
     @GetMapping("/me")
     Me me(Authentication authentication) {
-        StaffRole role = authentication.getAuthorities().stream()
+        return new Me(authentication.getName(), roleOf(authentication).value());
+    }
+
+    static StaffRole roleOf(Authentication authentication) {
+        return authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
                 .map(StaffRole::fromValue)
                 .findFirst()
                 .orElseThrow();
-        return new Me(authentication.getName(), role.value());
     }
 
     @GetMapping("/staff")

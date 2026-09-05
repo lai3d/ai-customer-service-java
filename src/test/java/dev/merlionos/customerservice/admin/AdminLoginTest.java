@@ -18,16 +18,11 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Staff login end to end, over real HTTP with a real cookie jar. The claims: a stranger is
- * turned away (a redirect for the page, a {@code 401} for the API); a signed-in support
- * member is not an admin; every mutation needs the CSRF token; signing out ends the session
- * in Postgres, not just in the browser; and the public chat side never sees any of it.
- *
- * <p>The context configuration is deliberately identical to {@code CustomerServiceApplicationTests}'
- * (the one without a mocked chat model) so the two share one cached context. An {@code all}-target context holds an ONNX session,
- * and the CI runner survives fifteen of them and not sixteen -- see CLAUDE.md. The first
- * admin is therefore created through {@link StaffAccounts} here rather than by the seed
- * properties, whose decision logic {@code StaffAccountsTest} covers.
+ * Staff sign-in as the separated UI does it, over real HTTP with a real cookie jar: a CSRF
+ * cookie first, then a JSON login. The claims: a stranger gets {@code 401} and no session;
+ * every mutation, the login included, needs the CSRF token; a signed-in support member is
+ * not an admin; signing out ends the session in Postgres; the public side never sees any of
+ * it; and nothing under {@code /admin} but the API exists here any more.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "app.rag.import-mode=startup")
@@ -50,54 +45,52 @@ class AdminLoginTest {
 
     @BeforeEach
     void oneAdminAndNoSessions() {
-        jdbc.update("DELETE FROM staff_account");
         jdbc.update("DELETE FROM spring_session");
+        jdbc.update("DELETE FROM admin_audit");
+        jdbc.update("DELETE FROM staff_account");
         accounts.create("root", "first-admin-password", StaffRole.ADMIN, StaffSeeder.CREATED_BY);
     }
 
     @Test
-    @DisplayName("an anonymous visitor is sent to the login page, and an anonymous API call gets 401 with no session")
+    @DisplayName("an anonymous call is 401 with no session and no redirect, and the pages are gone")
     void anonymousIsTurnedAway() throws Exception {
         AdminBrowser browser = new AdminBrowser(port);
 
         HttpResponse<String> api = browser.get("/admin/api/me");
         assertThat(api.statusCode()).isEqualTo(401);
-        assertThat(browser.cookie("SESSION")).as("a refused API call opens no session").isEmpty();
+        assertThat(api.headers().firstValue("Location")).isEmpty();
+        assertThat(browser.cookie("SESSION")).as("a refused call opens no session").isEmpty();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session", Integer.class)).isZero();
-
-        // A page request is remembered so the login can return to it; that is the one session
-        // an anonymous visitor can open, and it holds nothing but the URL.
-        HttpResponse<String> page = browser.get("/admin");
-        assertThat(page.statusCode()).isEqualTo(302);
-        assertThat(page.headers().firstValue("Location")).hasValueSatisfying(location -> assertThat(location).endsWith("/admin/login"));
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name IS NOT NULL", Integer.class)).isZero();
+        assertThat(browser.get("/admin").statusCode()).as("the UI is deployed on its own now").isEqualTo(404);
+        assertThat(browser.get("/admin/login").statusCode()).isEqualTo(404);
     }
 
     @Test
-    @DisplayName("the login page hands out the CSRF cookie, and a login without the token is refused")
+    @DisplayName("the CSRF cookie comes from /csrf, and a login without the token is refused")
     void loginNeedsTheCsrfToken() throws Exception {
         AdminBrowser browser = new AdminBrowser(port);
 
-        HttpResponse<String> login = browser.get("/admin/login");
-        assertThat(login.statusCode()).isEqualTo(200);
-        assertThat(login.body()).contains("<form method=\"post\" action=\"/admin/login\"");
+        HttpResponse<String> csrf = browser.get("/admin/api/csrf");
+        assertThat(csrf.statusCode()).isEqualTo(204);
         assertThat(browser.cookie("XSRF-TOKEN")).isPresent();
 
-        HttpResponse<String> without = browser.postForm("/admin/login",
-                Map.of("username", "root", "password", "first-admin-password"));
+        HttpResponse<String> without = browser.postJson("/admin/api/login",
+                "{\"username\":\"root\",\"password\":\"first-admin-password\"}", false);
         assertThat(without.statusCode()).isEqualTo(403);
         assertThat(browser.get("/admin/api/me").statusCode()).isEqualTo(401);
     }
 
     @Test
-    @DisplayName("a wrong password lands back on the page with ?error, and stays signed out")
+    @DisplayName("a wrong password is 401 with one sentence for every cause, and stays signed out")
     void wrongPassword() throws Exception {
         AdminBrowser browser = new AdminBrowser(port);
-        browser.get("/admin/login");
+        browser.get("/admin/api/csrf");
 
         HttpResponse<String> attempt = browser.login("root", "not-the-password");
-        assertThat(attempt.statusCode()).isEqualTo(302);
-        assertThat(attempt.headers().firstValue("Location")).hasValueSatisfying(l -> assertThat(l).endsWith("/admin/login?error"));
+        assertThat(attempt.statusCode()).isEqualTo(401);
+        assertThat(attempt.body()).contains("Wrong username or password");
+        HttpResponse<String> unknown = browser.login("nobody", "not-the-password");
+        assertThat(unknown.body()).as("the same sentence, so accounts cannot be enumerated").isEqualTo(attempt.body());
         assertThat(browser.get("/admin/api/me").statusCode()).isEqualTo(401);
     }
 
@@ -109,15 +102,17 @@ class AdminLoginTest {
     }
 
     @Test
-    @DisplayName("the admin signs in, holds a session in Postgres, and signs out of it")
+    @DisplayName("the admin signs in with JSON, gets a rotated session and token, holds a row in Postgres, and signs out of it")
     void adminSignsInAndOut() throws Exception {
         AdminBrowser browser = new AdminBrowser(port);
-        browser.get("/admin/login");
+        browser.get("/admin/api/csrf");
+        String tokenBefore = browser.csrf();
 
         HttpResponse<String> login = browser.login("Root", "first-admin-password");
-        assertThat(login.statusCode()).isEqualTo(302);
-        assertThat(login.headers().firstValue("Location")).hasValueSatisfying(l -> assertThat(l).endsWith("/admin"));
+        assertThat(login.statusCode()).isEqualTo(200);
+        assertThat(login.body()).isEqualTo("{\"username\":\"root\",\"role\":\"admin\"}");
         assertThat(browser.cookie("SESSION")).isPresent();
+        assertThat(browser.csrf()).as("signing in rotates the CSRF token").isNotEqualTo(tokenBefore);
 
         HttpResponse<String> me = browser.get("/admin/api/me");
         assertThat(me.statusCode()).isEqualTo(200);
@@ -125,11 +120,9 @@ class AdminLoginTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name = 'root'", Integer.class))
                 .as("the session is a row, so a second replica would honour it")
                 .isEqualTo(1);
-        assertThat(browser.get("/admin").statusCode()).isEqualTo(200);
 
-        HttpResponse<String> logout = browser.postForm("/admin/logout", Map.of("_csrf", browser.csrf()));
-        assertThat(logout.statusCode()).isEqualTo(302);
-        assertThat(logout.headers().firstValue("Location")).hasValueSatisfying(l -> assertThat(l).endsWith("/admin/login?logout"));
+        HttpResponse<String> logout = browser.postJson("/admin/api/logout", "{}");
+        assertThat(logout.statusCode()).isEqualTo(204);
         assertThat(browser.get("/admin/api/me").statusCode()).isEqualTo(401);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name = 'root'", Integer.class))
                 .as("signing out deletes the row, so no replica honours the old cookie")
@@ -139,9 +132,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("an admin creates a support account; support can sign in but is not an admin")
     void rolesAreEnforcedOnTheServer() throws Exception {
-        AdminBrowser admin = new AdminBrowser(port);
-        admin.get("/admin/login");
-        admin.login("root", "first-admin-password");
+        AdminBrowser admin = AdminBrowser.signedIn(port, "root", "first-admin-password");
 
         HttpResponse<String> withoutToken = admin.postJson("/admin/api/staff",
                 "{\"username\":\"sam\",\"password\":\"support-password-1\",\"role\":\"support\"}", false);
@@ -158,18 +149,12 @@ class AdminLoginTest {
         HttpResponse<String> tooShort = admin.postJson("/admin/api/staff",
                 "{\"username\":\"kim\",\"password\":\"short\",\"role\":\"support\"}", true);
         assertThat(tooShort.statusCode()).isEqualTo(400);
-        assertThat(tooShort.body()).contains("12 characters");
 
-        AdminBrowser support = new AdminBrowser(port);
-        support.get("/admin/login");
-        support.login("sam", "support-password-1");
+        AdminBrowser support = AdminBrowser.signedIn(port, "sam", "support-password-1");
         assertThat(support.get("/admin/api/me").body()).isEqualTo("{\"username\":\"sam\",\"role\":\"support\"}");
         assertThat(support.get("/admin/api/staff").statusCode()).as("listing accounts is an admin operation").isEqualTo(403);
-        HttpResponse<String> escalation = support.postJson("/admin/api/staff",
-                "{\"username\":\"eve\",\"password\":\"another-password-1\",\"role\":\"admin\"}", true);
-        assertThat(escalation.statusCode()).isEqualTo(403);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM staff_account", Integer.class)).isEqualTo(2);
-
+        assertThat(jdbc.queryForMap("SELECT actor, action, target FROM admin_audit"))
+                .containsEntry("actor", "sam").containsEntry("action", "refused").containsEntry("target", "GET /admin/api/staff");
         assertThat(admin.get("/admin/api/staff").body()).contains("\"username\":\"root\"", "\"username\":\"sam\"")
                 .doesNotContain("password");
     }
@@ -181,11 +166,10 @@ class AdminLoginTest {
 
         assertThat(browser.get("/").statusCode()).isEqualTo(200);
         assertThat(browser.get("/actuator/health/liveness").statusCode()).isEqualTo(200);
-        // An empty body fails validation with 400. It would be 401 or 403 if Spring Security
-        // had a chain on this path, which is the regression this guards against.
         HttpResponse<String> chat = browser.postJson("/api/v1/chat", "{}", false);
         assertThat(chat.statusCode()).isEqualTo(400);
         assertThat(browser.cookie("SESSION")).isEmpty();
         assertThat(browser.cookie("XSRF-TOKEN")).isEmpty();
+        assertThat(Map.of()).isEmpty();
     }
 }

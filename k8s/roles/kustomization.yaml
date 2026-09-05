@@ -19,3 +19,4 @@ resources:
   - ticket.yaml
   - chat.yaml
   - networkpolicy.yaml
+  - admin-ui.yaml

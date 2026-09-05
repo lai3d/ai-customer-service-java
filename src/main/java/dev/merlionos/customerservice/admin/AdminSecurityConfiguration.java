@@ -12,100 +12,73 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
-import org.springframework.security.web.util.matcher.AndRequestMatcher;
-import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * Staff login for the operations admin, and nothing else. The filter chain is bound to
- * {@code /admin/**}: the public chat endpoints, the demo page, the actuator and the
+ * {@code /admin/api/**}: the public chat endpoints, the demo page, the actuator and the
  * {@code /internal/**} seam (which has its own bearer token) never pass through Spring
- * Security at all. This is staff authentication for a page that shows customer
+ * Security at all. This is staff authentication for an API that shows customer
  * conversations; it is not customer authentication, which the repository still does not have.
  *
- * <h2>Shape</h2>
+ * <p>The UI is a separate deployable ({@code admin-ui/}, its own nginx container) that
+ * proxies {@code /admin/api} to this process, so the browser sees one origin and the session
+ * stays a cookie and a row in Postgres. Nothing under {@code /admin} is served here any more.
  *
  * <ul>
- * <li>Form login at {@code /admin/login}, the page being a static file served by
- * {@link AdminPageController}. Success goes to {@code /admin}; failure back to the page with
- * {@code ?error}, which says "wrong username or password" for every cause, so the form
- * cannot be used to enumerate accounts.</li>
+ * <li>Sign in and out are JSON ({@link AdminSessionController}); an anonymous request to
+ * anything else is {@code 401}, never a redirect.</li>
  * <li>Sessions in Postgres through Spring Session (see {@code V4__staff_accounts.sql}),
  * because the chat role runs as replicas behind one Service. The session id is rotated on
  * login.</li>
- * <li>CSRF on every mutation, the token in a readable {@code XSRF-TOKEN} cookie that the page
- * copies into an {@code X-XSRF-TOKEN} header or a {@code _csrf} field. The plain request
- * handler rather than the BREACH-masking one: the token is never in a compressible response
- * body here, only in a cookie header, so there is nothing for the masking to protect.</li>
- * <li>{@code /admin/api/**} answers {@code 401} to an anonymous request instead of a redirect,
- * and {@code 403} to one without the role; the page treats both as "sign in again".</li>
- * <li>Roles are enforced on the server twice: any {@code /admin/**} request must be
- * authenticated here, and admin-only operations carry {@code @PreAuthorize} on the method.
- * The page hides what a role cannot do; that is presentation, not the control.</li>
+ * <li>CSRF on every mutation, the token in a readable {@code XSRF-TOKEN} cookie that the UI
+ * copies into an {@code X-XSRF-TOKEN} header; {@code GET /admin/api/csrf} exists so a fresh
+ * page can obtain one before its first post. The plain request handler rather than the
+ * BREACH-masking one: the token is never in a compressible response body here.</li>
+ * <li>Roles are enforced on the server twice: any {@code /admin/api/**} request but the
+ * login must be authenticated here, and admin-only operations carry {@code @PreAuthorize}.
+ * A signed-in person refused by role is written to {@code admin_audit} before the
+ * {@code 403} goes out.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 @EnableMethodSecurity
 public class AdminSecurityConfiguration {
 
-    public static final String ADMIN_PATH = "/admin";
-    public static final String LOGIN_PATH = ADMIN_PATH + "/login";
-    public static final String LOGOUT_PATH = ADMIN_PATH + "/logout";
-    public static final String API_PATH = ADMIN_PATH + "/api";
+    public static final String API_PATH = "/admin/api";
+    public static final String LOGIN_PATH = API_PATH + "/login";
+    public static final String CSRF_PATH = API_PATH + "/csrf";
 
     @Bean
-    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminAudit audit) throws Exception {
-        PathPatternRequestMatcher.Builder path = PathPatternRequestMatcher.withDefaults();
-        RequestMatcher api = path.matcher(API_PATH + "/**");
-        // Remember where a person was going only for page requests: an API 401 has no page
-        // to return to, and saving one would open a session for every anonymous fetch.
-        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
-        requestCache.setRequestMatcher(new AndRequestMatcher(
-                path.matcher(HttpMethod.GET, ADMIN_PATH + "/**"), new NegatedRequestMatcher(api)));
-
-        // Which "not signed in" a request gets is decided by its path, not by its Accept
-        // header: the API answers 401, everything else is sent to the login page. Spring
-        // Security's own content negotiation would send a fetch() with no Accept header to
-        // the page as well.
-        DelegatingAuthenticationEntryPoint entryPoint = new DelegatingAuthenticationEntryPoint(
-                new LinkedHashMap<>(Map.of(api, new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))));
-        entryPoint.setDefaultEntryPoint(new LoginUrlAuthenticationEntryPoint(LOGIN_PATH));
-
-        http.securityMatcher(ADMIN_PATH + "/**")
+    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminAudit audit, CsrfTokenRepository csrfTokenRepository)
+            throws Exception {
+        http.securityMatcher(API_PATH + "/**")
                 .authorizeHttpRequests(requests -> requests
-                        .requestMatchers(HttpMethod.GET, LOGIN_PATH).permitAll()
+                        .requestMatchers(HttpMethod.POST, LOGIN_PATH).permitAll()
+                        .requestMatchers(HttpMethod.GET, CSRF_PATH).permitAll()
                         .anyRequest().authenticated())
-                .formLogin(login -> login
-                        .loginPage(LOGIN_PATH)
-                        .loginProcessingUrl(LOGIN_PATH)
-                        .defaultSuccessUrl(ADMIN_PATH, false)
-                        .failureUrl(LOGIN_PATH + "?error"))
-                .logout(logout -> logout
-                        .logoutUrl(LOGOUT_PATH)
-                        .logoutSuccessUrl(LOGIN_PATH + "?logout"))
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
-                .requestCache(cache -> cache.requestCache(requestCache))
+                .requestCache(cache -> cache.disable())
+                .formLogin(login -> login.disable())
+                .httpBasic(basic -> basic.disable())
+                .logout(logout -> logout.disable())
+                .securityContext(context -> context.securityContextRepository(securityContextRepository()))
                 .exceptionHandling(handling -> handling
-                        .authenticationEntryPoint(entryPoint)
-                        // A signed-in person refused by role is written to admin_audit before the 403
-                        // goes out: a trail that holds only what succeeded is missing exactly the
-                        // rows an investigation would open it for. CSRF failures are not refusals of
-                        // a person and are not recorded.
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                         .accessDeniedHandler((request, response, denied) -> {
                             var principal = request.getUserPrincipal();
                             if (principal != null && !(denied instanceof CsrfException)) {
@@ -115,6 +88,24 @@ public class AdminSecurityConfiguration {
                             response.sendError(HttpStatus.FORBIDDEN.value());
                         }));
         return http.build();
+    }
+
+    @Bean
+    CsrfTokenRepository csrfTokenRepository() {
+        return CookieCsrfTokenRepository.withHttpOnlyFalse();
+    }
+
+    /** Where a signed-in context lives between requests: the session, which Spring Session keeps in Postgres. */
+    @Bean
+    SecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
+    }
+
+    @Bean
+    AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+        provider.setPasswordEncoder(passwordEncoder);
+        return new ProviderManager(provider);
     }
 
     /**

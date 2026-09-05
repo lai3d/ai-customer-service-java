@@ -195,17 +195,17 @@ class TopologyParityTest {
     @DisplayName("the operations admin and its staff login exist only in the chat process")
     void adminLivesInTheChatProcess() {
         assertThat(chat.containsBean("adminSecurityFilterChain")).isTrue();
-        HttpStatusCode chatLogin = http(chat).get().uri("/admin/login")
+        HttpStatusCode chatMe = http(chat).get().uri("/admin/api/me")
                 .exchange((request, response) -> response.getStatusCode());
-        assertThat(chatLogin).isEqualTo(HttpStatus.OK);
+        assertThat(chatMe).as("the API exists and wants a login").isEqualTo(HttpStatus.UNAUTHORIZED);
         for (ConfigurableApplicationContext other : List.of(knowledge, ticket)) {
             assertThat(other.getBeanNamesForType(SecurityFilterChain.class))
                     .as("no filter chain at all, so nothing stands in front of /internal but the token")
                     .isEmpty();
             assertThat(other.containsBean("springSessionRepositoryFilter")).isFalse();
-            HttpStatusCode otherLogin = http(other).get().uri("/admin/login")
+            HttpStatusCode otherMe = http(other).get().uri("/admin/api/me")
                     .exchange((request, response) -> response.getStatusCode());
-            assertThat(otherLogin).as("not a login prompt: the page does not exist there").isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(otherMe).as("not a login prompt: the API does not exist there").isEqualTo(HttpStatus.NOT_FOUND);
         }
     }
 

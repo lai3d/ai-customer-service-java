@@ -1,0 +1,80 @@
+:root {
+  --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76; --line: #e3e3e8;
+  --accent: #2f6f4f; --accent-soft: #eaf3ee; --warn: #a4402c; --warn-soft: #f9ece8; --user: #edeef2;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16161a; --panel: #1e1e24; --ink: #e9e9ee; --muted: #9a9aa6; --line: #2e2e37;
+          --accent: #7fc0a0; --accent-soft: #23302a; --warn: #e08a76; --warn-soft: #3a2a26; --user: #2a2a33; }
+}
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif }
+a { color: var(--accent); text-decoration: none }
+a:hover { text-decoration: underline }
+button, input, select, textarea { font: inherit; color: inherit }
+button { padding: 5px 11px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); cursor: pointer }
+button:hover { border-color: var(--accent) }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent) }
+button.danger { color: var(--warn) }
+button:disabled { opacity: .45; cursor: default }
+input, select, textarea { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg) }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px }
+textarea { width: 100%; min-height: 64px; resize: vertical }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted) }
+label.inline { flex-direction: row; align-items: center; gap: 6px }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; background: rgba(127,127,127,.16); padding: .08em .34em; border-radius: 4px }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px }
+
+header.top { display: flex; align-items: baseline; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap }
+header.top h1 { font-size: 15px; margin: 0; font-weight: 600 }
+header.top nav { display: flex; gap: 14px; flex: 1; flex-wrap: wrap }
+header.top nav a.active { font-weight: 600; text-decoration: underline }
+header.top .who { color: var(--muted); font-size: 13px }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 22px }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px }
+h3 { font-size: 15px; margin: 0 0 6px }
+h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0 4px }
+p { margin: 0 0 10px }
+.hint, .empty { color: var(--muted); font-size: 13px }
+.note { font-size: 13px; margin: 8px 0 }
+.note.error { color: var(--warn) }
+.note.conflict { color: var(--warn) }
+.notice { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px }
+.toolbar, .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 12px }
+table { width: 100%; border-collapse: collapse; font-size: 14px }
+th, td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top }
+th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0 }
+tr.link { cursor: pointer }
+tr.link:hover td { background: var(--accent-soft) }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; white-space: nowrap }
+.pill.open, .pill.running, .pill.interrupted, .pill.draft { background: var(--user); color: var(--ink) }
+.pill.resolved, .pill.closed, .pill.superseded, .pill.retired, .pill.handled, .pill.dismissed { background: transparent; border: 1px solid var(--line); color: var(--muted) }
+.pill.failed, .pill.unknown { background: var(--warn-soft); color: var(--warn) }
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted) }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14px; margin: 8px 0 14px }
+.facts dt { color: var(--muted) }
+.facts dd { margin: 0 }
+.events { list-style: none; padding: 0; margin: 0 }
+.events li { border-top: 1px solid var(--line); padding: 8px 0; font-size: 14px }
+.events .who { color: var(--muted); font-size: 13px }
+.events .text { white-space: pre-wrap; margin-top: 3px }
+.transcript { display: flex; flex-direction: column; gap: 10px }
+.msg { max-width: 72ch; padding: 9px 13px; border-radius: 12px; white-space: pre-wrap; word-break: break-word }
+.msg.USER, .msg.customer { align-self: flex-end; background: var(--user) }
+.msg.ASSISTANT, .msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); white-space: normal }
+.msg.SYSTEM, .msg.TOOL { align-self: stretch; background: transparent; border: 1px dashed var(--line); color: var(--muted); font-size: 13px }
+.msg .at { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px }
+.md p { margin: 0 0 8px } .md p:last-child, .md ul:last-child { margin-bottom: 0 } .md ul { margin: 0 0 8px; padding-left: 20px }
+.turn { border-top: 1px solid var(--line); padding: 14px 0 }
+.turn:first-child { border-top: 0; padding-top: 0 }
+.turn .meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); margin: 8px 0 }
+.failure { color: var(--warn); font-size: 13px; white-space: pre-wrap }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 }
+.stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+.stat .v { font-size: 22px; font-weight: 600; line-height: 1.2 }
+.stat .l { font-size: 12px; color: var(--muted); margin-top: 2px }
+.stat .g { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent) }
+details summary { cursor: pointer }
+form.login { width: min(360px, calc(100vw - 32px)); margin: 15vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px; display: flex; flex-direction: column; gap: 12px }
+form.login h1 { font-size: 16px; margin: 0 }

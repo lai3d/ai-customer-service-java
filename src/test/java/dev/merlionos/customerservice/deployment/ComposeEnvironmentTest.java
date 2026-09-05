@@ -65,7 +65,7 @@ class ComposeEnvironmentTest {
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
         List<String> declared = matcher.results().map(result -> result.group(1)).distinct()
                 // Host-port knobs Compose itself reads; they never need to reach the container.
-                .filter(name -> !Set.of("GRAFANA_PORT", "PROMETHEUS_PORT", "OTLP_HTTP_PORT", "COMPOSE_PROFILES").contains(name))
+                .filter(name -> !Set.of("GRAFANA_PORT", "PROMETHEUS_PORT", "OTLP_HTTP_PORT", "COMPOSE_PROFILES", "ADMIN_UI_PORT", "ADMIN_UI_IMAGE").contains(name))
                 .toList();
 
         assertThat(declared).as("sanity: .env.example should document something").isNotEmpty();
@@ -95,7 +95,8 @@ class ComposeEnvironmentTest {
         Set<String> declared = matcher.results().map(result -> result.group(1)).collect(Collectors.toSet());
         // Compose-only knobs, and the two the file sets for the reader rather than passing through.
         declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "OTLP_HTTP_PORT", "GRAFANA_PORT", "PROMETHEUS_PORT", "COMPOSE_PROFILES",
-                "KNOWLEDGE_URL", "TICKET_URL", "APP_TARGET", "APP_RAG_IMPORT_MODE"));
+                "KNOWLEDGE_URL", "TICKET_URL", "APP_TARGET", "APP_RAG_IMPORT_MODE",
+                "ADMIN_UI_PORT", "ADMIN_UI_IMAGE"));
 
         Set<String> chat = servicesEnvironment("chat").keySet();
         assertThat(chat)
