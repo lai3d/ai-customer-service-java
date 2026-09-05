@@ -327,8 +327,35 @@ assistant says so rather than inventing an answer.
 
 Deliberately out of scope: authentication, multi-tenancy, and MCP.
 
-A Go implementation is planned as a comparison rather than a port — the same system and the same
-measurements on a runtime whose concurrency model is natively what this one opts into.
+## The same system in Go
+
+[**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go) is the same
+system built as a comparison rather than a port — same corpus, same benchmark parameters, same
+providers, nothing shared between the repositories by design.
+
+The benchmark is the same 1000 concurrent requests against a 1000 ms stubbed model, on the full
+production path. Go's rows were measured there; the Java rows are [this repository's](docs/benchmark.md):
+
+| | duration | throughput | p50 | OS threads |
+|---|---|---|---|---|
+| Java, platform threads | 6254 ms | 160 req/s | 4037 ms | 246 |
+| Java, virtual threads | 2000 ms | 500 req/s | 1616 ms | 52 |
+| Go, goroutines | 1667 ms | 600 req/s | 1648 ms | 135 |
+
+Go is about 20% faster with a much flatter tail — p50 to p99 inside 17 ms, against 370 ms here —
+and spends several times the OS threads to get it, because a goroutine inside a cgo call blocks
+its thread and the scheduler responds by making another. The JVM avoids that with the same ONNX
+model by bounding the carrier pool at the core count: it wins that one by being **less** clever,
+not more.
+
+Two findings crossed between the repositories and corrected something on this side. The Go
+implementation measured the raw wire and showed that
+[the usage-grouping rule](docs/reliability.md#a-turn-is-not-a-model-call) is a property of Spring
+AI's abstraction rather than of the protocols, and it flagged that
+[the retrieval threshold](docs/retrieval.md) was under-sampled — which it was, worse than the
+first measurement admitted. The comparison's most useful result so far is not a latency number:
+it is that three constraints this codebase enforces with tests are enforced by Go's type system
+instead, so the corresponding bugs cannot be written there.
 
 ---
 
@@ -348,9 +375,9 @@ measurements on a runtime whose concurrency model is natively what this one opts
 └── src/test/java/           # Testcontainers-backed integration tests
 ```
 
-This repository is one of a planned pair — a Go implementation of the same system lives in
-a separate repository. Nothing is shared between them by design; each is idiomatic for its
-own ecosystem.
+This repository is one of a pair. The Go implementation is at
+[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go); nothing is
+shared between them by design, and each is idiomatic for its own ecosystem.
 
 ---
 

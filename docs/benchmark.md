@@ -51,6 +51,22 @@ specifically is what produced the 202-versus-2 result above.
 one's 200-thread pool was counted against whichever run happened to go second — which is why
 both rows once read 202. `@DirtiesContext` closes each server before the next starts.
 
+### A third mistake, found by running the same benchmark in another language
+
+The stub delay is a **constant** 1000 ms, and that flatters both runtimes. Every request arrives
+at once and finishes at once, so nothing ever queues behind a slow neighbour and the thread
+counts describe the worst case of perfectly simultaneous arrivals rather than anything traffic
+does. The [Go implementation](https://github.com/lai3d/ai-customer-service-go) re-ran its own
+rows with the same 1000 ms *mean* drawn from `300 ms + Exp(700 ms)`: p50 improved and its OS
+thread count fell by roughly a quarter.
+
+So the thread numbers here measure how concentrated the arrivals are at least as much as how
+many there are. That does not change the platform-versus-virtual ratio — both rows were measured
+under the same arrival pattern — but it does change what the counts are evidence *for*: they
+argue for bounding concurrency, not for sizing a pool to a measured peak that no real traffic
+will reproduce. The Java rows have not been re-run with a variable delay; that is a known gap
+rather than a claim.
+
 The benchmark is committed and reproducible but tagged `benchmark` and excluded from the normal
 build: it measures a machine rather than asserting a behaviour, and the numbers above are from
 one laptop with the load generator sharing its JVM. Run-to-run variance is a few hundred
