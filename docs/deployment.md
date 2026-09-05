@@ -201,7 +201,7 @@ levers, in descending order of payoff:
 
 ### What actually happens at startup
 
-The stated behaviour — "downloads ~87 MB of ONNX model into `${user.dir}/onnx-model-cache`
+The stated behaviour — "downloads the ONNX model into `${user.dir}/onnx-model-cache`
 on first start" — is real but incomplete. There is a second, larger download that only
 shows up once the first one is fixed:
 
@@ -212,8 +212,13 @@ the first time an embedding is computed, `PtEngine` downloads **~170 MB of libto
 `publish.djl.ai`. That first embedding happens during startup, inside
 `FaqIngestionService`.
 
-Total unbaked cold-start download: **~260 MB** (87 MB model + ~170 MB libtorch), from two
-different hosts, before the app can serve a single request.
+Total unbaked cold-start download: **~620 MB** — 470 MB of model plus ~170 MB of libtorch,
+from two different hosts, before the app can serve a single request.
+
+The model figure is measured: `multilingual-e5-small`'s `model.onnx` is 470,268,510 bytes.
+This paragraph said 87 MB until 2026-09-05, which was `all-MiniLM-L6-v2`'s size and correct
+until the switch to a multilingual model for bilingual retrieval. Nobody re-read it, and it
+was quoted to another project building a comparison against this one.
 
 ### The decision: bake both into the image
 
@@ -293,7 +298,7 @@ Highlights:
   killing a pod that is merely still starting.
 - **Resources**: requests `500m` / `1Gi`, memory limit `2Gi`, no CPU limit. The JVM sizes
   its heap from the limit via `-XX:MaxRAMPercentage=70`, so `2Gi` means ~1.4 GB heap and
-  ~600 MB for native. That headroom is not padding — a 90 MB ONNX model and an
+  ~600 MB for native. That headroom is not padding — a 470 MB ONNX model and an
   onnxruntime session live outside the heap.
 - **Non-root and hardened**: `runAsNonRoot`, uid/gid 10001 (matching the image),
   `readOnlyRootFilesystem: true`, all capabilities dropped, `RuntimeDefault` seccomp, and

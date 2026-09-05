@@ -6,7 +6,7 @@
 #
 # Three stages:
 #   build  - JDK 21, Maven wrapper, produces a Spring Boot layered jar and explodes it
-#   onnx   - downloads the all-MiniLM-L6-v2 embedding model so it is baked into the image
+#   onnx   - downloads the multilingual-e5-small embedding model so it is baked into the image
 #   final  - JRE 21, non-root, runs the exploded jar via JarLauncher
 #
 # See docs/deployment.md for the reasoning, especially around the ONNX model.
@@ -155,7 +155,7 @@ COPY --from=build --chown=10001:10001 /build/extracted/application/ ./
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70.0 -XX:InitialRAMPercentage=50.0 -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp -Djava.awt.headless=true"
 
 # Point Spring AI at the baked model instead of the GitHub URLs. ResourceCacheService
-# excludes the `file` and `classpath` schemes from caching, so with these set the 87 MB
+# excludes the `file` and `classpath` schemes from caching, so with these set the 449 MiB
 # download and the on-disk cache are both bypassed entirely.
 ENV SPRING_AI_EMBEDDING_TRANSFORMER_ONNX_MODEL_URI=file:/opt/onnx/model.onnx \
     SPRING_AI_EMBEDDING_TRANSFORMER_TOKENIZER_URI=file:/opt/onnx/tokenizer.json
