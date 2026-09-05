@@ -1,0 +1,55 @@
+# The three backends and the links between them, provisioned so a fresh Grafana has them on
+# first start. The uids are fixed because the dashboards and the demo page's trace link refer
+# to them.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # A histogram bucket's exemplar carries the trace id Micrometer attached; clicking one
+      # opens that trace in Tempo. Micrometer's label name is trace_id.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # From a span to the log lines written under its trace: Alloy put the trace id in
+      # structured metadata, so the query filters on that rather than on a label.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        customQuery: true
+        query: '{service=~".+"} | traceId = "${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # From a log line to its trace: the same correlation prefix, matched in the line.
+      derivedFields:
+        - name: traceId
+          matcherRegex: '\[([0-9a-f]{32})-[0-9a-f]{16}\]'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: "View trace"

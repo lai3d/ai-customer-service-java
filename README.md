@@ -85,7 +85,7 @@ flowchart LR
     Corpus[/"faq.json<br/>18 entries"/]
     Embed["ONNX multilingual-e5-small<br/>in-process · 384-dim · en + zh"]
     Prom["/actuator/prometheus<br/>model calls · stream outcomes"]
-    Jaeger["Jaeger<br/>OTLP spans"]
+    Tempo["Grafana stack<br/>Tempo · Loki · Prometheus"]
 
     Client -->|"POST /api/v1/chat<br/>POST /api/v1/chat/stream"| Ctl
     Ctl --> Svc
@@ -103,7 +103,7 @@ flowchart LR
     Svc -.->|"partial reply<br/>on disconnect"| CM
     Svc -.-> Prom
     CC -.-> Prom
-    CC -.->|"OTLP"| Jaeger
+    CC -.->|"OTLP"| Tempo
 
 ```
 
@@ -240,7 +240,7 @@ Kubernetes manifests, the switching procedure and what running the split found.
 | Embeddings | Spring AI Transformers — `multilingual-e5-small` ONNX, in-process |
 | Vector store | pgvector |
 | Memory | Spring AI JDBC chat memory repository |
-| Observability | Actuator + Micrometer → Prometheus; Micrometer Tracing → OTLP → Jaeger |
+| Observability | Micrometer → Prometheus (histograms, exemplars); Micrometer Tracing → OTLP → Tempo; Alloy → Loki; Grafana provisioned with dashboards, alerts and the links between the three |
 | Build | Maven (wrapper included) |
 | Tests | JUnit 5 + Testcontainers |
 
@@ -264,7 +264,7 @@ $EDITOR .env               # set ANTHROPIC_API_KEY
 docker compose up -d       # Postgres, then the app once Postgres is healthy
 curl -s localhost:8080/actuator/health | jq
 open http://localhost:8080         # the demo UI
-open http://localhost:16686        # Jaeger: traces for every chat turn
+open http://localhost:3000         # Grafana: dashboards, and the trace and logs of every turn
 ```
 
 The image bakes in the embedding model, so a cold start downloads nothing at runtime and
@@ -376,13 +376,14 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **3 · Tool calling** — order status lookup and support ticket creation
 - [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests verified on kind
 - [x] **5 · Bilingual retrieval** — Chinese corpus, multilingual embeddings, cross-lingual tests
-- [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Jaeger, with customer messages excluded
+- [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Tempo, with customer messages excluded
 - [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini and xAI, all four verified live
 - [x] **8 · Demo UI** — a glass-box page showing retrieval, tool calls and token cost per turn
 - [x] **9 · Cost and failure** — per-conversation token budget, HTTP timeouts, bounded retry, cost metrics
 - [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
 - [x] **11 · Hardening** — bounded tool side effects, graceful shutdown, SSE keep-alive
 - [x] **12 · Deployment targets** — the same artifact as one process or as three roles, decided by two independent designs reconciled in [ADR 001](docs/adr/001-deployment-targets.md); shared state moved to Postgres under Flyway; both topologies verified in Compose, on kind and in CI
+- [x] **13 · Observability** — the Grafana stack: Prometheus with histograms and exemplars, Tempo with span-derived service graphs, Loki with trace-correlated logs, two dashboards and eight alerts as code, and an OTLP push path verified against the same dashboards
 
 Every item is done, and the system has been run end to end against the live API: a Chinese
 question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token

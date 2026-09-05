@@ -24,7 +24,7 @@ Testcontainers.
 
 docker compose up -d postgres                   # database only, for running from an IDE
 set -a && source .env && set +a && ./mvnw spring-boot:run
-docker compose up -d                            # full stack: Postgres, Jaeger, the app
+docker compose up -d                            # full stack: Postgres, the Grafana stack, the app
 
 ./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'   # opt-in benchmark
 
@@ -35,7 +35,9 @@ k8s/kind/verify.sh [--roles [--fit]] [--keep]   # the manifests on a throwaway k
 `./mvnw clean verify` after deleting or renaming a test resource — Maven leaves stale files in
 `target/test-classes`, and a stale `application.yml` there silently shadows the real config.
 
-The app serves a demo UI at `/`, actuator at `/actuator/{health,prometheus}`, Jaeger at `:16686`.
+The app serves a demo UI at `/`, actuator at `/actuator/{health,prometheus}`; Grafana is at `:3000`,
+Prometheus at `:9090`. Dashboards, alert rules and every backend's config are in `observability/`;
+`DashboardMetricsTest` fails if a dashboard references a metric the application does not emit.
 
 ## Architecture
 
@@ -252,7 +254,7 @@ Confirmed against `claude-opus-5`, `gpt-5`, `gemini-3.8-flash` and `grok-4.6`:
 - Chinese questions retrieve Chinese passages and are answered in Chinese from the corpus.
 - Tool calling round-trips on both providers; results reach the answer.
 - Real usage reaches the budget, the meters and the spans.
-- Traces arrive in Jaeger with `gen_ai.usage.*` and per-tool spans; one 3517 ms turn was
+- Traces arrive in Tempo with `gen_ai.usage.*` and per-tool spans; one 3517 ms turn was
   3498 ms of `chat claude-opus-5`.
 - Grounding holds: asked something the corpus does not cover, the model says so.
 

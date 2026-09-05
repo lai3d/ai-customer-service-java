@@ -1,0 +1,44 @@
+# The optional OpenTelemetry Collector, for `docker compose --profile collector`. The
+# application pushes traces and metrics to it over OTLP and it fans out: traces to Tempo,
+# metrics to Prometheus by remote write. This is the transport a production deployment would
+# use -- one endpoint for the application, backends swappable behind it -- and it is here so
+# the OTLP path is exercised and its metric names are checked against the same dashboards.
+#
+# The default profile does not use it: the application pushes traces straight to Tempo and
+# Prometheus pulls metrics, which is one fewer thing to run and is what Kubernetes expects.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    tls:
+      insecure: true
+    # Prometheus naming: `chat.tokens` becomes `chat_tokens_total`, seconds get `_seconds`, so
+    # the dashboards written against the scrape path keep working against this one.
+    add_metric_suffixes: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheusremotewrite]

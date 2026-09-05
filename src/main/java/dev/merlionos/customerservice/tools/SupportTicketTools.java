@@ -40,6 +40,13 @@ public class SupportTicketTools {
         this.tickets = tickets;
         this.meterRegistry = meterRegistry;
         this.turnEventBus = turnEventBus;
+        // Every outcome at zero from the start, so "unavailable" reads 0 on the dashboard and
+        // the alert on it has a series to watch, rather than both appearing only after the
+        // first failure.
+        for (TicketResult.Status status : TicketResult.Status.values()) {
+            meterRegistry.counter("chat.tool.invocations", "tool", TOOL_NAME, "outcome",
+                    outcomeOf(new TicketResult(status, status == TicketResult.Status.CREATED, null, null)));
+        }
     }
 
     @Tool(name = "create_support_ticket", description = """

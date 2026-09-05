@@ -8,7 +8,7 @@ It is deliberately not a chat widget. A widget's job is to make the AI feel seam
 invisible; this repository's substance *is* the invisible part. So the page is a glass box:
 conversation on the left, and on the right, for every turn, the passages retrieval found with
 their scores, the tools the model called, the tokens spent, and a link to that turn's trace in
-Jaeger.
+Grafana, from which its log lines are one click away.
 
 That required real work in the backend, not just a page. The stream now carries typed events —
 `retrieval`, `tool`, `message`, `usage`, `error` — instead of bare tokens:

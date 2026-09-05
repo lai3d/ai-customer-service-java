@@ -63,7 +63,10 @@ class ComposeEnvironmentTest {
         Set<String> passed = appEnvironmentNames();
 
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
-        List<String> declared = matcher.results().map(result -> result.group(1)).distinct().toList();
+        List<String> declared = matcher.results().map(result -> result.group(1)).distinct()
+                // Host-port knobs Compose itself reads; they never need to reach the container.
+                .filter(name -> !Set.of("GRAFANA_PORT", "PROMETHEUS_PORT", "OTLP_HTTP_PORT").contains(name))
+                .toList();
 
         assertThat(declared).as("sanity: .env.example should document something").isNotEmpty();
         assertThat(passed)
@@ -91,7 +94,7 @@ class ComposeEnvironmentTest {
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
         Set<String> declared = matcher.results().map(result -> result.group(1)).collect(Collectors.toSet());
         // Compose-only knobs, and the two the file sets for the reader rather than passing through.
-        declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "JAEGER_UI_PORT", "OTLP_HTTP_PORT",
+        declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "OTLP_HTTP_PORT", "GRAFANA_PORT", "PROMETHEUS_PORT",
                 "KNOWLEDGE_URL", "TICKET_URL", "APP_TARGET", "APP_RAG_IMPORT_MODE"));
 
         Set<String> chat = servicesEnvironment("chat").keySet();
@@ -122,15 +125,18 @@ class ComposeEnvironmentTest {
     }
 
     @Test
-    @DisplayName("tracing in Compose points at the bundled Jaeger, not at localhost")
-    void tracingTargetsTheBundledJaeger() throws IOException {
+    @DisplayName("tracing in Compose points at the bundled Tempo, not at localhost")
+    void tracingTargetsTheBundledTempo() throws IOException {
         @SuppressWarnings("unchecked")
         List<String> entries = (List<String>) composeService("app").get("environment");
 
         assertThat(entries).contains("OTLP_TRACING_EXPORT_ENABLED=true");
+        // Overridable, so the Collector profile can redirect it, but the default that applies
+        // with nothing set must be the compose alias: localhost inside the app container is
+        // the app container.
         assertThat(entries)
-                .as("localhost inside the app container is the app container")
-                .contains("OTLP_TRACING_ENDPOINT=http://jaeger:4318/v1/traces");
+                .as("the default OTLP endpoint is Tempo on the compose network")
+                .contains("OTLP_TRACING_ENDPOINT=${OTLP_TRACING_ENDPOINT:-http://tempo:4318/v1/traces}");
     }
 
     @Test

@@ -12,6 +12,8 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * Tool descriptions are prompt, not documentation. They are the only thing the model reads
  * when deciding whether to call this instead of answering from retrieved FAQ text, so they
@@ -36,6 +38,11 @@ public class OrderTools {
         this.orders = orders;
         this.meterRegistry = meterRegistry;
         this.turnEventBus = turnEventBus;
+        // Registered at zero so a dashboard shows 0 rather than "No data" before the first
+        // call; a counter that only exists once something has happened looks like nothing is.
+        for (String outcome : List.of("found", "not_found")) {
+            meterRegistry.counter("chat.tool.invocations", "tool", TOOL_NAME, "outcome", outcome);
+        }
     }
 
     @Tool(name = "lookup_order_status", description = """

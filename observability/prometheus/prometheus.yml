@@ -1,0 +1,31 @@
+# Prometheus for the single-process stack (docker-compose.yml). Pull, every 15 s, from the
+# application's /actuator/prometheus. The roles stack has its own file next to this one; the
+# rules are shared.
+#
+# Started with --enable-feature=exemplar-storage so the histograms' exemplars -- a trace id on
+# a bucket observation, which Micrometer attaches whenever a span is current -- are kept and
+# Grafana can jump from a latency panel into Tempo. And with --web.enable-remote-write-receiver
+# so Tempo's metrics-generator can push the span-derived RED metrics and service graph here.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: app
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app:8080"]
+        labels:
+          role: all
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]

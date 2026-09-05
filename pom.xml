@@ -58,6 +58,12 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Metrics over OTLP, pushed; off unless management.otlp.metrics.export.enabled. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-otlp</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Distributed tracing. Spring AI's observations already carry OpenTelemetry's
              GenAI semantic-convention attributes (gen_ai.usage.input_tokens and friends);
