@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Customer Service — demo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%228%22%20fill%3D%22%230f766e%22%2F%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h11%22%20stroke%3D%22%23fff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2223%22%20cy%3D%2222%22%20r%3D%222.5%22%20fill%3D%22%23fff%22%2F%3E%3C%2Fsvg%3E">
+  <title>AI Customer Service — demo</title>
 <style>
   :root {
     --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
@@ -46,6 +47,13 @@
   #empty .starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
   #empty .starters button { font-size: 13px; }
   .msg { max-width: 68ch; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .msg.rendered { white-space: normal; }
+  .msg.rendered p { margin: 0 0 10px; }
+  .msg.rendered p:last-child, .msg.rendered ul:last-child { margin-bottom: 0; }
+  .msg.rendered ul { margin: 0 0 10px; padding-left: 20px; }
+  .msg.rendered li { margin: 2px 0; }
+  .msg.rendered code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em;
+                       background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 4px; }
   .msg.user { align-self: flex-end; background: var(--user); }
   .msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
   .msg.err { align-self: flex-start; background: transparent; border: 1px dashed var(--warn); color: var(--warn); }
@@ -182,13 +190,68 @@ function applyLanguage() {
 function renderStarters() {
   const box = $("starters");
   if (!box) return;
-  box.innerHTML = "";
+  box.replaceChildren();
   for (const s of TEXT[lang].starters) {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = s;
     b.onclick = () => { input.value = s; form.requestSubmit(); };
     box.appendChild(b);
+  }
+}
+
+// A deliberately small Markdown subset: bold, unordered lists, inline code. Nothing here
+// ever turns a string into markup -- every branch appends a text node or an element it
+// created -- because the text is written by the model and the model's input includes
+// retrieved passages, which the system prompt already treats as data rather than
+// instructions. Links are the one construct left out on purpose: every other one is
+// formatting, and a link is a capability.
+function renderMarkdown(el, text) {
+  el.replaceChildren();
+  el.classList.add("rendered");
+  for (const block of text.split(/\n{2,}/)) {
+    if (!block.trim()) continue;
+    const lines = block.split("\n");
+    if (lines.every(l => /^\s*[-*]\s+/.test(l))) {
+      const ul = document.createElement("ul");
+      for (const line of lines) {
+        const li = document.createElement("li");
+        inline(li, line.replace(/^\s*[-*]\s+/, ""));
+        ul.appendChild(li);
+      }
+      el.appendChild(ul);
+    } else {
+      const para = document.createElement("p");
+      inline(para, lines.join("\n"));
+      el.appendChild(para);
+    }
+  }
+}
+
+// Alternating split on the delimiters, so odd indices are the marked-up spans and even
+// indices are literal text. A trailing unmatched delimiter stays literal, which is what a
+// half-streamed "**Carr" should look like until its closing pair arrives.
+function inline(parent, text) {
+  for (const [i, part] of text.split(/\*\*/).entries()) {
+    if (i % 2 === 1) {
+      const strong = document.createElement("strong");
+      code(strong, part);
+      parent.appendChild(strong);
+    } else {
+      code(parent, part);
+    }
+  }
+}
+
+function code(parent, text) {
+  for (const [i, part] of text.split(/`/).entries()) {
+    if (i % 2 === 1) {
+      const c = document.createElement("code");
+      c.textContent = part;
+      parent.appendChild(c);
+    } else if (part) {
+      parent.appendChild(document.createTextNode(part));
+    }
   }
 }
 
@@ -264,6 +327,7 @@ async function send(question) {
 
   bubble("user", question);
   const answer = bubble("bot", "");
+  let answerText = "";
   answer.classList.add("cursor");
   const panel = turnPanel(question);
   const t = TEXT[lang];
@@ -292,11 +356,10 @@ async function send(question) {
 
       if (event.name === "message") {
         const text = payload.text ?? "";
-        if (text && !textSinceTool && answer.textContent) {
-          answer.textContent += "\n\n";
-        }
+        if (text && !textSinceTool && answerText) answerText += "\n\n";
         if (text) textSinceTool = true;
-        answer.textContent += text;
+        answerText += text;
+        renderMarkdown(answer, answerText);
         log.scrollTop = log.scrollHeight;
       } else if (event.name === "retrieval") {
         const c = card(panel, `${t.retrieval} · ${payload.passages.length}`);
@@ -308,8 +371,16 @@ async function send(question) {
         for (const p of payload.passages) {
           const row = document.createElement("div");
           row.className = "row";
-          row.innerHTML = `<span class="name">${p.entryId} <span class="lang">${p.language}</span></span>`
-                        + `<span>${p.score.toFixed(3)}</span>`;
+          const name = document.createElement("span");
+          name.className = "name";
+          name.textContent = p.entryId + " ";
+          const lang = document.createElement("span");
+          lang.className = "lang";
+          lang.textContent = p.language;
+          name.appendChild(lang);
+          const score = document.createElement("span");
+          score.textContent = p.score.toFixed(3);
+          row.append(name, score);
           const bar = document.createElement("div");
           bar.className = "bar";
           bar.style.width = (hi === lo ? 100 : 18 + 82 * (p.score - lo) / (hi - lo)) + "%";
@@ -335,7 +406,12 @@ async function send(question) {
         const tokens = payload.inputTokens == null
           ? "—"
           : `${payload.inputTokens} ${t.tokensIn} / ${payload.outputTokens} ${t.tokensOut}`;
-        row.innerHTML = `<span class="name">${tokens}</span><span>${payload.millis}ms</span>`;
+        const tokensEl = document.createElement("span");
+        tokensEl.className = "name";
+        tokensEl.textContent = tokens;
+        const millis = document.createElement("span");
+        millis.textContent = payload.millis + "ms";
+        row.append(tokensEl, millis);
         c.appendChild(row);
         if (payload.traceId) {
           const a = document.createElement("a");
@@ -376,11 +452,18 @@ $("reset").onclick = () => {
   busy = false;
   $("send").disabled = false;
   conversationId = null;
-  inspector.innerHTML = "";
-  log.innerHTML = `<div id="empty">
-      <strong id="empty-title"></strong><p id="empty-body"></p>
-      <div class="starters" id="starters"></div>
-    </div>`;
+  inspector.replaceChildren();
+  const empty = document.createElement("div");
+  empty.id = "empty";
+  const emptyTitle = document.createElement("strong");
+  emptyTitle.id = "empty-title";
+  const emptyBody = document.createElement("p");
+  emptyBody.id = "empty-body";
+  const starters = document.createElement("div");
+  starters.className = "starters";
+  starters.id = "starters";
+  empty.append(emptyTitle, emptyBody, starters);
+  log.replaceChildren(empty);
   applyLanguage();
   input.focus();
 };
