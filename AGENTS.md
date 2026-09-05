@@ -30,4 +30,4 @@ Recent commits use concise, imperative, sentence-style subjects, such as `Trace 
 
 ## Security & Configuration
 
-Copy `.env.example` to `.env` for local secrets and never commit provider keys. Keep Kubernetes secrets out of source control; use `k8s/secret.example.yaml` only as a template.
+Copy `.env.example` to `.env` for local secrets and never commit provider keys. Keep Kubernetes secrets out of source control; use `k8s/examples/secret.yaml` only as a template.

@@ -290,7 +290,7 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 - [x] **1 · 对话内核** — SSE 上的单轮与多轮对话、会话记忆
 - [x] **2 · RAG** — FAQ 摄入流水线与有依据的回答，检索质量有测试覆盖
 - [x] **3 · 工具调用** — 订单状态查询与工单创建
-- [x] **4 · 部署** — Dockerfile、一条命令的 Docker Compose 栈、Kubernetes 清单
+- [x] **4 · 部署** — Dockerfile、一条命令的 Docker Compose 栈、经 kind 验证过的 Kubernetes 清单
 - [x] **5 · 双语检索** — 中文语料、多语言嵌入、跨语言测试
 - [x] **6 · 链路追踪** — 经 OTLP 到 Jaeger 的 OpenTelemetry span，排除客户消息
 - [x] **7 · 多 provider** — Anthropic、OpenAI、Gemini 和 xAI，四家全部真实调用验证

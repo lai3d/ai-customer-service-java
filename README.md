@@ -306,7 +306,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **1 · Conversational core** — single- and multi-turn chat over SSE, conversation memory
 - [x] **2 · RAG** — FAQ ingestion pipeline and grounded answers, with retrieval quality under test
 - [x] **3 · Tool calling** — order status lookup and support ticket creation
-- [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests
+- [x] **4 · Deployment** — Dockerfile, one-command Docker Compose stack, Kubernetes manifests verified on kind
 - [x] **5 · Bilingual retrieval** — Chinese corpus, multilingual embeddings, cross-lingual tests
 - [x] **6 · Tracing** — OpenTelemetry spans over OTLP to Jaeger, with customer messages excluded
 - [x] **7 · Multi-provider** — Anthropic, OpenAI, Gemini and xAI, all four verified live
