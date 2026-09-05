@@ -311,6 +311,11 @@ APP_TARGET=chat KNOWLEDGE_URL=http://localhost:8081 TICKET_URL=http://localhost:
     ANTHROPIC_API_KEY=... java -jar target/*.jar
 ```
 
+The operations admin lives in the `chat` process: `/admin` and `/admin/api/**` are served
+there, staff sessions are rows every `chat` replica reads, and ticket changes reach the
+`ticket` process over `/internal/v1/ticket-workflow` with the same token. `ADMIN_SEED_*` and
+`ADMIN_SESSION_TIMEOUT` are read by `chat` only.
+
 What to expect: `chat`'s `/actuator/health/readiness` is `DOWN` until `knowledge` reports its
 corpus present, because readiness crosses the seam; a `/internal/**` call without the token is
 `401`; a ticket raised through `chat` is a row in `support_ticket` written by `ticket`, with
@@ -363,7 +368,9 @@ kubectl apply -f k8s/base/namespace.yaml
 kubectl -n ai-customer-service create secret generic ai-customer-service-secrets \
   --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --from-literal=POSTGRES_USER='csagent' \
-  --from-literal=POSTGRES_PASSWORD="$PGPASSWORD"
+  --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
+  --from-literal=ADMIN_SEED_USERNAME='root' \
+  --from-literal=ADMIN_SEED_PASSWORD="$ADMIN_SEED_PASSWORD"   # the operations admin's first account
 
 kubectl apply -k k8s/base            # or -k k8s/overlays/mine
 kubectl -n ai-customer-service rollout status deploy/ai-customer-service
@@ -375,6 +382,15 @@ values only — do not apply it, and do not fill it in and commit it (`k8s/secre
 git-ignored for the copy). It is outside `k8s/base/` and listed in no kustomization, so
 nothing that applies the manifests can reach it; a directory apply used to overwrite a
 working Secret with placeholders.
+
+The two `ADMIN_SEED_*` keys are the seed command for the operations admin: the first pod to
+start against an empty `staff_account` creates that admin and the others log that it exists.
+They never overwrite or reset an account, so the Secret can keep them; in the split layout
+only the `chat` pods read them. The admin's sessions are rows in `spring_session`, which is
+why two replicas behind one Service share a login. `/admin` is served on the same port as
+everything else and has no Ingress of its own here; put it behind whatever already fronts
+the Service, and behind TLS, since the session cookie is only marked `Secure` on an HTTPS
+request. See [Operations admin](operations-admin.md#operating-it).
 
 Highlights:
 

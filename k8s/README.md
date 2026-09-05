@@ -49,7 +49,9 @@ kubectl apply -f k8s/base/namespace.yaml
 kubectl -n ai-customer-service create secret generic ai-customer-service-secrets \
   --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --from-literal=POSTGRES_USER='csagent' \
-  --from-literal=POSTGRES_PASSWORD="$PGPASSWORD"
+  --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
+  --from-literal=ADMIN_SEED_USERNAME='root' \
+  --from-literal=ADMIN_SEED_PASSWORD="$ADMIN_SEED_PASSWORD"   # the operations admin's first account; safe to keep
 
 kubectl apply -k k8s/overlays/mine     # your copy of overlays/example
 ```

@@ -51,6 +51,8 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | Two independent designs for the split crossed over: each adopted the other's original boundary | [ADR 001](docs/adr/001-deployment-targets.md#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings) |
 | The ticket cap was per replica; two replicas meant six tickets. Fixed by a guard row, raced from two instances | [Cost and failure](docs/reliability.md#a-prompt-is-a-request-not-a-control) |
 | A phased bean condition silently admitted every controller into every process | [ADR 001](docs/adr/001-deployment-targets.md#plan) |
+| CI killed the job at the sixteenth Spring test context holding an ONNX session, with every test green, and called it "canceled" | [Operations admin](docs/operations-admin.md#what-was-found) |
+| An audit trail of what succeeded is missing exactly the rows an investigation opens it for; refusals are recorded now, and a resolution lives in the history, not on the row | [Operations admin](docs/operations-admin.md#what-was-found) |
 | The knowledge role's 2.8 GiB peak is the single-process pod's: the ONNX session was the whole footprint | [Kubernetes](k8s/README.md#what-running-the-split-found) |
 
 ---
@@ -360,6 +362,7 @@ against evidence, and says what the evidence was.
 | [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and xAI by configuration — and why xAI is a provider rather than a base-URL trick |
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
+| [Operations admin](docs/operations-admin.md) | Staff login and the ticket loop as built, where they depart from the proposal and what building them found; then the proposal for the rest |
 | [Deployment targets](docs/adr/001-deployment-targets.md) | Built: one artifact run as one process or as three roles. Reconciles two independent proposals, [Claude](docs/dual-target.md) and [Codex](docs/CODEX_DUAL_DEPLOYMENT_DESIGN.md), and records what was kept from each |
 | [Codex deployment decision](docs/CODEX_DUAL_DEPLOYMENT_DECISION.md) | Codex's revised recommendation after comparing both deployment proposals; implementation gates and remaining decisions |
 
@@ -367,7 +370,7 @@ against evidence, and says what the evidence was.
 
 ## Roadmap
 
-The [operations admin proposal](docs/operations-admin.md) describes conversation feedback, knowledge publication, ticket handling, permissions, audit and staged acceptance for operational use. Of it, the staff login is built: `/admin` is behind Spring Security form login with bcrypt staff accounts and `admin` / `support` roles, sessions in Postgres, the first admin seeded by `ADMIN_SEED_USERNAME` / `ADMIN_SEED_PASSWORD` (see [deployment](docs/deployment.md#environment-variables)). The ticket workflow behind it is the next step; the rest remains a proposal.
+The [operations admin](docs/operations-admin.md) is built as far as its first slice: staff login (`/admin`, Spring Security form login, bcrypt accounts, `admin` / `support` roles, sessions in Postgres) and the ticket loop -- a ticket the AI created is claimed, handled with notes, resolved with a conclusion and closed by a person, with the conversation behind it visible, every change attributed, and opening a conversation or being refused recorded. It works in both topologies. The record of what was built, where it departs from the proposal and what was found is at the top of that document; the proposal for the rest (conversation feedback, knowledge publication, an overview) follows it, still a proposal.
 
 
 Phase 1 is built one item at a time, each landing as a reviewable change.

@@ -270,7 +270,8 @@ as the database is concerned.
 
 `docs/` holds one document per decision, each stating the evidence: `retrieval.md`,
 `reliability.md`, `benchmark.md`, `tools.md`, `observability.md`, `providers.md`,
-`demo-ui.md`, `deployment.md`. The README's findings table links into them. When you change a
+`demo-ui.md`, `deployment.md`, `operations-admin.md` (the record of what was built first, the
+proposal it departs from second). The README's findings table links into them. When you change a
 measured value, update the measurement, not just the number.
 
 ## Verified against the live API
