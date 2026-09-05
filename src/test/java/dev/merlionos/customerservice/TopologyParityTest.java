@@ -47,8 +47,6 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -74,7 +72,7 @@ class TopologyParityTest {
 
     static final String TOKEN = "topology-test-token";
 
-    static PostgreSQLContainer<?> postgres;
+    static PostgresTestcontainer.Database postgres;
     static ConfigurableApplicationContext knowledge;
     static ConfigurableApplicationContext ticket;
     static ConfigurableApplicationContext chat;
@@ -82,9 +80,7 @@ class TopologyParityTest {
 
     @BeforeAll
     static void startTheThreeProcesses() {
-        postgres = new PostgreSQLContainer<>(
-                DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
-        postgres.start();
+        postgres = PostgresTestcontainer.freshDatabase();
 
         // Neither of these gets the test profile, so neither has an LLM key of any kind.
         knowledge = role("knowledge", "--app.rag.import-mode=startup");
@@ -106,7 +102,6 @@ class TopologyParityTest {
                 context.close();
             }
         }
-        postgres.stop();
     }
 
     private static ConfigurableApplicationContext role(String target, String... extra) {
@@ -118,9 +113,9 @@ class TopologyParityTest {
                 "--app.target=" + target,
                 "--app.internal.token=" + TOKEN,
                 "--server.port=0",
-                "--spring.datasource.url=" + postgres.getJdbcUrl(),
-                "--spring.datasource.username=" + postgres.getUsername(),
-                "--spring.datasource.password=" + postgres.getPassword()));
+                "--spring.datasource.url=" + postgres.jdbcUrl(),
+                "--spring.datasource.username=" + postgres.username(),
+                "--spring.datasource.password=" + postgres.password()));
         args.addAll(List.of(extra));
         return args.toArray(String[]::new);
     }
