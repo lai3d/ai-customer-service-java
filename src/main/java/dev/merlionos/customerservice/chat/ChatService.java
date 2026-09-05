@@ -232,10 +232,21 @@ public class ChatService {
         // guaranteed to run on the same thread.
         StringBuffer streamed = new StringBuffer();
         AtomicBoolean completedNormally = new AtomicBoolean(false);
+        // A tool-calling turn is two model calls, and the second one's text is a new message
+        // rather than a continuation of the first. Appended raw they run together -- a real
+        // turn persisted "I'll look that up for you.Your order ORD-10042". A break at the seam
+        // is what the customer saw and what the next turn should be re-sent.
+        AtomicBoolean textSinceTool = new AtomicBoolean(true);
 
         return events
                 .doOnNext(event -> {
-                    if (event instanceof TurnEvent.Token token) {
+                    if (event instanceof TurnEvent.ToolCall) {
+                        textSinceTool.set(false);
+                    }
+                    else if (event instanceof TurnEvent.Token token && !token.text().isEmpty()) {
+                        if (!textSinceTool.getAndSet(true) && !streamed.isEmpty()) {
+                            streamed.append("\n\n");
+                        }
                         streamed.append(token.text());
                     }
                 })

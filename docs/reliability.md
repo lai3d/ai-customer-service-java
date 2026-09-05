@@ -178,6 +178,37 @@ Subscribing twice would run the entire turn twice — two model calls, two bills
 messages written to memory — while the response still looked correct. `SseHeartbeatTest` asserts
 a single subscription.
 
+## Spring AI erases a call boundary, twice
+
+A tool-calling turn is two model calls, and the second one's text is a new assistant message
+rather than a continuation of the first. Concatenated raw they run together. A real turn was
+persisted as:
+
+    I'll look that up for you.Your order ORD-10042 (1 x noise-cancelling headphones) is in transit.
+
+That is one row in `spring_ai_chat_memory`, so it is not only what the customer saw once — it is
+what gets re-sent as history on every later turn of the conversation. It was visible in this
+project's own README screenshot for weeks before anyone read it.
+
+**Where the boundary is known, it is used.** The SSE stream carries a `tool` event, so both the
+demo page and `recordAssistantReplyOnInterruption` know exactly where one call ended and the
+next began, and both now break the paragraph there. `ChatServiceStreamTest` pins it, including
+that a turn whose first call produced no text gains no leading break.
+
+**Where it is not, the honest answer is to leave it.** On a turn that completes normally the
+text is aggregated by Spring AI and written by `MessageChatMemoryAdvisor`, which sits at
+`Integer.MIN_VALUE + 1000` — the outermost link in the chain, with nothing able to wrap it. By
+the time the merged string exists the boundary is gone, exactly as it is gone from the streamed
+usage frames. That is the same failure twice from the same cause: an abstraction that joins two
+model calls into one result and keeps no seam.
+
+Repairing it from the text is worse than leaving it. The detector would be sentence-ending
+punctuation followed immediately by a letter — and Chinese prose puts no space after `。`, so
+that rule flags every sentence boundary in a Chinese reply. The Go implementation ran exactly
+that check, saw three "seams" in a correct Chinese answer, and nearly reported its own fix as
+broken. A repair built on it would silently rewrite healthy text in one of the two languages
+this system supports.
+
 ---
 
 [← Back to the README](../README.md)

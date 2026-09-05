@@ -18,7 +18,7 @@ Testcontainers.
 ## Commands
 
 ```bash
-./mvnw verify                                   # full suite (~115 tests, no API key needed)
+./mvnw verify                                   # full suite, no API key needed
 ./mvnw test -Dtest=FaqRetrievalIntegrationTest  # one class
 ./mvnw test -Dtest='ClassName#methodName'       # one method
 
@@ -107,6 +107,12 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
   `gpt-5` yields `model="gpt-5-2025-08-07"`; a price keyed on `gpt-5` silently never matches, so
   tokens are counted and cost stays at zero. `chat_unpriced_model_calls_total{model}` makes that
   visible — a flat cost meter is otherwise indistinguishable from a cheap month.
+- **A turn is not a model call — and Spring AI keeps no seam between them.** The second call's
+  text is a new assistant message, so concatenating raw persists "for you.Your order". The SSE
+  stream carries a `tool` event, so the demo page and `recordAssistantReplyOnInterruption` break
+  the paragraph there; the normal completion path is Spring AI's aggregation and cannot be
+  reached. Do not repair it from the text — the obvious detector flags every Chinese sentence
+  boundary. See `docs/reliability.md`.
 - **A turn is not a model call.** Tool-calling turns bill for two, and Spring AI repeats the
   accumulated usage on every streamed chunk *across both calls*, leaving no call boundary in the
   stream. `TurnUsage` reconstructs it: group frames by input count, take each group's largest

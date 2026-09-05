@@ -94,6 +94,41 @@ class ChatServiceStreamTest {
     }
 
     @Test
+    @DisplayName("the two model calls of a tool-calling turn are not run together")
+    void toolCallSeamBecomesAParagraphBreak() {
+        Flux<TurnEvent> events = Flux.concat(
+                tokens("I'll look ", "that up for you."),
+                Flux.just(new TurnEvent.ToolCall("lookup_order_status", "found")),
+                tokens("Your order ", "is in transit."),
+                Flux.error(new IllegalStateException("upstream died")));
+
+        StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, events))
+                .expectNextCount(5)
+                .verifyError(IllegalStateException.class);
+
+        assertThat(chatMemory.added).singleElement()
+                .extracting(Message::getText)
+                .isEqualTo("I'll look that up for you.\n\nYour order is in transit.");
+    }
+
+    @Test
+    @DisplayName("a turn whose first model call produced no text gains no leading break")
+    void aToolCallBeforeAnyTextAddsNoLeadingBreak() {
+        Flux<TurnEvent> events = Flux.concat(
+                Flux.just(new TurnEvent.ToolCall("lookup_order_status", "found")),
+                tokens("Your order ", "is in transit."),
+                Flux.error(new IllegalStateException("upstream died")));
+
+        StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, events))
+                .expectNextCount(3)
+                .verifyError(IllegalStateException.class);
+
+        assertThat(chatMemory.added).singleElement()
+                .extracting(Message::getText)
+                .isEqualTo("Your order is in transit.");
+    }
+
+    @Test
     @DisplayName("an interruption before the first token writes nothing")
     void interruptionBeforeAnyTokenWritesNothing() {
         StepVerifier.create(chatService.recordAssistantReplyOnInterruption(CONVERSATION_ID, Flux.never()), 1)

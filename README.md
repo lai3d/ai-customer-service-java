@@ -13,8 +13,8 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
-> **Status:** complete, and verified live against Anthropic, OpenAI, Gemini and Grok — 124
-> tests, no API key needed to run them. One limit is known and written down rather than
+> **Status:** complete, and verified live against Anthropic, OpenAI, Gemini and Grok. The whole
+> suite runs without an API key. One limit is known and written down rather than
 > smoothed over: a multi-intent question can still miss the passage that answers it.
 > See [Roadmap](#roadmap).
 
