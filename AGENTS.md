@@ -26,6 +26,8 @@ Tests use JUnit 5, Spring Boot Test, Reactor Test, and Testcontainers. Name unit
 
 ## Commit & Pull Request Guidelines
 
+Write documentation in English unless the user explicitly requests Chinese.
+
 Recent commits use concise, imperative, sentence-style subjects, such as `Trace every chat turn over OTLP`. Keep each commit scoped to one logical change. Pull requests should explain motivation and behavior, list verification commands, link relevant issues, and update `docs/` when measured behavior or architecture changes. Include screenshots for changes to the demo UI.
 
 ## Security & Configuration

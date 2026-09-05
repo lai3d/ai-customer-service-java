@@ -365,6 +365,8 @@ against evidence, and says what the evidence was.
 
 ## Roadmap
 
+The [operations admin proposal](docs/operations-admin.md) describes conversation feedback, knowledge publication, ticket handling, permissions, audit and staged acceptance for operational use. It is a design proposal, not implemented functionality.
+
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
 

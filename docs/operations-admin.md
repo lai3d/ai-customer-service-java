@@ -1,150 +1,150 @@
-# Java 运营管理后台设计建议
+# Java operations admin proposal
 
-状态：设计提案，尚未实现。本文供确定产品范围和拆分实施任务使用，不改变现有部署决策。
+Status: proposed, not implemented. This document defines product scope and implementation stages; it does not change the existing deployment decisions.
 
-## 定位与结论
+## Purpose and recommendation
 
-如果项目继续用于演示 AI 客服能力、比较 Java 与 Go 的实现，现有聊天页面和技术监控已经足够。如果要交给运营人员持续维护知识、检查回答、处理客户问题，就需要运营管理后台。
+The existing chat page and technical monitoring are sufficient for demonstrating AI customer service and comparing the Java and Go implementations. An operations admin interface becomes necessary when staff need to maintain knowledge, review answers, and handle customer issues continuously.
 
-建议首版围绕两个完整流程建设：
+Build the first release around two complete workflows:
 
-1. 发现错答或漏答 → 标记问题 → 修改 FAQ → 试搜验证 → 发布 → 回看效果。
-2. AI 创建工单 → 人工领取或分配 → 记录处理结果 → 关闭工单，并能回到原始会话。
+1. Find an incorrect or incomplete answer → flag it → revise the FAQ → validate retrieval → publish → review the result.
+2. AI creates a ticket → a person claims or assigns it → records the resolution → closes it, with access to the original conversation.
 
-后台先作为现有 Spring Boot 应用的一个功能入口，复用业务服务。首版交付单进程部署支持；拆分部署的适配作为独立阶段验收。无需为了管理页面增加新的微服务。
+Add the interface to the existing Spring Boot application and reuse its business services. Deliver support for the single-process deployment first; validate split deployment support in a separate stage. The admin interface does not require a new microservice.
 
-默认面向一个组织内部使用。管理人员鉴权属于本提案新增范围，多租户和完整客户身份体系不纳入首版。管理后台上线不等于对外客服入口已经具备生产所需的客户身份和会话访问控制。
+Assume internal use by one organization. Staff authentication is new scope in this proposal; multi-tenancy and a complete customer identity system remain outside the first release. Shipping the admin interface does not establish production customer identity or conversation access controls on the public chat endpoint.
 
-## 现有基础与缺口
+## Existing capabilities and gaps
 
-以下根据当前 Java 实现整理，不能把“已有数据”理解成“已有管理能力”。
+The following reflects the current Java implementation. Stored data alone does not provide an operational workflow.
 
-| 领域 | 现有能力 | 后台需要补齐 |
+| Area | Existing capability | Required additions |
 | --- | --- | --- |
-| 聊天 | 阻塞和 SSE 接口、JDBC 会话记忆、逐轮检索/工具/用量事件 | 会话列表、完整业务记录、问题标注、历史检索依据 |
-| 知识库 | 随应用发布的双语 FAQ、本地嵌入、pgvector 检索、导入版本记录和 readiness | 在线编辑、草稿、发布任务、版本切换和回滚 |
-| 工单 | 数据库存储、幂等创建、按会话查询、创建操作结果恢复 | 全局分页查询、负责人、状态流转、处理记录 |
-| 成本与诊断 | Token 预算、Micrometer 指标、OTLP trace | 运营汇总口径、需要时按轮持久化的用量与估算成本 |
-| 访问控制 | 拆分部署的内部服务 bearer token | 管理员登录、业务权限、操作审计 |
+| Chat | Blocking and SSE endpoints, JDBC chat memory, per-turn retrieval/tool/usage events | Conversation lists, complete operational records, answer feedback, historical retrieval evidence |
+| Knowledge | Bundled bilingual FAQ, local embeddings, pgvector search, import version records and readiness | Online editing, drafts, publication jobs, version switching and rollback |
+| Tickets | Database storage, idempotent creation, lookup by conversation, creation-operation recovery | Global paginated search, ownership, state transitions, handling history |
+| Cost and diagnostics | Token budgets, Micrometer metrics, OTLP traces | Defined operational aggregates and, where needed, persistent per-turn usage and estimated cost |
+| Access control | Internal service bearer token in split deployments | Staff login, business permissions, audit records |
 
-实现依据：[`ChatService`](../src/main/java/dev/merlionos/customerservice/chat/ChatService.java)、[`TurnEvent`](../src/main/java/dev/merlionos/customerservice/chat/TurnEvent.java)、[`CorpusImporter`](../src/main/java/dev/merlionos/customerservice/rag/CorpusImporter.java)、[`TicketOperations`](../src/main/java/dev/merlionos/customerservice/ticket/api/TicketOperations.java)、[共享状态迁移](../src/main/resources/db/migration/V2__shared_state.sql)。
+Implementation references: [`ChatService`](../src/main/java/dev/merlionos/customerservice/chat/ChatService.java), [`TurnEvent`](../src/main/java/dev/merlionos/customerservice/chat/TurnEvent.java), [`CorpusImporter`](../src/main/java/dev/merlionos/customerservice/rag/CorpusImporter.java), [`TicketOperations`](../src/main/java/dev/merlionos/customerservice/ticket/api/TicketOperations.java), and the [shared-state migration](../src/main/resources/db/migration/V2__shared_state.sql).
 
-会话记忆服务于模型上下文，会受窗口和清理策略影响；SSE 事件服务于当次展示。两者都不能直接承诺提供完整、永久的运营记录。现有 `corpus_import` 记录也不是可以在线切换的知识发布版本。
+Chat memory serves model context and is subject to windowing and cleanup. SSE events serve the current display. Neither guarantees a complete, permanent operational record. Likewise, `corpus_import` records are not knowledge releases that can be switched online.
 
-## 首版范围
+## First-release scope
 
-| 页面 | 首版操作 | 验收重点 |
+| Page | Operations | Acceptance focus |
 | --- | --- | --- |
-| 会话列表与详情 | 按时间、会话 ID、执行结果查询；查看消息、检索依据、工具结果、关联工单；标记错答/漏答 | 失败和中断可区分；历史引用不随 FAQ 修改而变化 |
-| 问题反馈 | 查看待处理标记，关联修订的 FAQ 和发布版本，记录处理结论 | 反馈能从发现推进到修复、验证或说明原因后关闭 |
-| 知识库 | 按语言编辑 FAQ 草稿；查看版本差异；试搜；发布、停用和回滚 | 草稿不进入线上检索；发布失败时旧版本继续服务 |
-| 工单列表与详情 | 按状态、负责人、时间查询；领取、分配、添加内部备注、更新状态 | 每次流转都有操作者和时间；重复提交不产生重复处理记录 |
-| 登录与审计 | 登录/退出；分配预置角色；查询发布、工单修改、权限变更记录 | 权限由服务端执行，不能仅靠隐藏按钮 |
+| Conversation list and detail | Filter by time, conversation ID and execution outcome; inspect messages, retrieval evidence, tool results and linked tickets; flag incorrect or incomplete answers | Distinguish failures from interruptions; preserve historical references when FAQ content changes |
+| Answer feedback | Review pending reports, link FAQ revisions and publications, record handling conclusions | Move feedback from discovery to a verified fix or closure with an explanation |
+| Knowledge | Edit FAQ drafts by language, inspect differences, preview retrieval, publish, deactivate and roll back | Drafts stay out of live retrieval; failed publication leaves the previous version serving |
+| Ticket list and detail | Filter by state, owner and time; claim, assign, add internal notes and change state | Attribute every transition to an actor and time; duplicate submissions do not duplicate history |
+| Login and audit | Sign in/out, assign predefined roles, inspect publication, ticket and permission changes | Enforce permissions on the server, beyond button visibility |
 
-建议预置角色：管理员负责账号与角色、知识发布及回滚；知识运营负责草稿、试搜和反馈处理；客服负责会话查询、问题标记和工单处理。会话内容读取单独授权，角色间可组合授予；角色本身不默认获得全部客户内容访问权。
+Suggested roles: administrators manage accounts, roles, publication and rollback; knowledge operators manage drafts, retrieval previews and feedback; support staff review conversations, flag answers and handle tickets. Grant conversation-content access explicitly. Permissions can be combined across roles; a role does not automatically grant access to all customer content.
 
-首版不做实时人工接管聊天、坐席排班、任意文件知识导入、自定义权限设计器、可视化工作流、在线修改 API 密钥、模型路由和 Prompt 配置。已有工单系统的正式接入应替代本地工单流程，避免两套状态需要人工同步。
+The first release excludes live human chat takeover, agent scheduling, arbitrary document ingestion, a custom permission designer, visual workflows, online API-key editing, model routing and prompt configuration. A formal integration with an existing ticket system should replace the local handling workflow to avoid manually synchronizing two sets of ticket states.
 
-运营概览作为后续增强：先提供会话量、执行失败率、反馈量、待处理工单量和模型用量。满意度、问题解决率和人工接管率只有在具备对应业务事件和统计口径之后才展示。
+Add an operational overview later, starting with conversation volume, execution failure rate, feedback volume, pending tickets and model usage. Show satisfaction, issue resolution and human takeover rates only after the corresponding business events and measurement definitions exist.
 
-## 关键业务规则
+## Business rules
 
-### 会话与反馈
+### Conversations and feedback
 
-- 为每轮对话持久化稳定的 `turnId`，关联 `conversationId`、开始/结束时间和执行结果。完整记录应覆盖阻塞与 SSE 两条路径。
-- 保存客户可见的消息，以及该轮实际引用的知识版本和内容快照或不可变引用。运营页只展示检索与工具执行信息，不收集或展示模型内部思考过程。
-- 明确区分完成、失败、中断和记录不完整；用户取消、上游失败和进程异常不能变成“正常完成”。进程退出后未结束的记录由恢复任务标为结果未知或中断，不能凭空补齐回复。
-- 反馈绑定具体轮次，可关联知识修订和处理结论。反馈关闭代表该条反馈处理完毕，不自动代表客户问题解决。
-- 会话记忆与运营记录采用独立保留策略。实施前确定保留时长、脱敏字段和清理方式；历史记忆不能无损回填为完整运营记录，页面需标明覆盖起始时间。
+- Persist a stable `turnId` for each turn, with its `conversationId`, start/end times and execution outcome. Cover both blocking and SSE paths.
+- Store customer-visible messages and the knowledge versions actually referenced, with content snapshots or immutable references. Show retrieval and tool execution evidence; do not collect or display private model reasoning.
+- Distinguish completed, failed, interrupted and incompletely recorded turns. Cancellation, upstream failure and process failure must not appear as successful completion. Recovery marks unfinished records after process termination as interrupted or outcome unknown; it must not invent missing responses.
+- Bind feedback to a specific turn and optionally to a knowledge revision and handling conclusion. Closing feedback means the report has been handled, not automatically that the customer's issue is resolved.
+- Give chat memory and operational records separate retention policies. Determine retention periods, redacted fields and cleanup before implementation. Historical memory cannot be losslessly backfilled into complete operational records; show when reliable coverage begins.
 
-### 知识编辑与发布
+### Knowledge editing and publication
 
-建议将“内容修订状态”和“发布任务状态”分开：内容为草稿、已发布或已停用；任务为排队、构建、校验、成功或失败。每次发布生成不可变快照，记录具体修订和操作者。
+Separate content revision status from publication job status. Content is draft, published or inactive; a job is queued, building, validating, succeeded or failed. Each publication creates an immutable snapshot identifying its revisions and actor.
 
-1. 保存草稿不影响在线检索。发布前检查必填字段、语言、稳定 ID，并展示变更范围。
-2. 发布任务对候选版本生成向量并校验条目数、完整性及约定的试搜样例；失败保留错误摘要，允许显式重试。
-3. 校验成功后原子更新当前生效版本。线上检索必须显式限定该版本，不能混用候选向量和旧向量。
-4. 每次检索固定版本并记录到该轮引用中；切换前已开始的请求仍可读取旧版本。旧数据的清理要考虑在途请求、历史引用和回滚保留期。
-5. 回滚切回仍保留完整索引的历史版本，并记录审计。并发发布通过预期版本校验防止后完成的旧任务覆盖新发布。
+1. Saving a draft does not affect live retrieval. Before publication, validate required fields, language and stable IDs, and show the change set.
+2. Build embeddings for the candidate version and validate entry counts, completeness and agreed retrieval examples. Preserve an error summary on failure and allow explicit retries.
+3. After validation, atomically update the active version. Live retrieval must explicitly filter by that version, without mixing candidate and previous vectors.
+4. Pin each retrieval to a version and record it with the turn's references. Requests that started before a switch can still read the previous version. Cleanup must account for in-flight requests, historical references and the rollback retention period.
+5. Roll back to a historical version whose complete index is still retained and record the action. Use expected-version checks so an older concurrent publication job cannot overwrite a newer release when it finishes later.
 
-试搜应复用线上检索服务和嵌入前缀规则，只改变所查询的版本。试搜证明能找到预期内容，不能证明最终答案正确；验收还需要代表性的端到端问答检查。
+Retrieval previews reuse the live search service and embedding-prefix rules, changing only the version queried. A successful preview proves that expected content can be found; representative end-to-end answer checks are still needed to assess the resulting answer.
 
-[ADR 001](adr/001-deployment-targets.md)把原子知识版本切换推迟到需要在线更新时再做。本提案的在线发布恰好触发这一条件，因此它是需要新增实现的能力，不能直接把当前启动导入器挂到“发布”按钮上。启用运营知识库前还需明确从内置 FAQ 导入首个受管理版本、readiness 改为检查生效版本，以及避免应用重启重新覆盖运营内容的迁移流程。
+[ADR 001](adr/001-deployment-targets.md) defers atomic corpus switching until online updates are needed. This proposal's publication workflow triggers that condition and requires new implementation; connecting the startup importer to a Publish button is insufficient. Define migration from the bundled FAQ to the first managed version, change readiness to check the active version, and ensure application restarts cannot overwrite operator-maintained content.
 
-### 工单处理
+### Ticket handling
 
-建议最小状态机为 `OPEN → IN_PROGRESS → RESOLVED → CLOSED`。`RESOLVED` 和 `CLOSED` 可以重开到 `IN_PROGRESS`，必须填写原因；解决工单必须填写处理结论。领取和分配与状态变化分别记录，负责人必须是有处理权限的有效账号。
+Use the minimal state machine `OPEN → IN_PROGRESS → RESOLVED → CLOSED`. Allow `RESOLVED` and `CLOSED` tickets to reopen into `IN_PROGRESS` with a mandatory reason; resolution requires a handling conclusion. Record claiming and assignment separately from state changes. An assignee must be an active account with ticket-handling permission.
 
-扩展现有工单业务服务实现管理操作，保留 AI 创建工具已有的幂等和数量上限规则。管理更新采用版本号进行并发校验，冲突返回 `409`，让操作者刷新后重新处理；重复提交使用操作 ID 去重。操作记录与状态更新在同一事务内提交。
+Extend the existing ticket business service while preserving the AI creation tool's idempotency and ticket-cap rules. Use version checks for concurrent admin updates; return `409` on conflict so the operator can refresh and retry. Deduplicate repeated submissions by operation ID. Commit operation history and state updates in the same transaction.
 
-## 接入现有架构
+## Integration with the existing architecture
 
-建议页面入口为 `/admin`，管理接口为 `/api/admin/v1/**`。首版使用同源页面和接口，具体前端框架留到实现时根据团队维护成本确定。后台页面不携带内部服务 token，也不直接调用模型供应商。
+Use `/admin` for pages and `/api/admin/v1/**` for management endpoints. Keep pages and APIs on the same origin initially; choose a frontend framework during implementation based on maintenance cost. Browser pages must not carry the internal service token or call model providers directly.
 
-管理控制器负责身份、权限、请求校验和响应映射，业务逻辑仍按 `chat`、`rag`、`ticket` 归属。不要通过调用聊天接口来完成知识修改、工单分配等确定性管理操作。
+Admin controllers handle identity, permissions, input validation and response mapping. Business logic stays with `chat`, `rag` and `ticket`. Deterministic actions such as editing knowledge and assigning tickets call those services directly rather than going through chat.
 
-| 部署形态 | 接入建议 |
+| Deployment | Proposed integration |
 | --- | --- |
-| `APP_TARGET=all` | 提供页面和管理 API，在进程内调用业务服务；作为首版支持形态 |
-| `chat` / `knowledge` / `ticket` 拆分 | 后续由 `chat` 承载页面和管理入口，通过新增内部管理接口调用各角色；知识发布归 `knowledge`，工单变更归 `ticket` |
+| `APP_TARGET=all` | Serve pages and management APIs, calling business services in-process; supported by the first release |
+| Split `chat` / `knowledge` / `ticket` | Later, host pages and the management entry point in `chat`, using new internal management APIs; `knowledge` owns publication and `ticket` owns ticket changes |
 
-首版在拆分部署中应明确禁用管理入口，不能让页面部分可用、写操作却找不到本地服务。后续适配需要同步部署同一版本的角色，继续遵守现有服务边界；不要为了后台让 `chat` 直接读写 knowledge 或 ticket 的表。
+Explicitly disable the admin entry point in split deployments for the first release. Avoid partially working pages whose writes have no local service. Later adaptation must deploy matching role versions and preserve service boundaries; `chat` must not directly read or write knowledge or ticket tables for admin operations.
 
-拆分管理调用需同时有服务身份和可审计的操作人上下文。内部 token 只验证调用服务，不能代替运营账号授权；入口验证权限后传递受信的操作人信息，领域服务记录审计并验证允许的业务操作。具体传递协议在拆分适配阶段定义和测试。
+Split management calls need both service identity and an auditable operator context. The internal token authenticates a service, not an operator's permissions. The entry point checks permissions and forwards trusted actor information; domain services audit the actor and validate permitted business actions. Define and test the propagation protocol during split deployment adaptation.
 
-继续使用 Spring MVC、虚拟线程、`ChatClient` 和现有 advisor 链。技术诊断保留在 Prometheus/Jaeger；后台可提供有权限的诊断链接，但不重复建设技术监控系统。
+Keep Spring MVC, virtual threads, `ChatClient` and the existing advisor chain. Technical diagnostics stay in Prometheus/Jaeger. Admin pages may offer authorized diagnostic links without rebuilding technical monitoring.
 
-## 数据与接口草案
+## Data and API outline
 
-以下是逻辑模型和接口建议，不是已经存在的表或已承诺兼容的 API。迁移通过新增 Flyway 文件完成，不修改已经发布的迁移。
+These are proposed logical models and endpoints, not existing tables or compatibility commitments. Add new Flyway migrations without changing released migrations.
 
-| 数据 | 主要用途 |
+| Data | Purpose |
 | --- | --- |
-| 运营会话、轮次、消息记录 | 查询完整业务过程，记录结果、引用版本、trace ID 和记录完整性 |
-| 按模型调用的用量记录 | 保留 provider、实际模型标识、输入/输出 token、用量是否完整及计价版本；按轮聚合 |
-| 回答反馈 | 问题类型、轮次、处理人、处理状态、修订/发布关联和结论 |
-| FAQ 条目、内容修订、发布及任务记录 | 稳定身份、双语内容、不可变历史、生效版本、任务结果 |
-| 工单新增字段和操作记录 | 负责人、业务状态、更新时间、并发版本、内部备注和流转历史 |
-| 管理员身份映射、角色及审计记录 | 身份来源、权限、操作者、对象、动作、结果和时间 |
+| Operational conversations, turns and messages | Query the business history, outcomes, referenced versions, trace IDs and record completeness |
+| Per-model-call usage | Record provider, actual model ID, input/output tokens, usage completeness and pricing version; aggregate by turn |
+| Answer feedback | Issue type, turn, handler, state, revision/publication links and conclusion |
+| FAQ entries, revisions, publications and jobs | Stable identities, bilingual content, immutable history, active version and job outcomes |
+| Ticket fields and operation history | Owner, business state, update time, concurrency version, internal notes and transitions |
+| Staff identity mappings, roles and audit records | Identity source, permissions, actor, object, action, outcome and time |
 
-轮次记录不应完全依赖向浏览器推送的事件总线。应在服务执行边界写入必要状态，确保客户端断开后仍能记录终态。开始记录失败时应在调用模型前失败；结束记录失败必须告警并留下可恢复状态，不能承诺与外部模型调用具有数据库事务一致性。
+Turn records must not depend entirely on the event bus feeding the browser. Write necessary state at service execution boundaries so terminal outcomes can still be recorded after a client disconnects. If the initial record cannot be written, fail before calling the model. If final recording fails, alert and retain recoverable state; a database transaction cannot guarantee atomicity with an external model call.
 
-| 接口组（相对 `/api/admin/v1`） | 建议操作 |
+| Endpoint group, relative to `/api/admin/v1` | Proposed operations |
 | --- | --- |
-| `/conversations`、`/conversations/{id}` | 分页查询与详情 |
-| `/turns/{id}/feedback`、`/feedback/{id}` | 创建反馈、更新处理状态与结论 |
-| `/knowledge/entries`、`/knowledge/entries/{id}` | 查询、新建、保存修订、标记停用草稿 |
-| `/knowledge/search-preview` | 在指定候选版本试搜 |
-| `/knowledge/publications`、`/knowledge/publications/{id}` | 提交发布、查询任务 |
-| `/knowledge/rollback` | 提交回滚，指定目标与预期当前版本 |
-| `/tickets`、`/tickets/{id}` | 分页查询与详情 |
-| `/tickets/{id}/assignment`、`/tickets/{id}/transitions`、`/tickets/{id}/notes` | 分配、流转、备注 |
-| `/audit-events` | 按操作者、对象、时间查询 |
+| `/conversations`, `/conversations/{id}` | Paginated search and detail |
+| `/turns/{id}/feedback`, `/feedback/{id}` | Create feedback and update handling state/conclusion |
+| `/knowledge/entries`, `/knowledge/entries/{id}` | Search, create, save revisions and draft deactivation |
+| `/knowledge/search-preview` | Search a specified candidate version |
+| `/knowledge/publications`, `/knowledge/publications/{id}` | Submit publication and inspect the job |
+| `/knowledge/rollback` | Submit rollback with target and expected current versions |
+| `/tickets`, `/tickets/{id}` | Paginated search and detail |
+| `/tickets/{id}/assignment`, `/tickets/{id}/transitions`, `/tickets/{id}/notes` | Assign, transition and annotate |
+| `/audit-events` | Search by actor, object and time |
 
-所有列表限制页大小和查询范围，排序稳定。变更接口验证权限和并发版本；发布、回滚、工单流转使用操作 ID 防止重复执行。耗时发布返回任务 ID（建议 `202`），页面查询任务结果，不把 HTTP 请求一直阻塞到嵌入完成。
+Bound list page sizes and query ranges, with stable ordering. Mutations validate permissions and concurrency versions. Publication, rollback and ticket transitions use operation IDs to prevent duplicate execution. Long-running publication returns a job ID, preferably with `202`; the page queries its outcome instead of keeping an HTTP request open throughout embedding.
 
-成本以估算值展示。缺少供应商用量或模型价格时标为未知或不完整，不能记成零成本；供应商账单才是实际结算依据。保持当前预算结算语义，不因增加报表隐式引入预算预留。
+Label cost as an estimate. Missing provider usage or model pricing means unknown or incomplete, not zero cost; provider invoices determine actual settlement. Preserve current budget settlement semantics rather than implicitly introducing reservations through reporting.
 
-## 登录、权限和审计
+## Login, permissions and audit
 
-优先复用组织已有的登录身份；实现前确定身份来源，不在首版建设通用身份平台。采用服务端会话时需配置安全 Cookie、过期和退出失效，以及变更请求的 CSRF 防护。管理接口未认证返回 `401`、无权限返回 `403`；权限撤销后不能继续凭旧页面操作。
+Prefer the organization's existing identity provider. Determine the identity source before implementation; a general identity platform is outside the first release. If using server-side sessions, configure secure cookies, expiry, logout invalidation and CSRF protection for mutations. Management APIs return `401` when unauthenticated and `403` when unauthorized. Revoked permissions must prevent actions from an already-open page.
 
-知识发布、回滚、工单变更和权限变更都记录操作者、对象、动作、时间、结果及必要的变更摘要。审计不可由普通运营人员修改。会话内容的读取也需可追溯，应用日志、指标标签和 trace 属性继续避免包含客户原话、密钥和完整工具敏感参数。发布与权限变更不能在未能可靠记录审计时静默成功。
+Audit knowledge publication, rollback, ticket changes and permission changes with actor, object, action, time, outcome and necessary change summaries. Ordinary operators cannot modify audit records. Conversation-content access must also be traceable. Continue excluding customer messages, secrets and complete sensitive tool arguments from application logs, metric labels and trace attributes. Publication and permission changes must not silently succeed without reliable audit recording.
 
-## 实施顺序与验收
+## Delivery and acceptance
 
-| 阶段 | 交付内容 | 完成条件 |
+| Stage | Deliverable | Completion criteria |
 | --- | --- | --- |
-| 1：入口和权限 | 管理页面骨架、登录、预置角色、审计基础、仅 `all` 启用 | 未登录和越权访问被服务端拒绝；角色变更、退出失效可验证 |
-| 2：会话与反馈 | 持久记录、分页查询、详情、问题标记和处理 | 两种聊天接口的成功、失败、中断场景都能回查；历史引用稳定 |
-| 3：知识发布 | 草稿、候选索引、试搜、原子切换、回滚、初始迁移 | 发布失败仍使用旧版本；并发发布不覆盖新结果；重启不覆盖运营内容 |
-| 4：工单闭环 | 查询、分配、状态机、备注、并发控制 | 从 AI 建单到人工关闭、重开全程可追溯；重复请求和冲突可正确处理 |
-| 5：增强 | 运营概览；按实际部署需要适配拆分模式 | 统计口径明确；拆分模式通过同一业务场景及跨进程失败测试 |
+| 1: Entry point and permissions | Admin shell, login, predefined roles, audit foundation, enabled only in `all` | Server rejects unauthenticated and unauthorized access; role changes and logout invalidation are verified |
+| 2: Conversations and feedback | Persistent records, paginated search, detail, reporting and handling | Success, failure and interruption are inspectable for both chat APIs; historical references remain stable |
+| 3: Knowledge publication | Drafts, candidate index, preview, atomic switch, rollback and initial migration | Failure preserves the previous version; concurrent publication cannot overwrite newer results; restarts preserve managed content |
+| 4: Ticket workflow | Search, assignment, state machine, notes and concurrency control | AI creation through human closure and reopening is traceable; duplicates and conflicts are handled correctly |
+| 5: Enhancements | Operational overview and split deployment support where needed | Metrics have explicit definitions; split mode passes the same business scenarios and cross-process failure tests |
 
-阶段 1–4 合起来构成业务首版；每个阶段可独立提交 PR，但不能将骨架页面称为完整运营后台。拆分部署用户需要阶段 5 的适配完成后才能启用后台。
+Stages 1–4 together constitute the first operational release. Each can ship as a separate PR, but the page shell alone is not a complete admin interface. Split deployments must wait for the stage 5 adaptation before enabling it.
 
-实施时新增有意义的权限、状态流转、发布失败和并发集成测试，并读取数据库验证最终结果。跑仓库要求的 `./mvnw verify`，数据库测试使用 Testcontainers，不要求真实模型 API key。若改变对话执行路径，应重新测量性能；涉及拆分适配时补上多进程验证。
+During implementation, add meaningful tests for permissions, state transitions, publication failures and concurrency, inspecting database outcomes. Run the repository's `./mvnw verify`; database tests use Testcontainers and require no live model API key. Remeasure performance if the chat execution path changes, and add multi-process verification for split deployment support.
 
-页面验收至少完整走通两条开头定义的业务流程，并检查空列表、权限不足、保存冲突、发布失败和重试等状态。知识验收同时检查中英文场景与代表性答案，不能只看索引任务变绿。
+UI acceptance must complete both workflows defined at the start and cover empty lists, insufficient permissions, save conflicts, publication failures and retries. Knowledge acceptance includes Chinese and English retrieval scenarios and representative answers, beyond a successful indexing job.
 
-当前 Java/Go 对照要求内置 FAQ 和系统提示词一致。本提案只扩展 Java 的管理能力，运营编辑的数据应与对照测试语料隔离；现有内置语料不随后台开发单独改动。实施前需确定身份来源、会话保留策略及是否对接现有工单系统，这些选择不影响先评审本提案。
+The Java/Go comparison requires identical bundled FAQ content and system prompts. This proposal extends Java management capabilities only. Keep operator-maintained data separate from comparison fixtures and do not change the bundled corpus on one side as part of admin development. Identity source, conversation retention and existing ticket-system integration must be settled before implementation; they do not block review of this proposal.
