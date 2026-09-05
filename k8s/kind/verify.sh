@@ -55,30 +55,50 @@ check(){ local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"
 # anything touches the kubeconfig -- and restored on exit. The first version captured it after
 # the cluster was created, which faithfully restored the context kind had just set: a restore
 # that runs, reports nothing, and puts back the wrong value.
+# This script never opens the kubeconfig you use for real clusters. `kind create` writes to
+# its own file here, and every kubectl call reads that file, so there is no current context to
+# switch and nothing to restore.
+#
+# That is the third design for this, and the first two were both fixed and both wrong. The
+# original ran `kubectl config use-context`, which edits the shared kubeconfig -- a parallel
+# session found its namespace apparently empty because this script had moved its context.
+# Save-and-restore replaced it, and then a second `trap ... EXIT` further down silently
+# replaced that handler, so the restore never ran once.
+#
+# The reason not to try a fourth save-and-restore is what is actually in this machine's
+# kubeconfig: `ind91-prod` and `central-platform`, next to the kind clusters. A test harness
+# that leaves the current context somewhere other than it found it is choosing where the next
+# `kubectl delete` lands. Not touching the file removes the whole class -- there is no restore
+# to get wrong, and no trap to disable.
+KUBECONFIG_FILE=${KUBECONFIG_FILE:-${TMPDIR:-/tmp}}
+KUBECONFIG_FILE=${KUBECONFIG_FILE%/}/ai-customer-service-kind.kubeconfig
+# Exported, not just wrapped in a shell function. A function is not inherited by `sh -c`,
+# and three assertions here run their kubectl inside one -- so with only the function they
+# silently read the *default* kubeconfig, found no such context, and failed while the
+# deployment was perfectly healthy. Introduced by the fix on the line above it, and it looked
+# exactly like the pod-selection bug I had just been told about, which is what I spent a
+# rerun confirming it was not.
+export KUBECONFIG="$KUBECONFIG_FILE"
 kubectl() { command kubectl --context "kind-$CLUSTER" "$@"; }
-ORIGINAL_CONTEXT=$(command kubectl config current-context 2>/dev/null || true)
 PF=""
+trap '[[ -n $PF ]] && kill "$PF" 2>/dev/null; true' EXIT
 
-# One EXIT trap, because `trap ... EXIT` replaces the previous handler rather than adding to
-# it. This script had two -- context restore here, port-forward cleanup later -- and the
-# second silently disabled the first, so the restore never ran and the context was left
-# pointing at the kind cluster. Caught by printing the context before and after, which is the
-# only reason it was ever noticed: nothing errors when a trap is overwritten.
-cleanup() {
-  [[ -n $PF ]] && kill "$PF" 2>/dev/null
-  [[ -n $ORIGINAL_CONTEXT ]] && command kubectl config use-context "$ORIGINAL_CONTEXT" >/dev/null 2>&1
-  true
-}
-trap cleanup EXIT
-
-if [[ ${1:-} == --down ]]; then kind delete cluster --name "$CLUSTER"; exit 0; fi
+if [[ ${1:-} == --down ]]; then
+  kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG_FILE"
+  rm -f "$KUBECONFIG_FILE"
+  exit 0
+fi
 
 for t in kind kubectl docker; do
   command -v "$t" >/dev/null || { echo "missing: $t" >&2; exit 1; }
 done
 
 say "cluster"
-kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 120s
+kind get clusters 2>/dev/null | grep -qx "$CLUSTER" ||
+  kind create cluster --name "$CLUSTER" --wait 120s --kubeconfig "$KUBECONFIG_FILE"
+# An existing cluster from an earlier run has no entry in this file yet.
+kubectl cluster-info >/dev/null 2>&1 ||
+  kind export kubeconfig --name "$CLUSTER" --kubeconfig "$KUBECONFIG_FILE" >/dev/null
 
 
 say "image  $IMAGE"
@@ -110,7 +130,7 @@ say "capacity"
 # parallel session running its copy while a stray namespace of mine sat on its node: 81% of
 # requests taken, and its brand-new precheck said fine.
 node_ki=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
-reserved_mib=$(command kubectl --context "kind-$CLUSTER" get pods -A \
+reserved_mib=$(kubectl get pods -A \
   -o jsonpath="{range .items[?(@.metadata.namespace!='$NS')]}{range .spec.containers[*]}{.resources.requests.memory}{'\n'}{end}{end}" 2>/dev/null \
   | python3 -c "
 import re, sys
@@ -194,8 +214,29 @@ kubectl -n "$NS" rollout status deploy/postgres --timeout=180s
 kubectl -n "$NS" rollout status deploy/ai-customer-service --timeout=300s || true
 
 say "assertions"
-POD=$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=app \
-        -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | awk '{print $1}')
+# Ready and not being deleted. `phase == "Running"` is true of a pod that is shutting down,
+# and exec into it fails with "cannot exec into a container in a completed pod" -- which
+# shows up as three unrelated assertions failing on a rerun against an existing cluster,
+# while the deployment itself is perfectly healthy. The parallel session hit this first and
+# told me; I did not apply it here until it cost me the same three assertions.
+#
+# jsonpath cannot express "field is absent", so the deletionTimestamp filter is done in the
+# shell after the query rather than inside it.
+pick_pod() {
+  kubectl -n "$NS" get pods -l app.kubernetes.io/component=app -o json |
+    python3 -c "
+import json, sys
+for p in json.load(sys.stdin)['items']:
+    if p['metadata'].get('deletionTimestamp'):
+        continue
+    ready = any(c['type'] == 'Ready' and c['status'] == 'True'
+                for c in p['status'].get('conditions', []))
+    if ready:
+        print(p['metadata']['name'])
+        break
+"
+}
+POD=$(pick_pod)
 
 replicas=$(kubectl -n "$NS" get deploy ai-customer-service -o jsonpath='{.status.readyReplicas}')
 [[ ${replicas:-0} == 2 ]] && ok "both replicas ready" || bad "readyReplicas=${replicas:-0}, want 2"
@@ -274,4 +315,5 @@ fi
 say "result"
 printf '  %d passed, %d failed\n' "$PASS" "$FAIL"
 printf '  cluster left running; %s --down to remove it\n' "$0"
+printf '  its kubeconfig is %s -- your own is untouched\n' "$KUBECONFIG_FILE"
 [[ $FAIL -eq 0 ]]
