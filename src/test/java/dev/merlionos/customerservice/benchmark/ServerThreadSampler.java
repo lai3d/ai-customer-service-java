@@ -24,12 +24,30 @@ final class ServerThreadSampler implements AutoCloseable {
     private volatile int peakPlatformThreads;
 
     ServerThreadSampler() {
+        this(null);
+    }
+
+    /**
+     * @param connectorName when several servers share this JVM -- the services-topology
+     *                      benchmark runs knowledge and ticket next to chat -- only count the
+     *                      workers of the one with this connector. Tomcat names its platform
+     *                      workers {@code <connector>-exec-N}, and the connector is
+     *                      {@code http-nio-<port>} for a fixed port and {@code http-nio-auto-N}
+     *                      for {@code server.port=0}: a filter built from the bound port matched
+     *                      nothing, and reported zero workers under a thousand requests. The
+     *                      virtual-thread handlers ({@code tomcat-handler-N}) carry no connector
+     *                      name and are not platform threads, so they never appear here anyway
+     */
+    ServerThreadSampler(String connectorName) {
+        String portPrefix = connectorName == null ? null : connectorName + "-";
         this.sampler = Thread.ofPlatform().daemon().name("bench-sampler").start(() -> {
             while (running) {
                 Set<Thread> platformThreads = Thread.getAllStackTraces().keySet();
                 int workers = (int) platformThreads.stream()
                         .map(Thread::getName)
-                        .filter(name -> WORKER_PREFIXES.stream().anyMatch(name::startsWith))
+                        .filter(name -> portPrefix == null
+                                ? WORKER_PREFIXES.stream().anyMatch(name::startsWith)
+                                : name.startsWith(portPrefix) || name.startsWith("tomcat-handler-"))
                         .count();
                 peakWorkers = Math.max(peakWorkers, workers);
                 peakPlatformThreads = Math.max(peakPlatformThreads, platformThreads.size());

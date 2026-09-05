@@ -48,6 +48,10 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | Spring AI's query expander silently returns the original query, on 10 of 10 attempts | [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them) |
 | Every provider's seeded `temperature` is rejected by its own current model | [Chat providers](docs/providers.md#what-only-a-live-call-found) |
 | Token accounting: every simple rule for it is wrong, and each was wrong differently | [Cost and failure](docs/reliability.md#a-turn-is-not-a-model-call) |
+| Two independent designs for the split crossed over: each adopted the other's original boundary | [ADR 001](docs/adr/001-deployment-targets.md#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings) |
+| The ticket cap was per replica; two replicas meant six tickets. Fixed by a guard row, raced from two instances | [Cost and failure](docs/reliability.md#a-prompt-is-a-request-not-a-control) |
+| A phased bean condition silently admitted every controller into every process | [ADR 001](docs/adr/001-deployment-targets.md#plan) |
+| The knowledge role's 2.8 GiB peak is the single-process pod's: the ONNX session was the whole footprint | [Kubernetes](k8s/README.md#what-running-the-split-found) |
 
 ---
 
@@ -152,6 +156,65 @@ sequenceDiagram
         Ctl-->>C: event: error
     end
 ```
+
+### One process, or three
+
+Everything above is one process, and that is still the default: `docker compose up` and
+`k8s/base` run it, and it is what the benchmark measures. The same jar also runs as three
+roles, selected by `APP_TARGET`, with the seams in the diagram becoming HTTP:
+
+```mermaid
+flowchart LR
+    Client["Client"]
+
+    subgraph ChatRole["chat  ·  APP_TARGET=chat"]
+        direction TB
+        Ctl2["ChatController · SSE"]
+        Chain2["Advisor chain · @Tool adapters<br/>memory · budget · lease"]
+        RVS["search-only VectorStore"]
+        HTO["HttpTicketOperations<br/>attempt · retry · recover · unavailable"]
+        Ctl2 --> Chain2 --> RVS
+        Chain2 --> HTO
+    end
+
+    subgraph KnowledgeRole["knowledge  ·  APP_TARGET=knowledge"]
+        direction TB
+        KC["/internal/v1/knowledge/search"]
+        Embed2["ONNX e5 · pgvector"]
+        KC --> Embed2
+    end
+
+    subgraph TicketRole["ticket  ·  APP_TARGET=ticket"]
+        direction TB
+        TC["/internal/v1/tickets<br/>/internal/v1/ticket-operations/{id}"]
+        Guard["guard row · unique key<br/>operation record"]
+        TC --> Guard
+    end
+
+    Job["knowledge-import Job<br/>APP_RAG_IMPORT_MODE=once"]
+    Model["Chat model"]
+    PG[("Postgres · one instance<br/>memory · budget · lease<br/>tickets · operations<br/>vector_store · corpus_import")]
+
+    Client -->|"POST /api/v1/chat"| Ctl2
+    Chain2 --> Model
+    RVS -->|"bearer token"| KC
+    HTO -->|"bearer token"| TC
+    Job -->|"once per corpus version"| PG
+    Embed2 --> PG
+    Guard --> PG
+    Chain2 --> PG
+```
+
+What made the split cheap is what stayed home: the `@Tool` classes, the advisor chain and
+the per-turn event bus never left the chat role, so the three constraints this codebase
+defends with tests are the same in both topologies. What the split forced was moving every
+piece of per-process state into Postgres, which the two-replica manifest had needed all
+along: the ticket cap is a guard row locked in the creating transaction, the token budget is a
+row, one turn per conversation is a lease with an expiry, and which corpus versions are
+imported is a table that readiness reads. The decision record, with the two independently
+written proposals it reconciles, is [ADR 001](docs/adr/001-deployment-targets.md);
+[Deployment](docs/deployment.md#running-the-roles-separately) has the Compose file, the
+Kubernetes manifests, the switching procedure and what running the split found.
 
 **Why these pieces:**
 
@@ -295,7 +358,7 @@ against evidence, and says what the evidence was.
 | [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and xAI by configuration — and why xAI is a provider rather than a base-URL trick |
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
-| [Deployment targets](docs/adr/001-deployment-targets.md) | Decided, not yet built: one artifact run as one process or as several. Reconciles two independent proposals, [Claude](docs/dual-target.md) and [Codex](docs/CODEX_DUAL_DEPLOYMENT_DESIGN.md), and records what was kept from each |
+| [Deployment targets](docs/adr/001-deployment-targets.md) | Built: one artifact run as one process or as three roles. Reconciles two independent proposals, [Claude](docs/dual-target.md) and [Codex](docs/CODEX_DUAL_DEPLOYMENT_DESIGN.md), and records what was kept from each |
 | [Codex deployment decision](docs/CODEX_DUAL_DEPLOYMENT_DECISION.md) | Codex's revised recommendation after comparing both deployment proposals; implementation gates and remaining decisions |
 
 ---
@@ -317,6 +380,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **9 · Cost and failure** — per-conversation token budget, HTTP timeouts, bounded retry, cost metrics
 - [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
 - [x] **11 · Hardening** — bounded tool side effects, graceful shutdown, SSE keep-alive
+- [x] **12 · Deployment targets** — the same artifact as one process or as three roles, decided by two independent designs reconciled in [ADR 001](docs/adr/001-deployment-targets.md); shared state moved to Postgres under Flyway; both topologies verified in Compose, on kind and in CI
 
 Every item is done, and the system has been run end to end against the live API: a Chinese
 question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token
@@ -350,7 +414,9 @@ production path. Go's rows were measured there; the Java rows are [this reposito
 
 The Java rows are the current code: about 10% slower on the virtual run than
 [first measured](docs/benchmark.md), since every request now takes a conversation lease and
-records its spend in Postgres rather than in a map. Both sets of numbers are kept there.
+records its spend in Postgres rather than in a map. Both sets of numbers are kept there, next
+to the same load run against the [split topology](docs/benchmark.md#the-same-load-with-the-roles-in-separate-processes):
+448 req/s and 1819 ms p50 with retrieval crossing a socket, on the same two platform threads.
 
 Go is about 25% faster with a much flatter tail — p50 to p99 inside 17 ms, against 430 ms here —
 and spends several times the OS threads to get it, because a goroutine inside a cgo call blocks

@@ -258,7 +258,8 @@ see `docs/retrieval.md`.
 
 ## Scope
 
-Do not add authentication or multi-tenancy without asking. Do not introduce LangChain4j, and do
+Do not add customer authentication or multi-tenancy without asking; the bearer token on
+`/internal/**` is service-to-service and is the whole of what exists. Do not introduce LangChain4j, and do
 not hand-roll vector retrieval — that belongs to `QuestionAnswerAdvisor`. Check Spring AI's
 actual classes or configuration metadata rather than recalling its API; the naming changed
 repeatedly before 1.0.

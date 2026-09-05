@@ -316,6 +316,38 @@ its attempt recorded in `ticket_operation`; and with `ticket` stopped, the tool 
 value telling the model to promise a human rather than an error. Each of those is what
 `TopologyParityTest` asserts, on real ports, in one JVM.
 
+## Switching topology, and rolling back
+
+Both layouts run the same image against the same schema, so a switch moves no data. What it
+needs is a window in which no turn is in flight, because a turn holds a conversation lease and
+writes history at its end, and two layouts serving the same conversation at once is the
+overlap the lease exists to refuse. The first supported switch is therefore a brief
+maintenance window, in either direction:
+
+1. **Stop admission.** Scale the serving Deployment(s) of the current layout to zero
+   (`ai-customer-service` for the base; `chat` for the roles). Graceful shutdown drains
+   in-flight turns for up to `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`; a turn that
+   outlives it has already failed on the read timeout and its lease expires on its own.
+2. **Migrate.** Nothing to do by hand: every process runs Flyway on start, and the schema
+   is the same for both layouts. A release that adds a migration is applied by whichever
+   process starts first, under Flyway's lock.
+3. **Start the destination.** `kubectl apply -k k8s/roles` (the Job imports the corpus if
+   this version is not recorded, and the knowledge pods stay not-ready until it has) or
+   `kubectl apply -k k8s/base`. Wait for readiness, which in the roles layout means chat's
+   readiness following knowledge's.
+4. **Smoke.** The assertions in `k8s/kind/verify.sh` are the checklist: health and readiness
+   through the Service, a turn that reaches the provider, and for the roles layout a `401` on
+   an internal call without the token.
+5. **Redirect ingress** to the destination Service, then remove the source layout's
+   workloads. Conversation history, tickets, budgets and the corpus are where they were.
+
+Rolling back is the same procedure with the layouts swapped. What is **not** a rollback
+target is the image from before shared state moved to Postgres: it keeps tickets and budgets
+in memory and would neither see the rows this version wrote nor write any. Zero-downtime
+switching -- both layouts serving at once behind one ingress -- is deferred in ADR 001 until
+there is a need to switch without a window; the lease makes it safe for a conversation, but
+nothing here has measured it.
+
 ## Kubernetes
 
 Manifests and apply instructions: [`k8s/README.md`](../k8s/README.md). They are verified on

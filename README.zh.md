@@ -145,6 +145,10 @@ sequenceDiagram
     end
 ```
 
+### 一个进程，或者三个
+
+上面的一切默认仍是一个进程，`docker compose up` 和 `k8s/base` 跑的就是它，benchmark 量的也是它。同一个 jar 也能按 `APP_TARGET` 拆成 chat、knowledge、ticket 三个角色跑，图中的接缝变成带 bearer token 的内部 HTTP 接口，语料由一次性的 Job 导入，每个进程的状态都在 Postgres 里。拆分之所以便宜，是因为 `@Tool` 类、advisor 链和按 turn 的事件总线都留在 chat 角色里，本仓库用测试守住的三条约束在两种拓扑下完全一样。决策记录见 [ADR 001](docs/adr/001-deployment-targets.md)，Compose 文件、Kubernetes 清单、切换流程和运行拆分时的发现见 [部署文档](docs/deployment.md#running-the-roles-separately)（英文）。
+
 **为什么是这些选择：**
 
 | 决策 | 理由 |
@@ -298,6 +302,7 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 - [x] **9 · 成本与失败** — 按会话的 token 预算、HTTP 超时、有界重试、成本指标
 - [x] **10 · 基准测试** — 虚拟线程这个决策的证据：3 倍吞吐、202 线程降到 2
 - [x] **11 · 加固** — 有界工具副作用、优雅停机、SSE keep-alive
+- [x] **12 · 部署形态** — 同一个制品既能作为单进程跑，也能拆成 chat、knowledge、ticket 三个角色跑，由两份独立设计在 [ADR 001](docs/adr/001-deployment-targets.md) 中调和后决定；共享状态迁入 Postgres 并由 Flyway 管理；两种拓扑在 Compose、kind 和 CI 上都经过验证
 
 每一条都已完成，整个系统也已对真实 API 端到端跑过：中文问题会检索到中文段落并用中文作答，
 两个工具都能完整往返，真实 token 用量会进到预算和 span 里，问一个语料没覆盖的问题时，

@@ -1,5 +1,9 @@
 # Dual Deployment Decision — Codex After Cross-Reading
 
+> **Status: superseded.** Codex's revised position, preserved as written. The four points on
+> which it differed from the joint decision, and the owner's rulings on them, are in the
+> [addendum to ADR 001](adr/001-deployment-targets.md#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings).
+
 - **Author:** Codex
 - **Date:** 2026-09-05
 - **Status:** Codex recommendation after reading both proposals; pending maintainer acceptance and Claude Code's response. Not implemented.
