@@ -118,16 +118,28 @@ else
 fi
 
 say "the observability pipeline"
+# Alloy attaches to a container's log stream when it discovers the container, and the
+# stack starts alongside the app now that it is a profile, so the first turns of this run
+# can be logged before Alloy is listening. Wait until Loki has seen chat at all before the
+# turn whose trace the chain follows -- the run that motivated this picked an exemplar from
+# a turn logged before Alloy attached, and Loki honestly had nothing for it.
+for _ in $(seq 1 30); do
+  seen=$(inside curl -s -G "http://loki:3100/loki/api/v1/query_range" --data-urlencode 'query={service="chat"}' --data-urlencode 'limit=1' \
+      | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("data",{}).get("result",[])))')
+  [[ ${seen:-0} -gt 0 ]] && break; sleep 2
+done
 # The trace id of a turn, read from a Prometheus exemplar: metric -> trace is the first link
 # in the chain, and with a placeholder key the model call fails before the stream's usage
-# event would have carried the id. Prometheus scrapes every 15 s, so wait for one.
+# event would have carried the id. Prometheus scrapes every 15 s, so wait for one -- and take
+# the newest by timestamp, since exemplars are returned per series, not in time order.
+turn_at=$(date +%s)
 curl -s -o /dev/null "localhost:${APP_PORT:-8080}/api/v1/chat" -H 'Content-Type: application/json' -d '{"message":"运费多少钱"}'
 trace_id=""
 for _ in $(seq 1 20); do
   trace_id=$(curl -s "localhost:${PROMETHEUS_PORT:-9090}/api/v1/query_exemplars" \
       --data-urlencode 'query=http_server_requests_seconds_bucket{uri=~"/api/v1/chat.*"}' \
-      --data-urlencode "start=$(( $(date +%s) - 900 ))" --data-urlencode "end=$(date +%s)" \
-      | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; ex=[e for s in d for e in s["exemplars"]]; print(ex[-1]["labels"]["trace_id"] if ex else "")')
+      --data-urlencode "start=$turn_at" --data-urlencode "end=$(( $(date +%s) + 60 ))" \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; ex=sorted((e for s in d for e in s["exemplars"]), key=lambda e: e["timestamp"]); print(ex[-1]["labels"]["trace_id"] if ex else "")')
   [[ ${#trace_id} -eq 32 ]] && break; sleep 3
 done
 [[ ${#trace_id} -eq 32 ]] && ok "a turn's latency bucket carries an exemplar with its trace id ($trace_id)" \
