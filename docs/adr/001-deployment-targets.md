@@ -1,10 +1,15 @@
 # ADR 001: One artifact, four deployment targets
 
-- **Status:** decided, pending the owner's confirmation of three items marked *owner's call*
+- **Status:** decided. The [addendum](#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings)
+  records Codex's revised position after reading both proposals, the four points on which
+  the two authors still differed, and the owner's rulings on them. The three items marked
+  *owner's call* were confirmed on 2026-09-05.
 - **Date:** 2026-09-05
 - **Inputs:** two independently written proposals for the same change
   - [Codex: Dual Deployment Design](../CODEX_DUAL_DEPLOYMENT_DESIGN.md), merged as PR #2
   - [Claude: One process or several](../dual-target.md), merged as PR #3
+  - [Codex: Dual Deployment Decision](../CODEX_DUAL_DEPLOYMENT_DECISION.md), Codex's revised
+    position after reading both, merged as PR #5
 - **Reconciled by:** Claude Code, after reading both. Where the two disagreed this document
   says which position was taken and why. Neither original is edited; both remain the
   record of what each author proposed before seeing the other.
@@ -22,6 +27,7 @@
 - [Deferred, deliberately](#deferred-deliberately)
 - [Plan](#plan)
 - [Answers to both cross-review agendas](#answers-to-both-cross-review-agendas)
+- [Addendum, 2026-09-05: Codex's revised position and the owner's rulings](#addendum-2026-09-05-codexs-revised-position-and-the-owners-rulings)
 
 ---
 
@@ -47,10 +53,11 @@ correctness fixes for multi-replica operation do apply to it, and are listed und
 One Maven module, one jar, one container image. `app.target` selects `all`, `chat`,
 `knowledge` or `ticket`; `all` is the default and is today's process plus the two fixes
 below. Role composition is explicit configuration imports gated by a `@ConditionalOnTarget`
-condition, not package scanning, and an ArchUnit test enforces that `chat` depends on
+condition, not package scanning, with the Spring AI auto-configuration switches set per target
+before auto-configuration runs, and an ArchUnit test enforces that `chat` depends on
 `knowledge` and `ticket` only through their interfaces. `chat` keeps the API, SSE,
 `TurnEventBus`, advisor chain, `@Tool` adapters, memory and budget. `knowledge` owns
-embedding, search, corpus versions and import. `ticket` owns ticket persistence,
+embedding, search, the corpus and its import. `ticket` owns ticket persistence,
 deduplication and the cap. Order lookup stays a local mock behind an `OrderLookup`
 interface. One Postgres, one schema per component, Flyway for migrations. Retrieval reaches
 `knowledge` through a search-only `VectorStore` adapter so the advisor chain is untouched.
@@ -165,6 +172,24 @@ incomplete targets fail before readiness, and a `ticket` process must boot witho
 key or native ML libraries. A later split into modules is mechanical once the ArchUnit rule
 has held.
 
+Codex's revised position corrected Claude's original per-target settings, and the
+corrected table is the one that applies. Bean conditions alone do not switch off Spring AI
+starters, native model initialisation or datasource setup; these are property-level switches
+applied by an `EnvironmentPostProcessor` before auto-configuration runs, and role
+configuration also covers resources, property binding, connection pool size, health
+indicators and the custom beans (credential validator, xAI configuration, sampling-parameter
+stripper, static resources), not only the switches.
+
+| | `all` | `chat` | `knowledge` | `ticket` |
+| --- | --- | --- | --- | --- |
+| Chat provider, credential validator, provider customisations | yes | yes | no, starts without any LLM key | no |
+| Embedding model | local ONNX | none | local ONNX | none |
+| `VectorStore` | `PgVectorStore` | search-only HTTP adapter | `PgVectorStore` | none |
+| Datasource | yes | yes: memory, budget, lease | yes: vector data, import status | yes: tickets, operations |
+| Public chat routes and demo page | yes | yes | no | no |
+| Internal endpoints served | none | none | search | tickets, ticket operations |
+| Corpus import | `startup` | never | `off`, or `once` for the job | never |
+
 ### 7. One active turn per conversation
 
 **Codex** proposed a durable lease admitting one turn per conversation, with fencing on
@@ -193,18 +218,27 @@ the two Spring AI ones, boot-time DDL is no longer small, and Spring AI's
 waits for it. Existing `spring_ai_chat_memory` and `vector_store` rows are inventoried by the
 first migration, not recreated.
 
-### 9. Corpus publication: atomic version switch, one property for import
+### 9. Corpus import: serialised, gated, one property as the trigger
 
-Both remove re-ingestion from serving replicas. **Codex** additionally required staging under
+Both remove re-ingestion from serving replicas. **Codex** originally required staging under
 a new version and an atomic switch of an active-version pointer, because the current
-write-then-retire scheme lets a reader see a mix of two versions. **Claude** proposed an
-`ingest` target as the trigger.
+write-then-retire scheme lets a reader see a mix of two versions, then withdrew that in its
+revised position until live corpus updates are needed. **Claude** proposed an `ingest`
+target as the trigger, and assumed a previous corpus is always there to serve during an
+import, which is false on an empty database.
 
-**Decided: Codex's semantics, one property as the trigger.** `app.knowledge.import` takes
-`startup` (default in `all`, so a laptop still works with `docker compose up`), `once`
-(import, publish, exit; the Kubernetes `Job` and the distributed Compose file use it) or
-`off` (default for serving `knowledge` replicas). Publication is serialised with a database
-advisory lock in every mode.
+**Decided: a serialised importer, a first-import readiness gate, the atomic switch
+deferred.** `app.knowledge.import` takes `startup` (default in `all`, so a laptop still
+works with `docker compose up`), `once` (import, reconcile, exit with a meaningful status;
+the Kubernetes `Job` and the distributed Compose file use it) or `off` (default for serving
+`knowledge` replicas). The importer holds a database advisory lock and records a durable
+import status; an unchanged corpus version is not re-embedded. `knowledge` readiness reports
+ready only once that status shows a complete corpus, so a fresh distributed install serves
+no retrieval until the importer has finished, and `chat` in the distributed topology
+inherits that through the search seam. In `all`, import on startup completes before the
+application is ready, as it does today. Changes to an existing corpus use a maintenance
+window while the write-then-retire scheme remains; the atomic version switch is in
+[Deferred](#deferred-deliberately) with the condition that reopens it.
 
 ### 10. Internal endpoints authenticate the caller
 
@@ -253,9 +287,12 @@ Two things, both correctness fixes the two-replica manifest already needed:
 - One active turn per conversation; overlap gets `409`.
 
 Everything else in `all` is today's process: the same beans, the same advisor chain, the
-same in-process ONNX model, the same benchmark path. The benchmark is re-run after phase 2
-and the number reported next to the old one, since the lease adds one database round trip
-per turn.
+same in-process ONNX model, the same benchmark path. Database-backed tickets, budget and
+lease add round trips to that path, so the benchmark is re-run after phase 2 in both modes
+and against the Go implementation. The historical results stay in
+[benchmark.md](../benchmark.md) with the commit and configuration they were measured at;
+the numbers are not promised to be unchanged, only to be re-measured and reported next to
+each other.
 
 ---
 
@@ -265,6 +302,7 @@ per turn.
 | --- | --- |
 | Budget reservations | A measured estimation error small enough to admit on, or a customer whose budget must be exact |
 | Fencing on memory writes | A lease expiry observed in production, or the read timeout being raised |
+| Atomic corpus version switch (stage, validate, flip an active-version pointer) | A corpus update that must happen while `knowledge` is serving, without a maintenance window |
 | Maven multi-module split | The ArchUnit rule failing to express a constraint, or a second deployable that needs a subset of the code |
 | A model-less image for `chat` and `ticket` | Registry or pull cost measured and found to matter |
 | A real order service | A real order system |
@@ -282,7 +320,7 @@ depends on how sessions are spaced.
 | # | Phase | Hours | Waits for |
 | --- | --- | --- | --- |
 | 1 | Boundaries: `OrderLookup`, `KnowledgeSearch`, `TicketOperations` with local implementations; `app.target` and the role configurations; the ArchUnit rule. Only `all` exposed. | 2–3 | |
-| 2 | Shared correctness: Flyway; ticket, operation, budget and lease tables; the guard row; the `409`; atomic corpus versions and `app.knowledge.import`. Two-replica concurrency tests. Benchmark re-run. | 5–6 | 1, `claude/ddl-race` |
+| 2 | Shared correctness: Flyway; ticket, operation, budget and lease tables; the guard row; the `409`; the serialised importer, its status and readiness gate, and `app.knowledge.import`. Two-replica concurrency tests. Benchmark re-run. | 5–6 | 1, `claude/ddl-race` |
 | 3 | Role composition: `knowledge` and `ticket` internal endpoints; the `chat`-side adapters, operation ids and recovery; the service token; the single-JVM parity test. | 4–5 | 2 |
 | 4 | Deployment: distributed Compose, Kubernetes overlays and `Job`, probes, the multi-process concurrency job in CI, `kind` verification of both layouts. | 3–4 | 3 |
 | 5 | Switching and rollback procedure, README architecture diagram, CLAUDE.md constraints, both proposals marked superseded, both benchmarks side by side. | 1–2 | 4 |
@@ -306,4 +344,63 @@ ticket extraction is justified because the cap is presented as a safety boundary
 is not one. (2) One universal artifact: yes, measure, revisit. (3) `VectorStore` adapter,
 decision 2. (4) Overlapping turns rejected, decision 7, owner's call. (5) No reservation
 policy is defensible without a measured estimate; decision 5. (6) Yes: phase 2 precedes
-phase 3. (7) Yes: one release per installation, a maintenance window for the first switch.
+phase 3, and the first-import readiness gate is part of it. (7) Yes: one release per installation, a maintenance window for the first switch.
+
+---
+
+## Addendum, 2026-09-05: Codex's revised position and the owner's rulings
+
+After PR #3 merged, Codex read both proposals and published a
+[revised position](../CODEX_DUAL_DEPLOYMENT_DECISION.md) (PR #5), written against the
+commit before this ADR existed. Claude read it against this ADR. Most of it agrees with
+the decisions above: one module, `OrderLookup` without a mock order service, Flyway, a
+service token on internal endpoints, same-release roles, a maintenance window for the first
+topology switch, both kinds of tests. Four points remained different, and on two of them the
+authors had crossed over, each adopting the other's original proposal.
+
+| | Claude's original | Codex's original | ADR 001 as merged | Codex revised | Ruling |
+| --- | --- | --- | --- | --- | --- |
+| Retrieval boundary | `embedding` service; `chat` keeps pgvector | `knowledge` service | `knowledge` | `embedding`, "avoid replacing the existing retrieval integration" | **`knowledge`**, decision 1 stands |
+| Corpus publication | run-once `ingest` target | atomic version switch | atomic switch | deferred until live updates are needed | **deferred**, decision 9 rewritten |
+| Budget | durable post-hoc settlement | reservations and recovery | post-hoc | reservations, "cumulative spend alone does not protect concurrent admission" | **post-hoc**, decision 5 stands |
+| Memory-write fencing | not addressed | lease plus fencing | lease, fencing deferred | lease plus fencing in the first release | **fencing deferred**, decision 7 stands |
+
+**Why the retrieval boundary stays `knowledge`.** Both are workable, and the deciding
+factor is which carries fewer unknowns. The search seam is our own DTOs and our own client.
+The embedding seam depends on Spring AI's OpenAI embedding client accepting a placeholder
+key and our server matching its response shape, both unverified, and on the prefix trap
+below. With a search-only `VectorStore` adapter the existing retrieval integration is not
+replaced either, which removes Codex's stated reason for switching.
+
+**Why the atomic switch is deferred.** Codex withdrew its own requirement, and Claude's
+adoption of it in the first version of this ADR overstated the benefit for a thirty-six
+document corpus that changes with a release. The serialised importer, the durable import
+status and the readiness gate are what a fresh install and a rolling deploy actually need.
+
+**Why the budget stays post-hoc and fencing stays deferred.** No new argument arrived on
+either. Codex's concern about concurrent admission on one conversation is met by the lease;
+its concern about interrupted turns with missing usage is real and is recorded as the
+limitation it already is in [reliability.md](../reliability.md), not fixed by adding an
+unmeasured estimate. A stale writer exists only after lease expiry, which is after the turn
+has already failed on the HTTP read timeout.
+
+**Four corrections from the revised position, absorbed into the body above:**
+
+- The per-target settings table under decision 6, and the note that bean conditions alone
+  do not switch off starters, native initialisation or datasource setup.
+- The empty-database case: no previous corpus exists on first install, so readiness has to
+  observe import completion, decision 9.
+- `PrefixingEmbeddingModel` applies the `query:` and `passage:` markers in its specialised
+  `embed` methods and passes `call(EmbeddingRequest)` through untouched. The
+  [README](../../README.md#the-same-system-in-go) already lists "which embedding overload
+  applies the `query:` marker" as a constraint this codebase defends with a test; inside
+  `knowledge` that test stays, and the search path must be shown to go through an overload
+  that applies the marker exactly once.
+- Benchmark results are preserved with their commit and configuration, and both modes and
+  the Go comparison are re-measured, rather than promising unchanged numbers. Wording under
+  [What changes in `all` mode](#what-changes-in-all-mode).
+
+**Owner's rulings.** On 2026-09-05 the owner confirmed the three owner's calls as written
+and the four rulings in the table above, in Claude's session, after reading both the ADR and
+Codex's revised position. Merging PR #5 preserved Codex's record; it did not constitute
+Codex's endorsement of these rulings, and Codex's document says so itself.
