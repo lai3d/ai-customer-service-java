@@ -88,20 +88,46 @@ class DeploymentTargetTest {
         }
     }
 
-    // --- the startup guard ----------------------------------------------------------------
+    // --- the property overrides and the startup guard --------------------------------------
 
     @Test
-    @DisplayName("a role other than all fails before any auto-configuration runs, and says why")
-    void singleRoleIsNotYetRunnable() {
+    @DisplayName("all runs application.yml as written; every other role switches something off")
+    void overridesPerTarget() {
+        assertThat(TargetEnvironmentPostProcessor.overridesFor(DeploymentTarget.ALL)).isEmpty();
+        assertThat(TargetEnvironmentPostProcessor.overridesFor(DeploymentTarget.CHAT))
+                .containsEntry("spring.ai.model.embedding", "none")
+                .containsEntry("spring.ai.vectorstore.type", "none")
+                .doesNotContainKey("spring.ai.model.chat");
+        assertThat(TargetEnvironmentPostProcessor.overridesFor(DeploymentTarget.KNOWLEDGE))
+                .containsEntry("spring.ai.model.chat", "none")
+                .doesNotContainKey("spring.ai.model.embedding")
+                .doesNotContainKey("spring.ai.vectorstore.type");
+        assertThat(TargetEnvironmentPostProcessor.overridesFor(DeploymentTarget.TICKET))
+                .containsEntry("spring.ai.model.chat", "none")
+                .containsEntry("spring.ai.model.embedding", "none")
+                .containsEntry("spring.ai.vectorstore.type", "none");
+    }
+
+    @Test
+    @DisplayName("a single role without the properties it needs fails before any auto-configuration runs, naming them")
+    void singleRoleRequiresItsConfiguration() {
         assertThatThrownBy(() -> new SpringApplicationBuilder(CustomerServiceApplication.class)
                 .web(WebApplicationType.NONE)
                 .profiles("test")
                 // A command-line argument, not .properties(): those are *default* properties
                 // and application.yml's own `app.target` would win over them.
+                .run("--app.target=chat"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.target=chat")
+                .hasMessageContaining("app.services.knowledge.url")
+                .hasMessageContaining("app.services.ticket.url")
+                .hasMessageContaining("app.internal.token");
+        assertThatThrownBy(() -> new SpringApplicationBuilder(CustomerServiceApplication.class)
+                .web(WebApplicationType.NONE)
+                .profiles("test")
                 .run("--app.target=ticket"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("app.target=ticket")
-                .hasMessageContaining("not yet runnable");
+                .hasMessageContaining("app.internal.token");
     }
 
     @Test

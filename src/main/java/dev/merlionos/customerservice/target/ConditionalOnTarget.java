@@ -9,12 +9,13 @@ import java.lang.annotation.Target;
 
 /**
  * Gates a configuration class, and everything it scans or declares, on the process running
- * the given role. A process started as {@code all} matches every role.
+ * the given role. A process started as {@code all} matches every role, unless
+ * {@link #exclusive()} is set, which means "this role, and not {@code all}": the internal
+ * endpoints and the HTTP adapters exist only when the roles are in separate processes.
  *
- * <p>Applied to configuration classes, not to individual components: a role is a set of
- * packages, and the condition on the class that scans them is what keeps a {@code ticket}
- * process from discovering the chat controller. Evaluated at parse time, so a skipped class
- * contributes no bean definitions at all rather than beans that are later removed.
+ * <p>Evaluated in both parse and registration phases, so it works on a role's
+ * {@code @Configuration} (where it stops the {@code @ComponentScan}) and on a scanned
+ * component such as a controller.
  */
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
@@ -22,4 +23,7 @@ import java.lang.annotation.Target;
 public @interface ConditionalOnTarget {
 
     DeploymentTarget value();
+
+    /** Match only when the process is exactly this role, not {@code all}. */
+    boolean exclusive() default false;
 }

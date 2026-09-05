@@ -4,6 +4,7 @@ import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -14,6 +15,7 @@ import org.springframework.transaction.PlatformTransactionManager;
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnTarget(DeploymentTarget.TICKET)
+@ComponentScan(basePackageClasses = TicketRoleConfiguration.class)
 public class TicketRoleConfiguration {
 
     @Bean

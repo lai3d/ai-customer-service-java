@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * A scripted seam for the adapter tests. It reproduces the three outcomes -- created,
@@ -38,6 +39,11 @@ class FakeTicketOperations implements TicketOperations {
                 request.category(), request.summary(), request.orderNumber(), Instant.now(), false);
         tickets.add(ticket);
         return TicketResult.created(ticket);
+    }
+
+    @Override
+    public Optional<TicketResult> recorded(String operationId) {
+        return Optional.empty();
     }
 
     @Override

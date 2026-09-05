@@ -190,6 +190,21 @@ spring:
             initialize-schema: never
 
 app:
+  # Only a single-role process reads these; `all` calls the roles in-process and serves no
+  # internal endpoint. A chat process refuses to start without all three; a knowledge or
+  # ticket process without the token. See docs/adr/001-deployment-targets.md.
+  internal:
+    # Shared secret on every /internal/** call, service to service. Not customer authentication.
+    token: ${INTERNAL_TOKEN:}
+  services:
+    knowledge:
+      url: ${KNOWLEDGE_URL:}
+    ticket:
+      url: ${TICKET_URL:}
+    # For internal calls only. The model client's 120s read timeout is for a model that takes
+    # that long; a tool call that waits that long holds the customer with it.
+    timeout: ${SERVICES_TIMEOUT:5s}
+
   chat:
     # How long one turn may hold its conversation. A second request on a conversation with a
     # turn in flight is refused with 409 rather than interleaving two histories; the lease
@@ -198,8 +213,9 @@ app:
     turn-lease: ${TURN_LEASE:150s}
 
   # What this process is: all (the default, every role in one JVM), or one of chat, knowledge,
-  # ticket. Only `all` is runnable until role composition lands; the others fail at startup
-  # and say so. See docs/adr/001-deployment-targets.md.
+  # ticket. A single role switches off what it does not run (TargetEnvironmentPostProcessor)
+  # and refuses to start without the app.internal / app.services settings it needs.
+  # See docs/adr/001-deployment-targets.md.
   target: ${APP_TARGET:all}
 
   cost:

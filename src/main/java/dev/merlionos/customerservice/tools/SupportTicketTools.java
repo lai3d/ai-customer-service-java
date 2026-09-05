@@ -12,6 +12,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
+import java.util.UUID;
+
 /**
  * The tool adapter for raising a ticket. The invariants -- one ticket per distinct request
  * per conversation, at most three per conversation -- live in {@link TicketOperations};
@@ -58,17 +60,23 @@ public class SupportTicketTools {
             ToolContext toolContext) {
 
         String conversationId = conversationIdFrom(toolContext);
-        TicketResult result = tickets.create(new TicketRequest(conversationId, summary, category, orderNumber));
+        // One id per invocation, generated here and not by the model: it is what lets a retry
+        // over the seam be recognised as the same write, and a model could reuse or invent one.
+        String operationId = UUID.randomUUID().toString();
+        TicketResult result = tickets.create(
+                new TicketRequest(operationId, conversationId, summary, category, orderNumber));
         report(toolContext, outcomeOf(result));
         return result;
     }
 
-    /** The three outcomes a result can encode, as the meter and the demo page name them. */
+    /** The outcomes a result can encode, as the meter and the demo page name them. */
     static String outcomeOf(TicketResult result) {
-        if (result.created()) {
-            return "created";
-        }
-        return result.ticket() != null ? "duplicate_suppressed" : "capped";
+        return switch (result.status()) {
+            case CREATED -> "created";
+            case EXISTING -> "duplicate_suppressed";
+            case REFUSED -> "capped";
+            case UNAVAILABLE -> "unavailable";
+        };
     }
 
     /** Shared with {@link OrderTools}: every tool needs the conversation it is serving. */

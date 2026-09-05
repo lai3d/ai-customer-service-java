@@ -58,18 +58,29 @@ defaults happen to be right; `AdvisorChainOrderTest` fails if that changes.
 
 ### Deployment targets and the package map
 
-One artifact runs as everything (`app.target=all`, the default and the only runnable value so
-far) or, once role composition lands, as one role: `chat`, `knowledge` or `ticket`. The design
-is `docs/adr/001-deployment-targets.md`; do not re-argue it in code comments. What is built:
+One artifact runs as everything (`app.target=all`, the default) or as one role: `chat`,
+`knowledge` or `ticket`. The design is `docs/adr/001-deployment-targets.md`; do not re-argue
+it in code comments. What is built:
 
 ```
 target/        DeploymentTarget, @ConditionalOnTarget, TargetEnvironmentPostProcessor
-chat/ config/ cost/ orders/ provider/ tools/   the chat role   (ChatRoleConfiguration)
+chat/ clients/ config/ cost/ orders/ provider/ tools/   the chat role  (ChatRoleConfiguration)
 rag/           the knowledge role, package name kept        (KnowledgeRoleConfiguration)
 ticket/        the ticket role                              (TicketRoleConfiguration)
 rag/api/ ticket/api/   the contracts the chat side may depend on
-observability/ shared by every role, scanned from the application class
+internal/ observability/   shared by every role, scanned from the application class
 ```
+
+A single role is a set of property overrides plus a bean condition. `TargetEnvironmentPostProcessor`
+sets `spring.ai.model.chat=none`, `spring.ai.model.embedding=none`, `spring.ai.vectorstore.type=none`
+and the readiness group per role before auto-configuration runs, because those are switches on
+auto-configurations and no bean condition of ours can reach them; a `ticket` process therefore
+starts with no LLM key and no ONNX session. `@ConditionalOnTarget(..., exclusive = true)` marks
+what exists only when the roles are split: the `/internal/v1/**` controllers in `rag/` and
+`ticket/`, the HTTP adapters and the `knowledge` readiness indicator in `clients/`, and the
+token filter in `internal/`. An `all` process serves no internal endpoint and needs no token.
+`TopologyParityTest` starts all three roles on real ports over one database and is the test
+to extend when a seam changes.
 
 `CustomerServiceApplication` is deliberately not `@SpringBootApplication`: each role
 configuration scans its own packages and is gated on the target, so a `ticket` process never
@@ -84,10 +95,11 @@ modules return values and know nothing about `ToolContext`, turn events or meter
 through their `api` packages, and those two may not reach the chat side at all. It was checked
 to fail on a planted violation before it was trusted.
 
-`app.target` is validated by an `EnvironmentPostProcessor` before auto-configuration runs, so a
-misspelt value is a one-line failure. Tests that start the application with a target must pass
-it as a command-line argument (`.run("--app.target=...")`), not via `.properties()`: those are
-default properties and `application.yml`'s own `app.target` overrides them.
+`app.target` is validated by the same `EnvironmentPostProcessor`, so a misspelt value, or a
+`chat` process without `app.services.*.url` and `app.internal.token`, is a one-line failure
+naming what is missing. Tests that start the application with a target must pass it as a
+command-line argument (`.run("--app.target=...")`), not via `.properties()`: those are default
+properties and `application.yml`'s own `app.target` overrides them.
 
 ### Streaming carries typed events, not tokens
 
@@ -141,6 +153,15 @@ as the database is concerned.
   `IF NOT EXISTS` and `baseline-on-migrate` adopts a database they already populated.
   `SchemaInitializationLock` now wraps beans that issue no DDL; it is dead code until the
   Kubernetes harness that proves it is re-run, and goes then.
+- **Ticket writes over the seam carry an operation id**, generated per tool invocation in
+  `SupportTicketTools`, never by the model. `JdbcTicketOperations` records every outcome
+  against it in `ticket_operation` inside the ticket's transaction; the same id asked again
+  is answered from the record, and reused with different input is a `409`. `HttpTicketOperations`
+  tries twice, reads the record once, then returns `TicketResult.unavailable()` -- a value the
+  model can act on, never a transport error.
+- **A `ConditionalOnTarget` must stay a plain `Condition`**, not a `ConfigurationCondition`: a
+  phased condition is skipped in the other phase, and a scanned controller is registered in the
+  registration phase, so a parse-phase condition on it would silently admit it everywhere.
 - **`app.chat.turn-lease` must exceed `spring.http.client.read-timeout`**, or a slow but
   healthy turn loses its conversation to the next request. `ChatPropertiesTest` reads both
   defaults from `application.yml`.

@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.chat;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.merlionos.customerservice.clients.KnowledgeUnavailableException;
 import dev.merlionos.customerservice.cost.ConversationBudgetExceededException;
 import org.springframework.ai.retry.NonTransientAiException;
 import org.springframework.ai.retry.TransientAiException;
@@ -48,6 +49,18 @@ class ChatExceptionHandler {
         problem.setTitle("Conversation busy");
         problem.setDetail("This conversation is still answering a previous message. Wait for it "
                 + "to finish, then send again.");
+        return problem;
+    }
+
+    @ExceptionHandler(KnowledgeUnavailableException.class)
+    ProblemDetail handleKnowledgeUnavailable(KnowledgeUnavailableException exception) {
+        // Answering without retrieval would be answering without grounding; a failed turn the
+        // client can retry is the honest outcome.
+        log.warn("Knowledge service unavailable", exception);
+
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
+        problem.setTitle("Assistant temporarily unavailable");
+        problem.setDetail("The assistant cannot look things up right now. Please try again in a moment.");
         return problem;
     }
 

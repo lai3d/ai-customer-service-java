@@ -29,7 +29,10 @@ the measured numbers below are from that run, not estimates.
 | `POSTGRES_DB` | no | `csagent` | |
 | `POSTGRES_USER` | no | `csagent` | |
 | `POSTGRES_PASSWORD` | no | `csagent` | Change this anywhere that is not a laptop. |
-| `APP_TARGET` | no | `all` | What the process is. `all` is every role in one JVM; `chat`, `knowledge` and `ticket` are defined but fail at startup until role composition lands. See [ADR 001](adr/001-deployment-targets.md). |
+| `APP_TARGET` | no | `all` | What the process is: `all` is every role in one JVM; `chat`, `knowledge` or `ticket` is one role. See [Running the roles separately](#running-the-roles-separately) and [ADR 001](adr/001-deployment-targets.md). |
+| `INTERNAL_TOKEN` | single roles | none | Shared secret on every `/internal/**` call between roles. Required by every single-role process; unused by `all`, which serves no internal endpoint. |
+| `KNOWLEDGE_URL`, `TICKET_URL` | `chat` only | none | Where a `chat` process finds the other two roles, e.g. `http://knowledge:8080`. |
+| `SERVICES_TIMEOUT` | no | `5s` | Connect and read timeout for internal calls. Deliberately far below `HTTP_READ_TIMEOUT`: a tool that waits two minutes holds the customer with it. |
 | `APP_RAG_IMPORT_MODE` | no | `startup` | `startup` imports the bundled corpus when the application is ready, then serves. `once` imports and exits (a Kubernetes `Job`). `off` serves whatever the database holds. An already-imported version is skipped in every mode, and readiness is DOWN until one is recorded. |
 | `TURN_LEASE` | no | `150s` | How long one turn may hold its conversation; a second request meanwhile gets `409`. Must exceed `HTTP_READ_TIMEOUT`. |
 | `APP_PORT` | no | `8080` | Compose only: host port for the app. |
@@ -265,6 +268,33 @@ they are `ARG`s), or a laptop-only workflow where a 379 MB image rebuild is more
 than a one-off download into a cache that then persists.
 
 ---
+
+## Running the roles separately
+
+The same jar and the same image run as one process or as three. `docker compose up` and the
+manifests in `k8s/` run `all`; the distributed Compose file and the per-role manifests are the
+next phase of ADR 001. Until then, this is what the split looks like by hand, against one
+Postgres, with the corpus imported once by a run-once knowledge process:
+
+```bash
+export INTERNAL_TOKEN=$(openssl rand -hex 16)
+
+# Import the corpus once and exit (a Kubernetes Job, when there is one).
+APP_TARGET=knowledge APP_RAG_IMPORT_MODE=once java -jar target/*.jar
+
+# Serve. Knowledge and ticket need no LLM key; knowledge alone loads the ONNX model.
+APP_TARGET=knowledge SERVER_PORT=8081 java -jar target/*.jar &
+APP_TARGET=ticket    SERVER_PORT=8082 java -jar target/*.jar &
+APP_TARGET=chat KNOWLEDGE_URL=http://localhost:8081 TICKET_URL=http://localhost:8082 \
+    ANTHROPIC_API_KEY=... java -jar target/*.jar
+```
+
+What to expect: `chat`'s `/actuator/health/readiness` is `DOWN` until `knowledge` reports its
+corpus present, because readiness crosses the seam; a `/internal/**` call without the token is
+`401`; a ticket raised through `chat` is a row in `support_ticket` written by `ticket`, with
+its attempt recorded in `ticket_operation`; and with `ticket` stopped, the tool returns a
+value telling the model to promise a human rather than an error. Each of those is what
+`TopologyParityTest` asserts, on real ports, in one JVM.
 
 ## Kubernetes
 
