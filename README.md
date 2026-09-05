@@ -294,7 +294,7 @@ against evidence, and says what the evidence was.
 | [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and xAI by configuration — and why xAI is a provider rather than a base-URL trick |
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
-| [One process or several](docs/dual-target.md) | A proposal, not yet built: the same artifact run as one process or as several, selected by a target flag |
+| [Deployment targets](docs/adr/001-deployment-targets.md) | Decided, not yet built: one artifact run as one process or as several. Reconciles two independent proposals, [Claude](docs/dual-target.md) and [Codex](docs/CODEX_DUAL_DEPLOYMENT_DESIGN.md), and records what was kept from each |
 
 ---
 
