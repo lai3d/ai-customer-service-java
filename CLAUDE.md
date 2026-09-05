@@ -303,6 +303,16 @@ auto-configurations outright (`TargetEnvironmentPostProcessor`); left on, Boot's
 chain would put a generated password in front of `/internal/**`. The first admin is seeded
 by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table.
 
+The ticket loop is `/admin/api/tickets` over `TicketWorkflow` (`ticket/api`): local
+`JdbcTicketWorkflow` in `all`, `HttpTicketWorkflow` over `/internal/v1/ticket-workflow` in a
+`chat` process; `TopologyParityTest` proves the two answer alike, refusals included. The
+conversation view reads `spring_ai_chat_memory` directly and says what is not persisted
+(retrieval evidence, tool results) instead of showing an empty panel. `admin_audit` records
+two things `ticket_event` deliberately does not: opening a customer conversation (the one
+page that shows customer text on purpose) and a refused action (a rule the workflow would not
+bend, or a role the server would not honour). A lost race (`409`) is not a refusal and is not
+recorded.
+
 ## Scope
 
 Do not add customer authentication or multi-tenancy without asking; the bearer token on

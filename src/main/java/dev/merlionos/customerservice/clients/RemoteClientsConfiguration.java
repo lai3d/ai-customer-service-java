@@ -5,6 +5,7 @@ import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
+import dev.merlionos.customerservice.ticket.api.TicketWorkflow;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.boot.actuate.health.HealthIndicator;
@@ -65,6 +66,12 @@ public class RemoteClientsConfiguration {
     @Bean
     TicketOperations ticketOperations(RestClient ticketClient) {
         return new HttpTicketOperations(ticketClient);
+    }
+
+    /** The operations admin's side of the same seam. */
+    @Bean
+    TicketWorkflow ticketWorkflow(RestClient ticketClient) {
+        return new HttpTicketWorkflow(ticketClient);
     }
 
     @Bean("knowledge")

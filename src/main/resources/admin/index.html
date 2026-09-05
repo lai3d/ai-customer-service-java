@@ -8,13 +8,14 @@
 <style>
   :root {
     --bg: #f7f7f8; --panel: #ffffff; --ink: #1b1b1f; --muted: #6b6b76;
-    --line: #e3e3e8; --accent: #2f6f4f; --accent-soft: #eaf3ee; --warn: #a4402c;
-    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --line: #e3e3e8; --accent: #2f6f4f; --accent-soft: #eaf3ee; --warn: #a4402c; --warn-soft: #f9ece8;
+    --user: #edeef2; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #16161a; --panel: #1e1e24; --ink: #e9e9ee; --muted: #9a9aa6;
-      --line: #2e2e37; --accent: #7fc0a0; --accent-soft: #23302a; --warn: #e08a76;
+      --line: #2e2e37; --accent: #7fc0a0; --accent-soft: #23302a; --warn: #e08a76; --warn-soft: #3a2a26;
+      --user: #2a2a33;
     }
   }
   * { box-sizing: border-box; }
@@ -36,27 +37,54 @@
   }
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  main { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; display: grid; gap: 22px; }
+  button.danger { color: var(--warn); }
+  button:disabled { opacity: .45; cursor: default; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; display: grid; gap: 22px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; }
+  h3 { font-size: 15px; margin: 0 0 6px; }
   p { margin: 0 0 10px; }
   .hint { color: var(--muted); font-size: 13px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); }
+  th, td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
-  td.mono { font-family: var(--mono); font-size: 13px; }
-  .role { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
-  .disabled { color: var(--warn); }
-  form.create { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 10px; align-items: end; margin-top: 14px; }
-  @media (max-width: 700px) { form.create { grid-template-columns: 1fr; } }
+  td.mono, .mono { font-family: var(--mono); font-size: 13px; }
+  tr.pick { cursor: pointer; }
+  tr.pick:hover td { background: var(--accent-soft); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; white-space: nowrap; }
+  .badge.open { background: var(--user); color: var(--ink); }
+  .badge.resolved, .badge.closed { background: transparent; border: 1px solid var(--line); color: var(--muted); }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  input, select {
+  label.inline { flex-direction: row; align-items: center; gap: 6px; }
+  input, select, textarea {
     font: inherit; color: inherit; padding: 8px 10px;
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   }
-  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .status { font-size: 13px; margin-top: 8px; min-height: 1.3em; }
   .status.err { color: var(--warn); }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14px; margin: 8px 0 14px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; }
+  .events { list-style: none; padding: 0; margin: 0; }
+  .events li { border-top: 1px solid var(--line); padding: 8px 0; font-size: 14px; }
+  .events .who { color: var(--muted); font-size: 13px; }
+  .events .text { white-space: pre-wrap; margin-top: 3px; }
+  .notice { background: var(--warn-soft); border: 1px solid var(--warn); color: var(--ink); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 0 0 12px; }
+  .transcript { display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 72ch; padding: 9px 13px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
+  .msg.USER { align-self: flex-end; background: var(--user); }
+  .msg.ASSISTANT { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
+  .msg.SYSTEM, .msg.TOOL { align-self: stretch; background: transparent; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
+  .msg .at { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .msg.rendered { white-space: normal; }
+  .msg.rendered p { margin: 0 0 8px; }
+  .msg.rendered p:last-child, .msg.rendered ul:last-child { margin-bottom: 0; }
+  .msg.rendered ul { margin: 0 0 8px; padding-left: 20px; }
+  .msg.rendered code { font-family: var(--mono); font-size: 0.92em; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 4px; }
+  .pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -71,6 +99,69 @@
   </form>
 </header>
 <main>
+  <section id="tickets">
+    <h2>Tickets</h2>
+    <form class="row" id="filters">
+      <label>State
+        <select name="state">
+          <option value="">any</option>
+          <option value="open">open</option>
+          <option value="claimed">claimed</option>
+          <option value="resolved">resolved</option>
+          <option value="closed">closed</option>
+        </select>
+      </label>
+      <label>Owner <input name="owner" placeholder="username" autocomplete="off"></label>
+      <label class="inline"><input type="checkbox" name="unassigned"> unassigned only</label>
+      <button type="submit" class="primary">Show</button>
+      <button type="button" id="mine">Mine</button>
+    </form>
+    <table>
+      <thead><tr><th>Ticket</th><th>State</th><th>Owner</th><th>Category</th><th>Summary</th><th>Updated</th></tr></thead>
+      <tbody id="ticket-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button type="button" id="prev">‹</button>
+      <span id="page-info">–</span>
+      <button type="button" id="next">›</button>
+    </div>
+    <div class="status" id="list-status"></div>
+  </section>
+
+  <section id="detail" hidden>
+    <h2>Ticket <span id="d-number" class="mono"></span></h2>
+    <h3 id="d-summary"></h3>
+    <dl class="facts">
+      <dt>State</dt><dd id="d-state"></dd>
+      <dt>Owner</dt><dd id="d-owner"></dd>
+      <dt>Category</dt><dd id="d-category"></dd>
+      <dt>Order</dt><dd id="d-order" class="mono"></dd>
+      <dt>Conversation</dt><dd id="d-conversation" class="mono"></dd>
+      <dt>Created</dt><dd id="d-created"></dd>
+      <dt>Updated</dt><dd id="d-updated"></dd>
+    </dl>
+    <div class="row" id="actions"></div>
+    <div class="row" id="assign-row" hidden>
+      <label>Assign to <input id="assignee" placeholder="username" autocomplete="off"></label>
+      <button type="button" id="assign">Assign</button>
+    </div>
+    <div class="status" id="detail-status"></div>
+    <form id="note-form">
+      <label>Internal note <textarea name="note" placeholder="Visible to staff only"></textarea></label>
+      <div class="row"><button type="submit">Add note</button></div>
+    </form>
+    <h2 style="margin-top:18px">History</h2>
+    <ul class="events" id="events"></ul>
+    <div class="row" style="margin-top:14px"><button type="button" id="open-conversation">Open the conversation</button></div>
+  </section>
+
+  <section id="conversation" hidden>
+    <h2>Conversation <span id="c-id" class="mono"></span></h2>
+    <p class="notice" id="c-notice"></p>
+    <p class="hint" id="c-tickets"></p>
+    <div class="transcript" id="transcript"></div>
+  </section>
+
   <section id="staff" hidden>
     <h2>Staff accounts</h2>
     <p class="hint">Admins manage accounts; support staff handle tickets and see the conversations behind them. Usernames are lower case; passwords are at least 12 characters.</p>
@@ -78,7 +169,7 @@
       <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>By</th></tr></thead>
       <tbody id="staff-rows"></tbody>
     </table>
-    <form class="create" id="create">
+    <form class="row" id="create">
       <label>Username <input name="username" required minlength="3" maxlength="64" pattern="[a-z0-9][a-z0-9._\-]{2,63}" autocomplete="off"></label>
       <label>Password <input name="password" type="password" required minlength="12" autocomplete="new-password"></label>
       <label>Role
@@ -93,8 +184,13 @@
   </section>
 </main>
 <script>
-  // Every element below is built with createElement/textContent: server data becomes text
-  // nodes, never markup. AdminPageMarkupTest holds that line.
+  // Every element below is built with createElement/textContent: ticket summaries, notes and
+  // customer messages become text nodes, never markup. AdminPageMarkupTest holds that line.
+  const $ = (id) => document.getElementById(id);
+  let me = null;
+  let current = null;       // the ticket on the detail panel, with its version
+  let listQuery = { page: 0, size: 25 };
+
   function csrfToken() {
     const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
     return match ? decodeURIComponent(match[1]) : "";
@@ -110,29 +206,246 @@
     if (response.status === 401) { location.href = "/admin/login"; throw new Error("signed out"); }
     return response;
   }
-  function cell(text, className) {
-    const td = document.createElement("td");
-    td.textContent = text;
-    if (className) td.className = className;
-    return td;
+  async function problem(response) {
+    const body = await response.json().catch(() => ({}));
+    return body.error || ("The request failed (" + response.status + ").");
   }
-  function roleCell(role) {
-    const td = document.createElement("td");
-    const badge = document.createElement("span");
-    badge.className = "role";
-    badge.textContent = role;
-    td.appendChild(badge);
-    return td;
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
   }
+  function badge(state) { return el("span", "badge " + state, state); }
+  function when(iso) { return iso ? new Date(iso).toLocaleString() : ""; }
+  function setStatus(id, text, isError) {
+    const node = $(id);
+    node.className = "status" + (isError ? " err" : "");
+    node.textContent = text || "";
+  }
+
+  // --- the queue -------------------------------------------------------------------------
+  async function loadTickets() {
+    const params = new URLSearchParams();
+    if (listQuery.state) params.set("state", listQuery.state);
+    if (listQuery.owner) params.set("owner", listQuery.owner);
+    params.set("page", listQuery.page);
+    params.set("size", listQuery.size);
+    const response = await api("/tickets?" + params.toString());
+    if (!response.ok) { setStatus("list-status", await problem(response), true); return; }
+    const page = await response.json();
+    const rows = $("ticket-rows");
+    rows.replaceChildren();
+    for (const t of page.tickets) {
+      const tr = el("tr", "pick");
+      tr.appendChild(el("td", "mono", t.ticketNumber));
+      const st = el("td"); st.appendChild(badge(t.state)); tr.appendChild(st);
+      tr.appendChild(el("td", "mono", t.owner || "—"));
+      tr.appendChild(el("td", null, t.category));
+      tr.appendChild(el("td", null, t.summary));
+      tr.appendChild(el("td", null, when(t.updatedAt)));
+      tr.addEventListener("click", () => openTicket(t.ticketNumber));
+      rows.appendChild(tr);
+    }
+    const first = page.total === 0 ? 0 : page.page * page.size + 1;
+    const last = Math.min(page.total, (page.page + 1) * page.size);
+    $("page-info").textContent = page.total === 0 ? "no tickets" : first + "–" + last + " of " + page.total;
+    $("prev").disabled = page.page === 0;
+    $("next").disabled = last >= page.total;
+    setStatus("list-status", "");
+  }
+  $("filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.target;
+    listQuery.state = form.elements.state.value;
+    listQuery.owner = form.elements.unassigned.checked ? "-" : form.elements.owner.value.trim();
+    listQuery.page = 0;
+    loadTickets();
+  });
+  $("mine").addEventListener("click", () => {
+    const form = $("filters");
+    form.elements.owner.value = me.username;
+    form.elements.unassigned.checked = false;
+    form.requestSubmit();
+  });
+  $("prev").addEventListener("click", () => { listQuery.page = Math.max(0, listQuery.page - 1); loadTickets(); });
+  $("next").addEventListener("click", () => { listQuery.page += 1; loadTickets(); });
+
+  // --- one ticket -------------------------------------------------------------------------
+  async function openTicket(number) {
+    const response = await api("/tickets/" + encodeURIComponent(number));
+    if (!response.ok) { setStatus("list-status", await problem(response), true); return; }
+    const detail = await response.json();
+    current = detail.ticket;
+    renderTicket(detail.ticket, detail.history);
+    $("conversation").hidden = true;
+    $("detail").hidden = false;
+    $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function renderTicket(t, history) {
+    $("d-number").textContent = t.ticketNumber;
+    $("d-summary").textContent = t.summary;
+    $("d-state").replaceChildren(badge(t.state));
+    $("d-owner").textContent = t.owner || "nobody";
+    $("d-category").textContent = t.category;
+    $("d-order").textContent = t.orderNumber || "—";
+    $("d-conversation").textContent = t.conversationId;
+    $("d-created").textContent = when(t.createdAt) + " by the assistant";
+    $("d-updated").textContent = when(t.updatedAt) + " (version " + t.version + ")";
+    renderActions(t);
+    const events = $("events");
+    events.replaceChildren();
+    if (history.length === 0) events.appendChild(el("li", "who", "Nobody has touched this ticket yet."));
+    for (const e of history) {
+      const li = el("li");
+      let line = e.kind + " by " + e.actor;
+      if (e.toState && e.kind !== "note") line += ": " + (e.fromState || "?") + " → " + e.toState;
+      if (e.kind === "assigned" || e.kind === "claimed") line += ", owner " + (e.toOwner || "nobody");
+      if (e.kind === "released" || e.kind === "reopened") line += ", back in the queue";
+      li.appendChild(el("div", null, line));
+      li.appendChild(el("div", "who", when(e.occurredAt)));
+      if (e.note) li.appendChild(el("div", "text", e.note));
+      events.appendChild(li);
+    }
+    setStatus("detail-status", "");
+  }
+  function renderActions(t) {
+    const bar = $("actions");
+    bar.replaceChildren();
+    const mine = t.owner === me.username;
+    const may = t.owner === null || mine || me.role === "admin";
+    const add = (label, action, cls, prompt) => {
+      const b = el("button", cls, label);
+      b.type = "button";
+      b.addEventListener("click", () => act(action, prompt));
+      bar.appendChild(b);
+    };
+    if (t.state === "open") add("Claim", "claim", "primary");
+    if (t.state === "claimed" && may) {
+      add("Resolve…", "resolve", "primary", "What was done for the customer? (required)");
+      add("Release", "release");
+      add("Close", "close", "danger");
+    }
+    if (t.state === "resolved" && may) add("Close", "close", "danger");
+    if (t.state === "resolved" || t.state === "closed") add("Reopen", "reopen");
+    $("assign-row").hidden = !((t.state === "open" || t.state === "claimed") && may);
+    if (t.state === "claimed" && !may) {
+      bar.appendChild(el("span", "hint", "Owned by " + t.owner + "; only the owner or an admin can change it."));
+    }
+  }
+  async function act(action, promptText, extra) {
+    if (!current) return;
+    const body = { expectedVersion: current.version };
+    if (promptText) {
+      const text = window.prompt(promptText);
+      if (text === null) return;
+      body.text = text;
+    }
+    Object.assign(body, extra || {});
+    const response = await api("/tickets/" + encodeURIComponent(current.ticketNumber) + "/" + action,
+        { method: "POST", body });
+    if (response.ok) {
+      await openTicket(current.ticketNumber);
+      await loadTickets();
+      return;
+    }
+    const message = await problem(response);
+    if (response.status === 409) {
+      setStatus("detail-status", message + " Reloaded.", true);
+      await openTicket(current.ticketNumber);
+      await loadTickets();
+    } else {
+      setStatus("detail-status", message, true);
+    }
+  }
+  $("assign").addEventListener("click", () => act("assign", null, { assignee: $("assignee").value.trim() }));
+  $("note-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = event.target.elements.note.value;
+    await act("note", null, { text });
+    event.target.reset();
+  });
+
+  // --- the conversation behind it ----------------------------------------------------------
+  $("open-conversation").addEventListener("click", async () => {
+    if (!current) return;
+    const response = await api("/tickets/" + encodeURIComponent(current.ticketNumber) + "/conversation");
+    if (!response.ok) { setStatus("detail-status", await problem(response), true); return; }
+    const c = await response.json();
+    $("c-id").textContent = c.conversationId;
+    $("c-notice").textContent = "Opening this conversation was recorded against your account. " + c.notPersisted;
+    $("c-tickets").textContent = c.tickets.length === 0 ? "No tickets in this conversation."
+        : "Tickets raised in this conversation: " + c.tickets.map((t) => t.ticketNumber).join(", ");
+    const transcript = $("transcript");
+    transcript.replaceChildren();
+    if (c.messages.length === 0) transcript.appendChild(el("p", "hint", "No messages are stored for this conversation."));
+    for (const m of c.messages) {
+      const bubble = el("div", "msg " + m.type);
+      bubble.appendChild(el("span", "at", m.type.toLowerCase() + " · " + when(m.at)));
+      if (m.type === "ASSISTANT") renderMarkdown(bubble, m.content);
+      else bubble.appendChild(document.createTextNode(m.content));
+      transcript.appendChild(bubble);
+    }
+    $("conversation").hidden = false;
+    $("conversation").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  // The demo page's renderer, verbatim: bold, inline code and hyphen lists, built as DOM
+  // nodes. No links on purpose -- [text](javascript:...) is the one markdown construct that
+  // does something rather than looks like something, and the text was written by a model.
+  function renderMarkdown(target, text) {
+    target.classList.add("rendered");
+    for (const block of (text || "").split(/\n{2,}/)) {
+      if (!block.trim()) continue;
+      const lines = block.split("\n");
+      if (lines.every(l => /^\s*[-*]\s+/.test(l))) {
+        const ul = document.createElement("ul");
+        for (const line of lines) {
+          const li = document.createElement("li");
+          inline(li, line.replace(/^\s*[-*]\s+/, ""));
+          ul.appendChild(li);
+        }
+        target.appendChild(ul);
+      } else {
+        const para = document.createElement("p");
+        inline(para, lines.join("\n"));
+        target.appendChild(para);
+      }
+    }
+  }
+  function inline(parent, text) {
+    for (const [i, part] of text.split(/\*\*/).entries()) {
+      if (i % 2 === 1) {
+        const strong = document.createElement("strong");
+        code(strong, part);
+        parent.appendChild(strong);
+      } else {
+        code(parent, part);
+      }
+    }
+  }
+  function code(parent, text) {
+    for (const [i, part] of text.split(/`/).entries()) {
+      if (i % 2 === 1) {
+        const c = document.createElement("code");
+        c.textContent = part;
+        parent.appendChild(c);
+      } else if (part) {
+        parent.appendChild(document.createTextNode(part));
+      }
+    }
+  }
+
+  // --- staff (admins) -----------------------------------------------------------------------
   function renderStaff(accounts) {
-    const rows = document.getElementById("staff-rows");
+    const rows = $("staff-rows");
     rows.replaceChildren();
     for (const account of accounts) {
-      const tr = document.createElement("tr");
-      tr.appendChild(cell(account.username + (account.enabled ? "" : " (disabled)"), "mono"));
-      tr.appendChild(roleCell(account.role));
-      tr.appendChild(cell(new Date(account.createdAt).toLocaleString()));
-      tr.appendChild(cell(account.createdBy || ""));
+      const tr = el("tr");
+      tr.appendChild(el("td", "mono", account.username + (account.enabled ? "" : " (disabled)")));
+      const role = el("td"); role.appendChild(el("span", "badge", account.role)); tr.appendChild(role);
+      tr.appendChild(el("td", null, when(account.createdAt)));
+      tr.appendChild(el("td", null, account.createdBy || ""));
       rows.appendChild(tr);
     }
   }
@@ -140,15 +453,10 @@
     const response = await api("/staff");
     if (response.ok) renderStaff(await response.json());
   }
-  document.getElementById("logout").addEventListener("submit", () => {
-    document.getElementById("logout-csrf").value = csrfToken();
-  });
-  document.getElementById("create").addEventListener("submit", async (event) => {
+  $("logout").addEventListener("submit", () => { $("logout-csrf").value = csrfToken(); });
+  $("create").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.target;
-    const status = document.getElementById("create-status");
-    status.className = "status";
-    status.textContent = "";
     const body = {
       username: form.elements.username.value,
       password: form.elements.password.value,
@@ -157,19 +465,19 @@
     const response = await api("/staff", { method: "POST", body });
     if (response.status === 201) {
       form.reset();
-      status.textContent = "Created " + body.username + ".";
+      setStatus("create-status", "Created " + body.username + ".");
       await loadStaff();
     } else {
-      const problem = await response.json().catch(() => ({}));
-      status.className = "status err";
-      status.textContent = problem.error || ("Could not create the account (" + response.status + ").");
+      setStatus("create-status", await problem(response), true);
     }
   });
+
   (async () => {
-    const me = await (await api("/me")).json();
-    document.getElementById("who").textContent = me.username + " · " + me.role;
+    me = await (await api("/me")).json();
+    $("who").textContent = me.username + " · " + me.role;
+    await loadTickets();
     if (me.role === "admin") {
-      document.getElementById("staff").hidden = false;
+      $("staff").hidden = false;
       await loadStaff();
     }
   })();
