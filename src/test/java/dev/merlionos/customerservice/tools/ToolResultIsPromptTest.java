@@ -8,7 +8,10 @@ import dev.merlionos.customerservice.ticket.api.TicketResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -127,6 +130,65 @@ class ToolResultIsPromptTest {
                 .contains("2026-09-03")
                 .doesNotContain("[2026,9,3]")
                 .doesNotContain("[2026,9,3]".replace(",", ", "));
+    }
+
+    // -- every leaf, not the ones I thought of ----------------------------------------
+
+    @ParameterizedTest
+    @MethodSource("everythingATheToolCanReturn")
+    @DisplayName("every leaf a tool writes is readable as text")
+    void everyLeafIsReadable(String what, Object result) throws Exception {
+        // The assertions above name the fields I happened to think of, and that is exactly
+        // how the Instant nearly slipped past: the first version of this file checked the
+        // ticket result for its status and nothing else. This walks the whole tree instead,
+        // so a field added later that serialises as an ordinal or an array fails here without
+        // anyone remembering to assert on it.
+        //
+        // Taken from the .NET implementation, which arrived at the same guard from the other
+        // side of the same bug.
+        JsonNode root = new ObjectMapper().readTree(asTheModelSeesIt(result));
+        walk(what, "", root);
+    }
+
+    private static void walk(String what, String path, JsonNode node) {
+        if (node.isObject()) {
+            node.properties().forEach(e -> walk(what, path + "/" + e.getKey(), e.getValue()));
+            return;
+        }
+        if (node.isArray()) {
+            // No leaf here is legitimately a list. `[2026,9,3]` is what a LocalDate looks
+            // like without a time module, and it is indistinguishable from data.
+            throw new AssertionError(what + path + " reaches the model as an array: " + node);
+        }
+        assertThat(node.isTextual() || node.isBoolean() || node.isNull())
+                .as("%s%s reaches the model as %s (%s) -- the model reads text, and a value it "
+                    + "has to decode is a value it may decode wrongly and tell a customer",
+                    what, path, node.getNodeType(), node)
+                .isTrue();
+
+        String field = path.substring(path.lastIndexOf('/') + 1);
+        if (node.isTextual() && field.matches(".*(On|At|Delivery)$")) {
+            assertThat(node.asText())
+                    .as("%s%s is a date field and is not ISO-8601", what, path)
+                    .matches("\\d{4}-\\d{2}-\\d{2}([T ].*)?");
+        }
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> everythingATheToolCanReturn() {
+        ToolResultIsPromptTest t = new ToolResultIsPromptTest();
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of("order-found",
+                        OrderLookupResult.found(t.order())),
+                org.junit.jupiter.params.provider.Arguments.of("order-missing",
+                        OrderLookupResult.notFound("No order ORD-99999 was found.")),
+                org.junit.jupiter.params.provider.Arguments.of("ticket-created",
+                        TicketResult.created(t.ticket())),
+                org.junit.jupiter.params.provider.Arguments.of("ticket-existing",
+                        TicketResult.existing(t.ticket())),
+                org.junit.jupiter.params.provider.Arguments.of("ticket-refused",
+                        TicketResult.refused("there are already three open tickets")),
+                org.junit.jupiter.params.provider.Arguments.of("ticket-unavailable",
+                        TicketResult.unavailable()));
     }
 
     // -- the sentences a customer may see verbatim -------------------------------------
