@@ -313,7 +313,7 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 
 ## 同一个系统的 Go 实现
 
-[**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go)
+[**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md)（中文版）
 是同一个系统，作为**对照**而非移植来构建——同一份语料、同一套基准参数、同样的 provider，
 两个仓库之间刻意不共享任何东西。
 
@@ -373,7 +373,7 @@ advisor 顺序、工具的 context 不能为空、哪个嵌入重载会加 `quer
 ```
 
 本仓库是一对中的一个。Go 实现在
-[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go)；
+[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md)（中文版，[English](https://github.com/lai3d/ai-customer-service-go)）；
 两者之间刻意不共享任何东西，各自遵循自己生态的惯例。
 
 ---
