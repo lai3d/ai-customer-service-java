@@ -194,6 +194,7 @@ $EDITOR .env               # 设置 ANTHROPIC_API_KEY
 docker compose up -d       # 先 Postgres，等它健康后再起应用
 curl -s localhost:8080/actuator/health | jq
 open http://localhost:8080         # 演示界面
+COMPOSE_PROFILES=observability docker compose up -d   # 加上 Tempo、Prometheus、Loki、Alloy、Grafana
 open http://localhost:3000         # Grafana：dashboard，以及每一轮对话的 trace 和日志
 ```
 

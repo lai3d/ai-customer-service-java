@@ -8,10 +8,15 @@ vocabulary; the counters this repository adds fill the gaps Spring AI leaves and
 below.
 
 ```
-docker compose up -d
+COMPOSE_PROFILES=observability docker compose up -d   # or put the line in .env
 open http://localhost:3000        # Grafana: two dashboards, Explore for traces and logs
 open http://localhost:9090        # Prometheus: targets, rules, raw queries
 ```
+
+The stack is a Compose profile, not the default: `docker compose up` alone is Postgres and
+the application, which is everything the service needs to run. The five containers are
+what you add to look at it. The application's trace export follows the same variable, so a
+plain `docker compose up` never exports into a Tempo that is not there.
 
 ---
 

@@ -3,9 +3,13 @@
 # 1. Full stack -- Postgres + the application, one command:
 #
 #      export ANTHROPIC_API_KEY=sk-ant-...   # or put it in .env (git-ignored)
-#      docker compose up --build
+#      docker compose up --build             # Postgres and the app, nothing else
 #      curl localhost:8080/actuator/health
-#      open http://localhost:3000            # Grafana: dashboards, traces (Tempo), logs (Loki)
+#
+#    With the Grafana stack (Tempo, Prometheus, Loki, Alloy, Grafana), five more containers:
+#
+#      COMPOSE_PROFILES=observability docker compose up --build   # or put the line in .env
+#      open http://localhost:3000            # Grafana: dashboards, traces, logs
 #
 # 2. Dependencies only -- run the app yourself from an IDE or ./mvnw spring-boot:run:
 #
@@ -50,8 +54,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      tempo:
-        condition: service_started
     environment:
       # Name-only entry: the value is taken from the shell environment or .env at run
       # time and is never written into this file. Compose renders it as unset (not empty)
@@ -71,11 +73,11 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-csagent}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-csagent}
 
-      # Container-specific: the app exports to Tempo over the compose network, and tracing is
-      # on here because `docker compose up` brings Tempo up with it. Running the app directly
-      # leaves export off so the log is not filled with failures against nothing. The Collector
-      # profile overrides the endpoint from .env; see otel-collector below.
-      - OTLP_TRACING_EXPORT_ENABLED=true
+      # Trace export follows the profile: on when COMPOSE_PROFILES is set (which is how the
+      # Grafana stack is enabled), off otherwise, so the app never exports into a Tempo that
+      # is not running and fills its log with failures. The Collector profile overrides the
+      # endpoint from .env; see otel-collector below.
+      - OTLP_TRACING_EXPORT_ENABLED=${COMPOSE_PROFILES:+true}
       - OTLP_TRACING_ENDPOINT=${OTLP_TRACING_ENDPOINT:-http://tempo:4318/v1/traces}
       - OTLP_METRICS_EXPORT_ENABLED
       - OTLP_METRICS_ENDPOINT=${OTLP_METRICS_ENDPOINT:-http://otel-collector:4318/v1/metrics}
@@ -130,12 +132,17 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # --- The Grafana stack ---------------------------------------------------------------------
-  # Tempo for traces (OTLP in, TraceQL out, and span-derived metrics pushed to Prometheus),
-  # Prometheus pulling /actuator/prometheus, Loki for logs with Alloy tailing the containers,
-  # Grafana provisioned with the three datasources, their cross-links and the dashboards in
-  # observability/grafana/dashboards. See docs/observability.md.
+  # --- The Grafana stack, optional ---------------------------------------------------------
+  # Behind the `observability` profile: `docker compose up` alone is Postgres and the app,
+  # which is all the service needs; `COMPOSE_PROFILES=observability docker compose up` (or
+  # the line in .env) adds Tempo for traces (OTLP in, TraceQL out, span-derived metrics pushed
+  # to Prometheus), Prometheus pulling /actuator/prometheus, Loki for logs with Alloy tailing
+  # the containers, and Grafana provisioned with the three datasources, their cross-links and
+  # the dashboards in observability/grafana/dashboards. The app's trace export switches on
+  # with the same variable, so nothing exports into a backend that is not running. See
+  # docs/observability.md.
   tempo:
+    profiles: ["observability"]
     image: grafana/tempo:2.9.0
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
@@ -146,6 +153,7 @@ services:
     restart: unless-stopped
 
   prometheus:
+    profiles: ["observability"]
     image: prom/prometheus:v3.6.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -163,6 +171,7 @@ services:
     restart: unless-stopped
 
   loki:
+    profiles: ["observability"]
     image: grafana/loki:3.5.5
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
@@ -171,6 +180,7 @@ services:
     restart: unless-stopped
 
   alloy:
+    profiles: ["observability"]
     image: grafana/alloy:v1.11.0
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     volumes:
@@ -182,6 +192,7 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles: ["observability"]
     image: grafana/grafana:12.2.0
     environment:
       # A local stack with no login: anyone who can reach the port is an admin. Do not copy

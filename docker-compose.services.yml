@@ -3,6 +3,8 @@
 #   export INTERNAL_TOKEN=$(openssl rand -hex 16)   # or put it in .env (git-ignored)
 #   docker compose -f docker-compose.services.yml up --build --wait
 #   curl localhost:8080/actuator/health/readiness
+#   COMPOSE_PROFILES=observability docker compose -f docker-compose.services.yml up --build --wait
+#                                                    # the same, plus the Grafana stack
 #
 # `import` runs the knowledge role once (APP_RAG_IMPORT_MODE=once): migrates, embeds the
 # corpus, records the version, exits 0. `knowledge` waits for it to complete and then serves
@@ -33,7 +35,9 @@ x-common-env: &common-env
   POSTGRES_DB: ${POSTGRES_DB:-csagent}
   POSTGRES_USER: ${POSTGRES_USER:-csagent}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-csagent}
-  OTLP_TRACING_EXPORT_ENABLED: "true"
+  # On when COMPOSE_PROFILES is set, which is how the Grafana stack is enabled; see
+  # docker-compose.yml for the reasoning.
+  OTLP_TRACING_EXPORT_ENABLED: ${COMPOSE_PROFILES:+true}
   OTLP_TRACING_ENDPOINT: ${OTLP_TRACING_ENDPOINT:-http://tempo:4318/v1/traces}
   OTLP_METRICS_EXPORT_ENABLED:
   OTLP_METRICS_ENDPOINT: ${OTLP_METRICS_ENDPOINT:-http://otel-collector:4318/v1/metrics}
@@ -82,6 +86,7 @@ services:
   # Grafana provisioned with the three datasources, their cross-links and the dashboards in
   # observability/grafana/dashboards. See docs/observability.md.
   tempo:
+    profiles: ["observability"]
     image: grafana/tempo:2.9.0
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
@@ -92,6 +97,7 @@ services:
     restart: unless-stopped
 
   prometheus:
+    profiles: ["observability"]
     image: prom/prometheus:v3.6.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -109,6 +115,7 @@ services:
     restart: unless-stopped
 
   loki:
+    profiles: ["observability"]
     image: grafana/loki:3.5.5
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
@@ -117,6 +124,7 @@ services:
     restart: unless-stopped
 
   alloy:
+    profiles: ["observability"]
     image: grafana/alloy:v1.11.0
     command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     volumes:
@@ -128,6 +136,7 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles: ["observability"]
     image: grafana/grafana:12.2.0
     environment:
       # A local stack with no login: anyone who can reach the port is an admin. Do not copy
@@ -187,8 +196,6 @@ services:
         condition: service_healthy
       import:
         condition: service_completed_successfully
-      tempo:
-        condition: service_started
     environment:
       <<: *common-env
       APP_TARGET: knowledge
@@ -202,8 +209,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      tempo:
-        condition: service_started
     environment:
       <<: *common-env
       APP_TARGET: ticket
@@ -218,8 +223,6 @@ services:
         condition: service_healthy
       ticket:
         condition: service_healthy
-      tempo:
-        condition: service_started
     environment:
       <<: *common-env
       APP_TARGET: chat

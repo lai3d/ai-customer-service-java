@@ -261,9 +261,11 @@ against.
 cp .env.example .env
 $EDITOR .env               # set ANTHROPIC_API_KEY
 
-docker compose up -d       # Postgres, then the app once Postgres is healthy
+docker compose up -d       # Postgres, then the app once Postgres is healthy -- nothing else
 curl -s localhost:8080/actuator/health | jq
 open http://localhost:8080         # the demo UI
+
+COMPOSE_PROFILES=observability docker compose up -d   # adds Tempo, Prometheus, Loki, Alloy, Grafana
 open http://localhost:3000         # Grafana: dashboards, and the trace and logs of every turn
 ```
 
