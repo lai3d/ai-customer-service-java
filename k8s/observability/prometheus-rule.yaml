@@ -100,9 +100,27 @@ spec:
             summary: "Ticket creation fell back to 'unavailable' in the last 10 minutes"
             description: "Tickets promised to customers in this window were not written. Check the ticket role and its Postgres."
 
+        - alert: KnowledgeUnavailable
+          # The chat process could not reach the knowledge role, so the turn was refused with a
+          # 503 rather than answered without retrieval: an ungrounded answer is the one failure
+          # this system is built not to have. Every count here is a customer told to try again,
+          # and it is critical at one because the seam fails for every turn at once, not for
+          # some. Until this counter existed the event was a warn-level log line, which nothing
+          # pages on. Only a chat process can raise it; an `all` process holds the counter at 0.
+          expr: increase(chat_knowledge_unavailable_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Knowledge search failed over the seam in the last 5 minutes"
+            description: "Turns in this window were refused rather than answered ungrounded. Check the knowledge role, its readiness (corpus_documents) and the chat process's app.services.knowledge.url."
+
         - alert: ConversationConflicts
           # 409s are a client sending a second turn before the first finished. A trickle is a
           # retrying client; a rate is a client bug or two clients sharing a conversation id.
+          # chat_lease_conflicts_total is the direct counter, incremented where the lease refuses;
+          # this rule stays on the request timer because it also catches a refusal that never
+          # reached the handler, and the two agree unless something between them is broken.
           expr: sum(rate(http_server_requests_seconds_count{uri=~"/api/v1/chat.*", status="409"}[5m])) > 1
           for: 5m
           labels:

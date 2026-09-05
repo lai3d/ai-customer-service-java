@@ -612,8 +612,8 @@ data:
         {
           "id": 14,
           "type": "timeseries",
-          "title": "Budget refusals (429) and overlaps (409)",
-          "description": "",
+          "title": "Budget refusals (429), overlaps (409) and the lease's own count",
+          "description": "The 409 line is the request timer; the lease conflicts line is chat_lease_conflicts_total, incremented where the lease refuses. They agree unless a refusal never reached the handler.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -633,6 +633,16 @@ data:
               },
               "expr": "sum by (status) (rate(http_server_requests_seconds_count{uri=~\"/api/v1/chat.*\", role=~\"$role\", status=~\"409|429\"}[5m]))",
               "legendFormat": "{{status}}",
+              "exemplar": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(chat_lease_conflicts_total{role=~\"$role\"}[5m]))",
+              "legendFormat": "lease conflicts",
               "exemplar": true
             }
           ],
