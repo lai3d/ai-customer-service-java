@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * @param corpusLocation      where the FAQ corpus lives
- * @param ingestOnStartup     whether to load the corpus into the vector store at boot
+ * @param importMode          what to do about the corpus at startup; see {@link ImportMode}
  * @param topK                how many passages to retrieve per question
  * @param similarityThreshold minimum similarity for a passage to be used, 0 to 1. Too low
  *                            and unrelated passages get presented to the model as fact; too
@@ -16,7 +16,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("app.rag")
 public record RagProperties(
         String corpusLocation,
-        boolean ingestOnStartup,
+        ImportMode importMode,
         int topK,
         double similarityThreshold,
         String queryPrefix,

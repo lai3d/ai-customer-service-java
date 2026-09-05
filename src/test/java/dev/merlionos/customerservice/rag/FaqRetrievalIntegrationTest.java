@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Queries deliberately avoid the corpus wording, in both languages. Matching a question to
  * its own text proves nothing about a customer describing a problem in their own words.
  */
-@SpringBootTest(properties = "app.rag.ingest-on-startup=true")
+@SpringBootTest(properties = "app.rag.import-mode=startup")
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class FaqRetrievalIntegrationTest {

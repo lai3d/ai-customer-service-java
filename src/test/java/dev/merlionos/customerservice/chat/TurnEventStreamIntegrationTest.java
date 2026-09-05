@@ -34,7 +34,7 @@ import static org.mockito.BDDMockito.given;
  * regression here would not fail any other test; the stream would simply go quiet and the demo
  * UI would show empty panels.
  */
-@SpringBootTest(properties = "app.rag.ingest-on-startup=true")
+@SpringBootTest(properties = "app.rag.import-mode=startup")
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 class TurnEventStreamIntegrationTest {

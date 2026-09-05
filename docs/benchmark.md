@@ -16,6 +16,22 @@ measurement: the same real endpoint, the same load, the setting flipped.
 | platform | 6254 ms | 160 | 4037 ms | 6118 ms | 6174 ms | **202** | 246 |
 | virtual | 2000 ms | 500 | 1616 ms | 1955 ms | 1986 ms | **2** | 52 |
 
+**Re-measured on 2026-09-05, after ADR 001 phase 2** moved the ticket cap, the token budget and
+a one-turn-per-conversation lease into Postgres. Same machine, same load, same stub; the numbers
+above are kept as measured at the commit before that change, and these are the ones the current
+code produces:
+
+| threads | wall | req/s | p50 | p95 | p99 | Tomcat platform threads | all platform threads |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| platform | 6448 ms | 155 | 4114 ms | 6249 ms | 6309 ms | **202** | 248 |
+| virtual | 2220 ms | 450 | 1767 ms | 2157 ms | 2197 ms | **2** | 53 |
+
+About 10% on the virtual run and within noise on the platform one. Every request now takes a
+lease row and releases it, and records its spend with one `INSERT ... ON CONFLICT` -- three
+statements on a pool of 20 that a thousand concurrent requests already contended for. The
+thread columns did not move, which is the result the benchmark exists to defend. The 2.9x
+ratio stands.
+
 Three times the throughput, and the median customer waits 1.6 seconds instead of 4.0 for an
 operation that takes 1.0. But the thread column is the real result: with virtual threads the
 server holds a thousand in-flight requests on **two** platform threads — Tomcat's acceptor and

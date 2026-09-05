@@ -31,10 +31,29 @@ failure is not dramatic: no error, no alert, just a larger invoice. A conversati
 its token budget gets a `429` pointing at a human, which is the right outcome for a conversation
 that long anyway.
 
-Spend is held in a **bounded** LRU map, per replica, reset on restart. That is honest about what
-it is — blast-radius limiting, not a ledger; Redis or Postgres would be the real thing. The
-bound matters more than it looks: an unbounded map keyed by conversation id is a memory leak
-with a long fuse.
+Spend is a row per conversation in Postgres (`conversation_budget`), added to with one
+`INSERT ... ON CONFLICT DO UPDATE ... RETURNING` so two replicas recording the same conversation
+at once both add rather than one overwriting the other's read. It used to be a bounded LRU map,
+per replica and reset on restart — honest blast-radius limiting, not a ledger — and the supplied
+manifest's two replicas each gave a conversation its own allowance. Rows untouched for
+`app.cost.budget-retention` are swept hourly, because the map's bound was guarding against a
+real leak and a table keyed by conversation id has the same one.
+
+What the row still is not is an exact ledger, for a reason that has nothing to do with where it
+lives: usage arrives on the provider's final chunk, so a turn cancelled early is recorded as
+whatever had been reported by then, often nothing. Reserving an allowance up front and settling
+would close that; ADR 001 defers it until the estimate a reservation needs has been measured.
+
+**One turn per conversation at a time.** Two overlapping turns on one conversation used to
+cross-wire each other's SSE events; keying the event bus by turn fixed that and left the other
+half: both write a user message up front and an assistant message at the end, so the history
+comes out user, user, assistant, assistant and the next request sends that to the model. Now
+admission takes a lease (`conversation_lease`, one row per conversation, taken with a single
+insert-or-take-over statement so two replicas admitting at once admit exactly one) and the
+second request gets a `409` before anything is written. The lease expires after
+`app.chat.turn-lease`, longer than the HTTP read timeout, so a replica that dies mid-turn holds
+nothing forever and a slow but healthy turn cannot lose its own conversation;
+`ChatPropertiesTest` pins the ordering of the two timeouts.
 
 Tokens and dollars are metered by model and **never** by conversation id. Per-conversation tags
 would grow cardinality without limit and take the metrics backend down long before the bill did.
@@ -149,17 +168,22 @@ AI hands a thrown tool exception's message back to the model, and this project's
 replaces that with a fixed instruction to *offer a support ticket* — precisely the wrong thing
 to say when the problem is that too many tickets exist.
 
-Both guards run inside a single `compute` on the conversation's entry. Checking the count and
-then inserting is not the same as doing both atomically: two concurrent calls with different
-wording could each see two tickets and each add a third.
+Both guards run inside one transaction that first locks the conversation's row in
+`conversation_ticket_guard` with `FOR UPDATE`. Checking the count and then inserting is not the
+same as doing both atomically: two concurrent calls with different wording could each see two
+tickets and each add a third. A unique constraint on the deduplication key is the backstop for
+duplicates, but no constraint can express "at most three rows per conversation", which is why
+the guard row exists. `JdbcTicketOperationsTest` races twelve distinct requests from two
+instances over one database and reads the table afterwards: three rows, every time.
 
-**What the cap is not.** State lives in memory in one process, and the supplied Kubernetes
-manifest runs two replicas with no session affinity — so a conversation routed to the other
-replica gets its own dedupe table and its own allowance, an upper bound of `replicas × 3` rather
-than 3. These are mock tools. A real implementation would put the idempotency key in Postgres
-behind a unique constraint and do the capacity check in the same transaction as the insert. The
-cap demonstrates where the boundary belongs; it is not a distributed guarantee, and calling it
-one would be the kind of claim this repository is otherwise careful not to make.
+**What the cap used to not be.** Until the guard row, state lived in memory in one process,
+and the supplied Kubernetes manifest runs two replicas with no session affinity — so a
+conversation routed to the other replica got its own dedupe table and its own allowance, an
+upper bound of `replicas × 3` rather than 3. That was described here as a demonstration of
+where the boundary belongs rather than a distributed guarantee, and the Codex review of
+2026-09-04 flagged it as a P1 anyway. Once the ticket module was to become a service of its own
+(ADR 001), the boundary was the service's whole reason to exist, and the answer stopped being
+adequate. What is still a mock is the data: a ticket row here reaches no human queue.
 
 ### Deploys no longer cut answers in half
 

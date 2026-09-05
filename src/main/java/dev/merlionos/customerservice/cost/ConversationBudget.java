@@ -3,12 +3,13 @@ package dev.merlionos.customerservice.cost;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 
 /**
  * Caps what one conversation can spend, and records what everything spends.
@@ -19,11 +20,19 @@ import java.util.concurrent.atomic.AtomicLong;
  * error, no alert, just a larger invoice at the end of the month. Reaching the cap is treated
  * as a reason to fetch a human, which is the right outcome for a conversation that long anyway.
  *
- * <p>Spend is kept in memory in a bounded LRU map. That is honest about what it is: it resets
- * on restart and is per-replica, so it limits blast radius rather than enforcing an exact
- * ledger. A deployment that needs the real thing would keep this in Redis or in Postgres beside
- * the chat memory. The bound matters more than it looks -- an unbounded map keyed by
- * conversation id is a memory leak with a long fuse.
+ * <p>Spend is a row per conversation in {@code conversation_budget}, so every replica sees the
+ * same number and a restart forgets nothing. The predecessor was a bounded in-memory map,
+ * honest about limiting blast radius rather than keeping a ledger; two replicas behind one
+ * Service each gave a conversation its own allowance. The row is still not an exact ledger,
+ * for a reason that has nothing to do with where it lives: usage arrives on the provider's
+ * final chunk, so a turn cancelled early is recorded as whatever had been reported by then,
+ * often nothing. That is stated in docs/reliability.md rather than papered over with an
+ * estimate; reserving an allowance up front is deferred in ADR 001 until an estimate has
+ * been measured.
+ *
+ * <p>Rows untouched for {@code app.cost.budget-retention} are swept on a schedule. A table
+ * keyed by conversation id otherwise grows without bound -- the same leak the old map was
+ * bounded against.
  *
  * <p>Metrics are tagged by model, never by conversation id. Per-conversation tags would make
  * cardinality grow without limit and take the metrics backend down long before the bill did.
@@ -39,20 +48,12 @@ public class ConversationBudget {
 
     private final CostProperties properties;
     private final MeterRegistry meterRegistry;
-    private final Map<String, AtomicLong> spentByConversation;
+    private final JdbcTemplate jdbc;
 
-    ConversationBudget(CostProperties properties, MeterRegistry meterRegistry) {
+    ConversationBudget(CostProperties properties, MeterRegistry meterRegistry, JdbcTemplate jdbc) {
         this.properties = properties;
         this.meterRegistry = meterRegistry;
-
-        int capacity = Math.max(1, properties.trackedConversations());
-        this.spentByConversation = Collections.synchronizedMap(
-                new LinkedHashMap<>(16, 0.75f, true) {
-                    @Override
-                    protected boolean removeEldestEntry(Map.Entry<String, AtomicLong> eldest) {
-                        return size() > capacity;
-                    }
-                });
+        this.jdbc = jdbc;
     }
 
     /**
@@ -70,8 +71,9 @@ public class ConversationBudget {
     }
 
     public long spent(String conversationId) {
-        AtomicLong counter = spentByConversation.get(conversationId);
-        return counter == null ? 0L : counter.get();
+        return jdbc.query("SELECT tokens_spent FROM conversation_budget WHERE conversation_id = ?",
+                        (rs, i) -> rs.getLong(1), conversationId)
+                .stream().findFirst().orElse(0L);
     }
 
     /**
@@ -86,9 +88,16 @@ public class ConversationBudget {
             return;
         }
 
-        long total = spentByConversation
-                .computeIfAbsent(conversationId, key -> new AtomicLong())
-                .addAndGet(input + output);
+        // One statement, so two replicas recording for the same conversation at once both add
+        // rather than one overwriting the other's read.
+        long total = jdbc.queryForObject("""
+                INSERT INTO conversation_budget (conversation_id, tokens_spent, last_seen)
+                VALUES (?, ?, ?)
+                ON CONFLICT (conversation_id) DO UPDATE
+                    SET tokens_spent = conversation_budget.tokens_spent + EXCLUDED.tokens_spent,
+                        last_seen = EXCLUDED.last_seen
+                RETURNING tokens_spent
+                """, Long.class, conversationId, input + output, Timestamp.from(Instant.now()));
 
         meterRegistry.counter("chat.tokens", "model", model, "type", "input").increment(input);
         meterRegistry.counter("chat.tokens", "model", model, "type", "output").increment(output);
@@ -114,5 +123,17 @@ public class ConversationBudget {
             log.info("Conversation {} reached its token budget ({} of {})",
                     conversationId, total, properties.conversationTokenBudget());
         }
+    }
+
+    /** Sweeps rows older than the retention. Returns how many went, for tests and logs. */
+    @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT1H")
+    public int sweep() {
+        Duration retention = properties.budgetRetention() == null ? Duration.ofDays(30) : properties.budgetRetention();
+        int swept = jdbc.update("DELETE FROM conversation_budget WHERE last_seen < ?",
+                Timestamp.from(Instant.now().minus(retention)));
+        if (swept > 0) {
+            log.info("Swept {} conversation budget rows untouched for {}", swept, retention);
+        }
+        return swept;
     }
 }

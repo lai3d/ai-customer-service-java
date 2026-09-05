@@ -9,6 +9,6 @@ spring:
 
 app:
   rag:
-    # Off by default so unrelated tests do not pay for embedding the corpus.
-    # FaqRetrievalIntegrationTest turns it back on.
-    ingest-on-startup: false
+    # Off by default so unrelated tests do not pay for embedding the corpus. Tests that need
+    # the corpus set app.rag.import-mode=startup; readiness is DOWN in every other context.
+    import-mode: off

@@ -3,7 +3,6 @@ package dev.merlionos.customerservice.tools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.merlionos.customerservice.chat.TurnEventBus;
-import dev.merlionos.customerservice.ticket.LocalTicketOperations;
 import dev.merlionos.customerservice.orders.MockOrderRepository;
 import dev.merlionos.customerservice.orders.LocalOrderLookup;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,7 +30,7 @@ class ToolDefinitionTest {
 
     private final Map<String, ToolCallback> callbacks = Arrays.stream(ToolCallbacks.from(
                     new OrderTools(new LocalOrderLookup(new MockOrderRepository()), new SimpleMeterRegistry(), new TurnEventBus()),
-                    new SupportTicketTools(new LocalTicketOperations(), new SimpleMeterRegistry(), new TurnEventBus())))
+                    new SupportTicketTools(new FakeTicketOperations(), new SimpleMeterRegistry(), new TurnEventBus())))
             .collect(Collectors.toMap(callback -> callback.getToolDefinition().name(), Function.identity()));
 
     private final ObjectMapper objectMapper = new ObjectMapper();

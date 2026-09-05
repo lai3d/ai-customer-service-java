@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.ImportMode;
 import dev.merlionos.customerservice.rag.api.RagProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +36,7 @@ class FaqIngestionOrderTest {
         RecordingVectorStore store = new RecordingVectorStore();
         FaqIngestionService service = new FaqIngestionService(store, new DefaultResourceLoader(),
                 new ObjectMapper(),
-                new RagProperties("classpath:/faq/faq.json", false, 4, 0.5, "query: ", "passage: "));
+                new RagProperties("classpath:/faq/faq.json", ImportMode.OFF, 4, 0.5, "query: ", "passage: "));
 
         int written = service.ingest();
 
@@ -51,7 +52,7 @@ class FaqIngestionOrderTest {
         RecordingVectorStore store = new RecordingVectorStore();
         FaqIngestionService service = new FaqIngestionService(store, new DefaultResourceLoader(),
                 new ObjectMapper(),
-                new RagProperties("classpath:/faq/faq.json", false, 4, 0.5, "query: ", "passage: "));
+                new RagProperties("classpath:/faq/faq.json", ImportMode.OFF, 4, 0.5, "query: ", "passage: "));
 
         service.ingest();
 

@@ -14,7 +14,9 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        // Health now includes the corpus indicator; with nothing imported it is DOWN, correctly.
+        properties = "app.rag.import-mode=startup")
 @AutoConfigureObservability
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")

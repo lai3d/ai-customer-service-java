@@ -126,7 +126,30 @@ string in front of a customer; `ToolExecutionExceptionProcessor` in `ChatClientC
 whatever still throws. `ConversationBudget` caps tokens per conversation and meters spend **by
 model, never by conversation id** — per-conversation tags are unbounded cardinality.
 
+Shared state lives in Postgres, never in a process: ticket dedupe and cap (`support_ticket`,
+guarded by a `FOR UPDATE` on `conversation_ticket_guard`), spend (`conversation_budget`), one
+turn per conversation (`conversation_lease`, overlap is `409`), and which corpus versions are
+imported (`corpus_import`, which readiness reads). The classes whose whole job is those rows
+are tested against a real Postgres with no Spring context (`MigratedPostgres`), and the
+concurrency cases use two instances over one database, which is what two replicas are as far
+as the database is concerned.
+
 ## Constraints that fail silently
+
+- **Flyway owns the schema** (`db/migration`). Spring AI's `initialize-schema` for pgvector and
+  JDBC chat memory must stay off; on, they race the migration. V1 recreates their tables
+  `IF NOT EXISTS` and `baseline-on-migrate` adopts a database they already populated.
+  `SchemaInitializationLock` now wraps beans that issue no DDL; it is dead code until the
+  Kubernetes harness that proves it is re-run, and goes then.
+- **`app.chat.turn-lease` must exceed `spring.http.client.read-timeout`**, or a slow but
+  healthy turn loses its conversation to the next request. `ChatPropertiesTest` reads both
+  defaults from `application.yml`.
+- **`java.time.Instant` cannot be bound as a JDBC parameter** by the Postgres driver; pass
+  `Timestamp.from(instant)`. The first import wrote its status row that way and failed every
+  startup.
+- **Readiness includes the `corpus` indicator.** A context with `app.rag.import-mode=off` and
+  an empty database reports readiness (and `/actuator/health`) DOWN, correctly. Tests that
+  assert health is UP need `import-mode=startup`.
 
 - **Never set `temperature`, `top_p` or `top_k`.** Every provider's current model rejects the
   value Spring AI seeds: Claude Opus 5 returns HTTP 400 for any of them, GPT-5 accepts only its

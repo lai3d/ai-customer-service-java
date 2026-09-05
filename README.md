@@ -273,6 +273,7 @@ data: shipped on Monday.
 | Failure | Response |
 | --- | --- |
 | Blank or oversized message | `400` before any model call |
+| A turn already in flight on this conversation | `409` with a `ProblemDetail` body — retry once it has finished |
 | Rate limited or provider overloaded | `503` with a `ProblemDetail` body — retry is worthwhile |
 | Bad credentials, rejected request | `502` with a `ProblemDetail` body — retry is not |
 | Failure after streaming began | `200`, terminated by an `error` event |
@@ -344,10 +345,14 @@ production path. Go's rows were measured there; the Java rows are [this reposito
 | | duration | throughput | p50 | OS threads |
 |---|---|---|---|---|
 | Java, platform threads | 6254 ms | 160 req/s | 4037 ms | 246 |
-| Java, virtual threads | 2000 ms | 500 req/s | 1616 ms | 52 |
+| Java, virtual threads | 2220 ms | 450 req/s | 1767 ms | 53 |
 | Go, goroutines | 1667 ms | 600 req/s | 1648 ms | 135 |
 
-Go is about 20% faster with a much flatter tail — p50 to p99 inside 17 ms, against 370 ms here —
+The Java rows are the current code: about 10% slower on the virtual run than
+[first measured](docs/benchmark.md), since every request now takes a conversation lease and
+records its spend in Postgres rather than in a map. Both sets of numbers are kept there.
+
+Go is about 25% faster with a much flatter tail — p50 to p99 inside 17 ms, against 430 ms here —
 and spends several times the OS threads to get it, because a goroutine inside a cgo call blocks
 its thread and the scheduler responds by making another. The JVM avoids that with the same ONNX
 model by bounding the carrier pool at the core count: it wins that one by being **less** clever,

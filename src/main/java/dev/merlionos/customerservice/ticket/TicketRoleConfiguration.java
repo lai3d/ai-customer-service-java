@@ -5,6 +5,8 @@ import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 /**
  * The ticket role: present in {@code all} and {@code ticket} processes, absent from the
@@ -15,7 +17,7 @@ import org.springframework.context.annotation.Configuration;
 public class TicketRoleConfiguration {
 
     @Bean
-    TicketOperations ticketOperations() {
-        return new LocalTicketOperations();
+    TicketOperations ticketOperations(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
+        return new JdbcTicketOperations(jdbcTemplate, transactionManager);
     }
 }
