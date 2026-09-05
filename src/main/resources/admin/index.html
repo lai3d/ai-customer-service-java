@@ -207,6 +207,31 @@
     <div id="turns"></div>
   </section>
 
+  <section id="feedback">
+    <h2>Answer feedback</h2>
+    <form class="row" id="fb-filters">
+      <label>State
+        <select name="state">
+          <option value="open" selected>open</option>
+          <option value="handled">handled</option>
+          <option value="dismissed">dismissed</option>
+          <option value="">any</option>
+        </select>
+      </label>
+      <button type="submit" class="primary">Show</button>
+    </form>
+    <table>
+      <thead><tr><th>#</th><th>Issue</th><th>Note</th><th>Conversation</th><th>Reported</th><th>State</th><th></th></tr></thead>
+      <tbody id="fb-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button type="button" id="fb-prev">‹</button>
+      <span id="fb-page-info">–</span>
+      <button type="button" id="fb-next">›</button>
+    </div>
+    <div class="status" id="fb-status"></div>
+  </section>
+
   <section id="staff" hidden>
     <h2>Staff accounts</h2>
     <p class="hint">Admins manage accounts; support staff handle tickets and see the conversations behind them. Usernames are lower case; passwords are at least 12 characters.</p>
@@ -483,6 +508,7 @@
 
   // --- conversations, from the turn record -------------------------------------------------
   let convQuery = { page: 0, size: 25 };
+  let currentFeedback = [];
   function localToIso(value) { return value ? new Date(value).toISOString() : ""; }
   async function loadConversations() {
     const params = new URLSearchParams();
@@ -525,6 +551,7 @@
     const response = await api("/conversations/" + encodeURIComponent(id));
     if (!response.ok) { setStatus("conv-status", await problem(response), true); return; }
     const c = await response.json();
+    currentFeedback = c.feedback || [];
     $("cd-id").textContent = c.conversationId;
     $("cd-notice").textContent = "Opening this conversation was recorded against your account. " + c.notPersisted;
     $("cd-tickets").textContent = c.tickets.length === 0 ? "No tickets in this conversation."
@@ -580,8 +607,95 @@
     box.appendChild(el("h4", null, "Tools (" + t.toolCalls.length + ")"));
     if (t.toolCalls.length === 0) box.appendChild(el("p", "hint", "None."));
     for (const call of t.toolCalls) box.appendChild(el("div", "mono", call.tool + " → " + call.outcome + "  " + when(call.at)));
+    box.appendChild(el("h4", null, "Feedback"));
+    const flags = (currentFeedback || []).filter((f) => f.turnId === t.turnId);
+    for (const f of flags) {
+      const line = el("div", null, "#" + f.id + " " + f.issue + (f.note ? ": " + f.note : "") + " — " + f.reportedBy + ", " + when(f.reportedAt) + " · " + f.state
+          + (f.conclusion ? " (" + f.conclusion + ")" : ""));
+      box.appendChild(line);
+    }
+    if (t.outcome !== "running") {
+      const form = el("form", "row");
+      const issue = el("select");
+      for (const value of ["incorrect", "incomplete", "unhelpful", "other"]) {
+        const option = el("option", null, value); option.value = value; issue.appendChild(option);
+      }
+      const issueLabel = el("label", null, "Flag this answer as "); issueLabel.appendChild(issue);
+      const note = el("input"); note.placeholder = "what is wrong (optional)"; note.autocomplete = "off"; note.size = 40;
+      const noteLabel = el("label", null, "Note "); noteLabel.appendChild(note);
+      const submit = el("button", null, "Flag"); submit.type = "submit";
+      form.appendChild(issueLabel); form.appendChild(noteLabel); form.appendChild(submit);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await api("/feedback", { method: "POST", body: { turnId: t.turnId, issue: issue.value, note: note.value } });
+        if (response.status === 201) { await openConversation(t.conversationId); await loadFeedback(); }
+        else setStatus("conv-status", await problem(response), true);
+      });
+      box.appendChild(form);
+    }
     return box;
   }
+
+  // --- answer feedback ----------------------------------------------------------------------
+  let fbQuery = { page: 0, size: 25, state: "open" };
+  async function loadFeedback() {
+    const params = new URLSearchParams();
+    if (fbQuery.state) params.set("state", fbQuery.state);
+    params.set("page", fbQuery.page);
+    params.set("size", fbQuery.size);
+    const response = await api("/feedback?" + params.toString());
+    if (!response.ok) { setStatus("fb-status", await problem(response), true); return; }
+    const page = await response.json();
+    const rows = $("fb-rows");
+    rows.replaceChildren();
+    for (const f of page.reports) {
+      const tr = el("tr");
+      tr.appendChild(el("td", null, "#" + f.id));
+      tr.appendChild(el("td", null, f.issue));
+      tr.appendChild(el("td", null, f.note || ""));
+      const conv = el("td");
+      const open = el("button", null, "Open"); open.type = "button";
+      open.addEventListener("click", () => openConversation(f.conversationId));
+      conv.appendChild(open);
+      tr.appendChild(conv);
+      tr.appendChild(el("td", null, f.reportedBy + ", " + when(f.reportedAt)));
+      const st = el("td"); st.appendChild(badge(f.state));
+      if (f.conclusion) st.appendChild(el("div", "hint", f.conclusion + (f.handledBy ? " — " + f.handledBy : "")));
+      tr.appendChild(st);
+      const actions = el("td");
+      if (f.state === "open") {
+        const handle = el("button", "primary", "Handle…"); handle.type = "button";
+        handle.addEventListener("click", () => closeFeedback(f, "handled", "What was done about this answer? (required)"));
+        const dismiss = el("button", null, "Dismiss…"); dismiss.type = "button";
+        dismiss.addEventListener("click", () => closeFeedback(f, "dismissed", "Why is no change needed? (optional)"));
+        actions.appendChild(handle); actions.appendChild(document.createTextNode(" ")); actions.appendChild(dismiss);
+      }
+      tr.appendChild(actions);
+      rows.appendChild(tr);
+    }
+    const first = page.total === 0 ? 0 : page.page * page.size + 1;
+    const last = Math.min(page.total, (page.page + 1) * page.size);
+    $("fb-page-info").textContent = page.total === 0 ? "nothing flagged" : first + "–" + last + " of " + page.total;
+    $("fb-prev").disabled = page.page === 0;
+    $("fb-next").disabled = last >= page.total;
+    setStatus("fb-status", "");
+  }
+  async function closeFeedback(f, state, promptText) {
+    const conclusion = window.prompt(promptText);
+    if (conclusion === null) return;
+    const response = await api("/feedback/" + f.id + "/handle", { method: "POST", body: { state, conclusion, expectedVersion: f.version } });
+    if (response.ok) { await loadFeedback(); return; }
+    const message = await problem(response);
+    setStatus("fb-status", message + (response.status === 409 ? " Reloaded." : ""), true);
+    if (response.status === 409) await loadFeedback();
+  }
+  $("fb-filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    fbQuery = { page: 0, size: 25, state: event.target.elements.state.value };
+    loadFeedback();
+  });
+  $("fb-prev").addEventListener("click", () => { fbQuery.page = Math.max(0, fbQuery.page - 1); loadFeedback(); });
+  $("fb-next").addEventListener("click", () => { fbQuery.page += 1; loadFeedback(); });
 
   // --- staff (admins) -----------------------------------------------------------------------
   function renderStaff(accounts) {
@@ -624,6 +738,7 @@
     $("who").textContent = me.username + " · " + me.role;
     await loadTickets();
     await loadConversations();
+    await loadFeedback();
     if (me.role === "admin") {
       $("staff").hidden = false;
       await loadStaff();

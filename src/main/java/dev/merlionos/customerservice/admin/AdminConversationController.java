@@ -30,11 +30,13 @@ class AdminConversationController {
 
     private final TurnRecords records;
     private final TicketOperations tickets;
+    private final AnswerFeedback feedback;
     private final AdminAudit audit;
 
-    AdminConversationController(TurnRecords records, TicketOperations tickets, AdminAudit audit) {
+    AdminConversationController(TurnRecords records, TicketOperations tickets, AnswerFeedback feedback, AdminAudit audit) {
         this.records = records;
         this.tickets = tickets;
+        this.feedback = feedback;
         this.audit = audit;
     }
 
@@ -51,7 +53,7 @@ class AdminConversationController {
 
     /** @param notPersisted what the record does not hold, so the turns are not read as everything */
     record ConversationDetail(String conversationId, List<TurnRecords.Turn> turns, List<SupportTicket> tickets,
-                              String notPersisted) {
+                              List<AnswerFeedback.Report> feedback, String notPersisted) {
     }
 
     static final String NOT_PERSISTED = "Turns are recorded from the moment this record existed; earlier "
@@ -65,7 +67,8 @@ class AdminConversationController {
         }
         audit.record(authentication.getName(), AdminAudit.Action.VIEWED_CONVERSATION, conversationId,
                 "from conversations");
-        return new ConversationDetail(conversationId, turns, tickets.ticketsFor(conversationId), NOT_PERSISTED);
+        return new ConversationDetail(conversationId, turns, tickets.ticketsFor(conversationId),
+                feedback.forConversation(conversationId), NOT_PERSISTED);
     }
 
     static class NoSuchConversation extends RuntimeException {
