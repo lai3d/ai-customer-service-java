@@ -260,7 +260,10 @@ than a one-off download into a cache that then persists.
 
 ## Kubernetes
 
-Manifests and apply instructions: [`k8s/README.md`](../k8s/README.md).
+Manifests and apply instructions: [`k8s/README.md`](../k8s/README.md). They are verified on
+a throwaway kind cluster by [`k8s/kind/verify.sh`](../k8s/kind/verify.sh), which applies them
+unmodified and asserts eleven things about the running pods — that script exists because the
+manifests were committed without ever being applied anywhere, and two of them were wrong.
 
 ```sh
 kubectl apply -f k8s/namespace.yaml
@@ -275,9 +278,10 @@ kubectl -n ai-customer-service rollout status deploy/ai-customer-service
 ```
 
 Edit the image reference in `deployment.yaml` and the Postgres coordinates in
-`configmap.yaml` first. `k8s/secret.example.yaml` is a template with placeholder values
-only — do not apply it, and do not fill it in and commit it (`k8s/secret.yaml` is
-git-ignored for the copy).
+`configmap.yaml` first. `k8s/examples/secret.yaml` is a template with placeholder
+values only — do not apply it, and do not fill it in and commit it (`k8s/secret.yaml` is
+git-ignored for the copy). It sits in `examples/` so that `kubectl apply -f k8s/` cannot
+reach it; that directory apply used to overwrite a working Secret with placeholders.
 
 Highlights:
 

@@ -58,20 +58,39 @@ spec:
             - secretRef:
                 name: ai-customer-service-secrets
           resources:
-            # The JVM sizes its heap from the *limit* via -XX:MaxRAMPercentage=70 in the
-            # image, so 2Gi here means ~1.4Gi of heap and ~600Mi left for everything
-            # native. That headroom is not generous padding -- this app loads a 90 MB
-            # ONNX model and an onnxruntime session outside the heap. Lower the limit
-            # and you will OOM-kill in the embedding path, not in Java.
+            # These numbers are measured on a kind cluster, not reasoned about. An
+            # earlier version of this file said 2Gi with a paragraph explaining that the
+            # ONNX session lives outside the heap and needs the ~600Mi that a 2Gi limit
+            # leaves. The reasoning was right and the number was wrong: at 2Gi the pod is
+            # OOMKilled during startup, in the embedding path, exactly as predicted.
+            #
+            #   limit     outcome        peak RSS
+            #   2Gi       OOMKilled      --
+            #   2560Mi    OOMKilled      --
+            #   3Gi       started        2.82 GiB   (94% of the limit)
+            #   3584Mi    started        2.83 GiB   (81%)
+            #   4Gi       started        2.80 GiB   (70%)
+            #
+            # Peak plateaus at ~2.8 GiB once the limit is 3Gi or more, so 2.8 GiB is the
+            # real requirement and 4Gi is that plus room for a heap dump and traffic.
+            # It is a startup peak: steady state is 1.65 GiB.
+            #
+            # Lowering -XX:InitialRAMPercentage does not help -- tested at 10, still
+            # OOMKilled at 2Gi. The footprint is native, not JVM pre-commit: heap in use
+            # is 0.13 GiB. Do not try to buy this back by shrinking the heap.
             requests:
               cpu: "500m"
-              memory: "1Gi"
+              # The request covers the *startup peak*, not the steady state. A request
+              # sized to steady state schedules the pod onto a node that cannot satisfy
+              # the spike, and the spike is during boot -- so it does not degrade, it
+              # crash-loops.
+              memory: "3Gi"
             limits:
               # No CPU limit on purpose: startup is CPU-hungry (JIT plus the ONNX session
               # plus ingesting 18 documents) and throttling it just makes the startup
               # probe flap. The request reserves the floor; add a limit only if you have
               # a noisy-neighbour problem you can actually point at.
-              memory: "2Gi"
+              memory: "4Gi"
           # Startup is slow and variable: Spring context, ONNX session, pgvector schema
           # creation, then ingesting the FAQ corpus. The startup probe absorbs all of
           # that (30 x 5s = up to 150s) so the liveness probe can stay tight afterwards
