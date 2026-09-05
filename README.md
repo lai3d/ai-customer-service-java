@@ -402,14 +402,23 @@ assistant says so rather than inventing an answer.
 
 Deliberately out of scope: authentication, multi-tenancy, and MCP.
 
-## The same system in Go
+## The same system in Go and in .NET
 
-[**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go) is the same
-system built as a comparison rather than a port — same corpus, same benchmark parameters, same
+The same system is built twice more, as a comparison rather than a port — same corpus, same
 providers, nothing shared between the repositories by design.
 
+| | | |
+| --- | --- | --- |
+| [**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go) | Go · stdlib `net/http` · goroutines | owns its own request loop, no framework |
+| [**lai3d/ai-customer-service-dotnet**](https://github.com/lai3d/ai-customer-service-dotnet) | C# · .NET 10 · ASP.NET Core minimal APIs | `Microsoft.Extensions.AI` and the official Anthropic and OpenAI SDKs |
+
+All three answer from the same bilingual corpus over pgvector, run their embedding model
+in-process, call the same two tools, and stream over SSE.
+
 The benchmark is the same 1000 concurrent requests against a 1000 ms stubbed model, on the full
-production path. Go's rows were measured there; the Java rows are [this repository's](docs/benchmark.md):
+production path. Go's rows were measured there; the Java rows are [this repository's](docs/benchmark.md).
+**There is no .NET row: that implementation has not run this benchmark, and it says so** — an
+absent number is better than one measured differently and printed in the same table.
 
 | | duration | throughput | p50 | OS threads |
 |---|---|---|---|---|
@@ -429,8 +438,8 @@ its thread and the scheduler responds by making another. The JVM avoids that wit
 model by bounding the carrier pool at the core count: it wins that one by being **less** clever,
 not more.
 
-**The cross-review found ten defects between the two repositories, and neither test suite was
-failing on any of them.** Four of those were here. The Go implementation measured the raw wire
+**The cross-review found ten defects between this repository and the Go one, and neither test
+suite was failing on any of them.** Four of those were here. The Go implementation measured the raw wire
 and showed that [the usage-grouping rule](docs/reliability.md#a-turn-is-not-a-model-call) is a
 property of Spring AI's abstraction rather than of the protocols; it flagged that
 [the retrieval threshold](docs/retrieval.md) was under-sampled, which it was, worse than the
@@ -446,6 +455,25 @@ resting on a mocked model. A test written from the same understanding as the cod
 understanding, not the code — and none of the three was caught from the inside. That is the
 argument for the exercise, more than any latency number: two implementations mean two readers
 who share the context to know where to look and none of the assumptions about what is settled.
+
+**The .NET implementation then corrected this repository twice more, and once was about a
+claim made on this page.** It measured `Microsoft.Extensions.AI` on the same turn shape against
+the same providers and found that it keeps the model-call boundary — one usage per call,
+per-call response ids, the two assistant messages kept separate — so what this repo had called
+a property of the abstraction narrowed to
+[a Spring AI design choice](docs/reliability.md#a-turn-is-not-a-model-call). Three of the four
+questions it asked narrowed that way; the fourth generalised and got *worse* in .NET, where a
+mutable `ChatMessage` lets a rewriting middleware corrupt the stored history in either order.
+
+The second was a live bug found by applying one of its findings here. A tool result is prompt —
+the model reads a string, not an object — and this service was sending
+`"estimatedDelivery":[2026,9,3]` to a customer asking when their parcel arrives.
+[It worked](docs/tools.md), because the model inferred year-month-day, which is exactly why
+nothing caught it: every test asserted on the Java object, and a round trip through the same
+serialiser cannot see it. The .NET model was less charitable with its own version of the bug —
+an enum written as `1` — and refused, which is how it was found there in an afternoon and here
+only after someone said so. **The same defect is loud or silent depending on how generous the
+reader is, and the silent one ships.**
 
 The runtime comparison's most useful result is the same kind of thing, and it runs both ways.
 Three constraints this codebase defends with tests — advisor ordering, a tool's context being
@@ -484,9 +512,10 @@ migrations are the part worth reading, in both directions.
 └── src/test/java/           # Testcontainers-backed integration tests
 ```
 
-This repository is one of a pair. The Go implementation is at
-[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go); nothing is
-shared between them by design, and each is idiomatic for its own ecosystem.
+This repository is one of three. The others are
+[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go) and
+[lai3d/ai-customer-service-dotnet](https://github.com/lai3d/ai-customer-service-dotnet); nothing
+is shared between them by design, and each is idiomatic for its own ecosystem.
 
 ---
 

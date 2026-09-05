@@ -318,26 +318,36 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 
 有意排除在范围外的：鉴权、多租户、MCP。
 
-## 同一个系统的 Go 实现
+## 同一个系统的 Go 与 .NET 实现
 
-[**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md)（中文版）
-是同一个系统，作为**对照**而非移植来构建——同一份语料、同一套基准参数、同样的 provider，
-两个仓库之间刻意不共享任何东西。
+同一个系统另外构建了两次，作为**对照**而非移植——同一份语料、同样的 provider，
+仓库之间刻意不共享任何东西。
+
+| | | |
+| --- | --- | --- |
+| [**lai3d/ai-customer-service-go**](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md) | Go · 标准库 `net/http` · goroutine | 自己拥有请求循环，没有框架 |
+| [**lai3d/ai-customer-service-dotnet**](https://github.com/lai3d/ai-customer-service-dotnet) | C# · .NET 10 · ASP.NET Core minimal API | `Microsoft.Extensions.AI` 加官方 Anthropic / OpenAI SDK |
+
+三者都从同一份双语语料检索、进程内跑嵌入模型、调用同样的两个工具、走 SSE 流式输出。
 
 基准测试是同样的 1000 并发请求打向一个 1000ms 的桩模型，走完整生产路径。Go 那几行在那边测得，
-Java 这几行来自[本仓库](docs/benchmark.md)：
+Java 这几行来自[本仓库](docs/benchmark.md)。**没有 .NET 那一行：那个实现没有跑过这个基准，
+而且它明说了**——一个缺席的数字，好过一个用不同方法测出来、却印在同一张表里的数字。
 
 | | 耗时 | 吞吐 | p50 | OS 线程 |
 |---|---|---|---|---|
 | Java，平台线程 | 6254 ms | 160 req/s | 4037 ms | 246 |
-| Java，虚拟线程 | 2000 ms | 500 req/s | 1616 ms | 52 |
+| Java，虚拟线程 | 2220 ms | 450 req/s | 1767 ms | 53 |
 | Go，goroutine | 1667 ms | 600 req/s | 1648 ms | 135 |
 
-Go 快约 20%，长尾平坦得多——p50 到 p99 在 17ms 以内，而这边是 370ms——代价是几倍的 OS 线程：
+Java 这两行是当前代码的数字，虚拟线程那一轮比[最初测量](docs/benchmark.md)慢了约 10%——
+因为现在每个请求都要取一次会话租约、并把花费记进 Postgres 而不是内存 map。
+
+Go 快约 25%，长尾平坦得多——p50 到 p99 在 17ms 以内，而这边是 430ms——代价是几倍的 OS 线程：
 goroutine 进入 cgo 调用会阻塞它所在的线程，调度器的应对方式是再造一个。JVM 用同一个 ONNX
 模型不会这样，因为它把载体线程池按核数封了顶：**它赢在更笨，不是更聪明。**
 
-**交叉评审在两个仓库之间找到了十个缺陷，而两边的测试套件都没有一条是红的。** 其中四个在这边。
+**交叉评审在本仓库和 Go 仓库之间找到了十个缺陷，而两边的测试套件都没有一条是红的。** 其中四个在这边。
 Go 实现测量了原始协议，指出
 [用量分组规则](docs/reliability.md#a-turn-is-not-a-model-call)是 Spring AI 抽象层的属性而非协议的属性；
 它还指出[检索阈值](docs/retrieval.md)采样不足——确实如此，而且比第一次测量承认的更严重；
@@ -351,6 +361,20 @@ Go 实现测量了原始协议，指出
 用同一份理解写出来的测试，确认的是那份理解，不是代码——而这三个没有一个是从内部发现的。
 这比任何延迟数字都更能说明做这件事的意义：两个实现意味着两个读者，
 他们共享足够的上下文知道该往哪儿看，却不共享"什么已经定论了"的假设。
+
+**随后 .NET 实现又纠正了本仓库两次，其中一次针对的正是这一页上的一个论断。** 它在同样的对话形状、
+同样的 provider 上测量了 `Microsoft.Extensions.AI`，发现它**保留了模型调用边界**——每次调用一个
+usage、每次调用有独立 response id、两条 assistant 消息分开保留——于是本仓库原本称为「抽象的属性」
+的东西，收窄成了[一个 Spring AI 的设计选择](docs/reliability.md#a-turn-is-not-a-model-call)。
+它问的四个问题里有三个这样收窄；第四个反过来**在 .NET 里更糟**：可变的 `ChatMessage` 让一个改写型
+中间件在两种顺序下都能污染被持久化的历史。
+
+第二次是把它的一个发现拿来查这边，查出了一个真实的 bug。**工具返回值就是提示词**——模型读到的是字符串
+而不是对象——而这个服务一直在给「我的包裹什么时候到」这个问题送出
+`"estimatedDelivery":[2026,9,3]`。[它一直是好的](docs/tools.md)，因为模型自己推断出了年月日，
+而这恰恰是它没被发现的原因：所有测试都断言在 Java 对象上，而**用同一个序列化器往返一圈是看不见它的**。
+.NET 那边的模型对自己版本的同一个 bug（枚举被写成 `1`）没那么宽容，直接拒绝了——所以它在那边一个下午
+就被发现，在这边却要等别人指过来。**同一个缺陷，会喊还是安静，取决于读者有多宽容，而安静的那个会上线。**
 
 运行时对比里最有用的结论也是同一类东西，而且是双向的。三个约束在本代码库靠测试守——
 advisor 顺序、工具的 context 不能为空、哪个嵌入重载会加 `query:` 标记——在 Go 里是结构性的，
@@ -379,9 +403,10 @@ advisor 顺序、工具的 context 不能为空、哪个嵌入重载会加 `quer
 └── src/test/java/           # Testcontainers 支撑的集成测试
 ```
 
-本仓库是一对中的一个。Go 实现在
-[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md)（中文版，[English](https://github.com/lai3d/ai-customer-service-go)）；
-两者之间刻意不共享任何东西，各自遵循自己生态的惯例。
+本仓库是三个中的一个。另外两个是
+[lai3d/ai-customer-service-go](https://github.com/lai3d/ai-customer-service-go/blob/main/README.zh.md)（中文版，[English](https://github.com/lai3d/ai-customer-service-go)）
+和 [lai3d/ai-customer-service-dotnet](https://github.com/lai3d/ai-customer-service-dotnet)；
+三者之间刻意不共享任何东西，各自遵循自己生态的惯例。
 
 ---
 
