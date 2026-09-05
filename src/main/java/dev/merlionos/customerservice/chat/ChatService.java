@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.clients.HttpKnowledgeSearch;
 import dev.merlionos.customerservice.cost.ConversationBudget;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import io.micrometer.core.instrument.Counter;
@@ -49,6 +50,11 @@ public class ChatService {
         this.streamsCompleted = terminationCounter(meterRegistry, "completed");
         this.streamsCancelled = terminationCounter(meterRegistry, "cancelled");
         this.streamsFailed = terminationCounter(meterRegistry, "failed");
+        // Incremented by HttpKnowledgeSearch, which only a chat process has. Registered here
+        // as well because this service is in every topology that answers turns, so the panel
+        // and the alert on it have a series at zero in an `all` process too, where it cannot
+        // rise; DashboardMetricsTest runs as `all` and would otherwise find it missing.
+        HttpKnowledgeSearch.unavailableCounter(meterRegistry);
     }
 
     private static Counter terminationCounter(MeterRegistry registry, String outcome) {

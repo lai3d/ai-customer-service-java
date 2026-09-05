@@ -303,7 +303,7 @@ README 是一次导览。下面每一篇，都是系统中某个"依据证据做
 - [x] **10 · 基准测试** — 虚拟线程这个决策的证据：3 倍吞吐、202 线程降到 2
 - [x] **11 · 加固** — 有界工具副作用、优雅停机、SSE keep-alive
 - [x] **12 · 部署形态** — 同一个制品既能作为单进程跑，也能拆成 chat、knowledge、ticket 三个角色跑，由两份独立设计在 [ADR 001](docs/adr/001-deployment-targets.md) 中调和后决定；共享状态迁入 Postgres 并由 Flyway 管理；两种拓扑在 Compose、kind 和 CI 上都经过验证
-- [x] **13 · 可观测性** — Grafana 栈：带直方图和 exemplar 的 Prometheus、能从 span 生成服务拓扑图的 Tempo、日志与 trace 互跳的 Loki，两个 dashboard 和八条告警以代码形式入库，OTLP 推送路径用同一套 dashboard 验证
+- [x] **13 · 可观测性** — Grafana 栈：带直方图和 exemplar 的 Prometheus、能从 span 生成服务拓扑图的 Tempo、日志与 trace 互跳的 Loki，两个 dashboard 和九条告警以代码形式入库，OTLP 推送路径用同一套 dashboard 验证
 
 每一条都已完成，整个系统也已对真实 API 端到端跑过：中文问题会检索到中文段落并用中文作答，
 两个工具都能完整往返，真实 token 用量会进到预算和 span 里，问一个语料没覆盖的问题时，

@@ -383,7 +383,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **10 · Benchmark** — evidence for the virtual-thread decision: 3x throughput, 202 threads down to 2
 - [x] **11 · Hardening** — bounded tool side effects, graceful shutdown, SSE keep-alive
 - [x] **12 · Deployment targets** — the same artifact as one process or as three roles, decided by two independent designs reconciled in [ADR 001](docs/adr/001-deployment-targets.md); shared state moved to Postgres under Flyway; both topologies verified in Compose, on kind and in CI
-- [x] **13 · Observability** — the Grafana stack: Prometheus with histograms and exemplars, Tempo with span-derived service graphs, Loki with trace-correlated logs, two dashboards and eight alerts as code, and an OTLP push path verified against the same dashboards
+- [x] **13 · Observability** — the Grafana stack: Prometheus with histograms and exemplars, Tempo with span-derived service graphs, Loki with trace-correlated logs, two dashboards and nine alerts as code, and an OTLP push path verified against the same dashboards
 
 Every item is done, and the system has been run end to end against the live API: a Chinese
 question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token
