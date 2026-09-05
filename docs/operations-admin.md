@@ -197,7 +197,13 @@ them from the chat process against the other processes' rows.
   context (#32) took the suite from over two minutes to under a minute locally and removed
   the ceiling; the next wall was Postgres's default of 100 clients, since every cached pool
   stays open, so the container allows 500 and pools idle at one. CLAUDE.md's first version
-  of this finding blamed the ONNX session; it is corrected.
+  of this finding blamed the ONNX session; it was half right. With the containers gone the
+  runner still died at the sixteenth context (#33), so the model is shared too: the first
+  test context to build the `TransformersEmbeddingModel` keeps it and every later context is
+  handed that instance before Spring would instantiate its own. A full run loads the model
+  four times where it loaded sixteen and takes half a minute. The one test that asserts the
+  embedding timer exists opts out, because the model observes into the registry of the
+  context that built it.
 - **CI's test order is not this machine's.** A `DELETE FROM conversation_turn` in one test's
   setup passed locally and tripped a foreign key in CI because the feedback test had run first
   there and left flags pointing at turns. Shared-context tests delete in dependency order now.
