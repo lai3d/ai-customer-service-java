@@ -85,6 +85,14 @@
   .msg.rendered ul { margin: 0 0 8px; padding-left: 20px; }
   .msg.rendered code { font-family: var(--mono); font-size: 0.92em; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 4px; }
   .pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .turn { border-top: 1px solid var(--line); padding: 14px 0; }
+  .turn:first-child { border-top: 0; padding-top: 0; }
+  .turn .meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); margin: 8px 0; }
+  .turn .failure { color: var(--warn); font-size: 13px; white-space: pre-wrap; }
+  .turn table { font-size: 13px; margin-top: 6px; }
+  .turn h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; }
+  .badge.failed, .badge.unknown { background: var(--warn-soft); color: var(--warn); }
+  .badge.interrupted, .badge.running { background: var(--user); color: var(--ink); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -160,6 +168,43 @@
     <p class="notice" id="c-notice"></p>
     <p class="hint" id="c-tickets"></p>
     <div class="transcript" id="transcript"></div>
+  </section>
+
+  <section id="conversations">
+    <h2>Conversations</h2>
+    <form class="row" id="conv-filters">
+      <label>Conversation id <input name="conversationId" placeholder="exact id" autocomplete="off"></label>
+      <label>Outcome
+        <select name="outcome">
+          <option value="">any</option>
+          <option value="completed">completed</option>
+          <option value="failed">failed</option>
+          <option value="interrupted">interrupted</option>
+          <option value="unknown">unknown</option>
+          <option value="running">running</option>
+        </select>
+      </label>
+      <label>From <input name="from" type="datetime-local"></label>
+      <label>To <input name="to" type="datetime-local"></label>
+      <button type="submit" class="primary">Show</button>
+    </form>
+    <table>
+      <thead><tr><th>Conversation</th><th>Turns</th><th>Last turn</th><th>Last outcome</th><th>Failed / interrupted / unknown</th></tr></thead>
+      <tbody id="conv-rows"></tbody>
+    </table>
+    <div class="pager">
+      <button type="button" id="conv-prev">‹</button>
+      <span id="conv-page-info">–</span>
+      <button type="button" id="conv-next">›</button>
+    </div>
+    <div class="status" id="conv-status"></div>
+  </section>
+
+  <section id="conv-detail" hidden>
+    <h2>Conversation <span id="cd-id" class="mono"></span></h2>
+    <p class="notice" id="cd-notice"></p>
+    <p class="hint" id="cd-tickets"></p>
+    <div id="turns"></div>
   </section>
 
   <section id="staff" hidden>
@@ -436,6 +481,108 @@
     }
   }
 
+  // --- conversations, from the turn record -------------------------------------------------
+  let convQuery = { page: 0, size: 25 };
+  function localToIso(value) { return value ? new Date(value).toISOString() : ""; }
+  async function loadConversations() {
+    const params = new URLSearchParams();
+    for (const key of ["conversationId", "outcome", "from", "to"]) if (convQuery[key]) params.set(key, convQuery[key]);
+    params.set("page", convQuery.page);
+    params.set("size", convQuery.size);
+    const response = await api("/conversations?" + params.toString());
+    if (!response.ok) { setStatus("conv-status", await problem(response), true); return; }
+    const page = await response.json();
+    const rows = $("conv-rows");
+    rows.replaceChildren();
+    for (const c of page.conversations) {
+      const tr = el("tr", "pick");
+      tr.appendChild(el("td", "mono", c.conversationId));
+      tr.appendChild(el("td", null, String(c.turns)));
+      tr.appendChild(el("td", null, when(c.lastAt)));
+      const st = el("td"); st.appendChild(badge(c.lastOutcome)); tr.appendChild(st);
+      tr.appendChild(el("td", null, c.failed + " / " + c.interrupted + " / " + c.unknown));
+      tr.addEventListener("click", () => openConversation(c.conversationId));
+      rows.appendChild(tr);
+    }
+    const first = page.total === 0 ? 0 : page.page * page.size + 1;
+    const last = Math.min(page.total, (page.page + 1) * page.size);
+    $("conv-page-info").textContent = page.total === 0 ? "no conversations recorded" : first + "–" + last + " of " + page.total;
+    $("conv-prev").disabled = page.page === 0;
+    $("conv-next").disabled = last >= page.total;
+    setStatus("conv-status", "");
+  }
+  $("conv-filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = event.target.elements;
+    convQuery = { page: 0, size: 25, conversationId: f.conversationId.value.trim(), outcome: f.outcome.value,
+                  from: localToIso(f.from.value), to: localToIso(f.to.value) };
+    loadConversations();
+  });
+  $("conv-prev").addEventListener("click", () => { convQuery.page = Math.max(0, convQuery.page - 1); loadConversations(); });
+  $("conv-next").addEventListener("click", () => { convQuery.page += 1; loadConversations(); });
+
+  async function openConversation(id) {
+    const response = await api("/conversations/" + encodeURIComponent(id));
+    if (!response.ok) { setStatus("conv-status", await problem(response), true); return; }
+    const c = await response.json();
+    $("cd-id").textContent = c.conversationId;
+    $("cd-notice").textContent = "Opening this conversation was recorded against your account. " + c.notPersisted;
+    $("cd-tickets").textContent = c.tickets.length === 0 ? "No tickets in this conversation."
+        : "Tickets raised in this conversation: " + c.tickets.map((t) => t.ticketNumber).join(", ");
+    const turns = $("turns");
+    turns.replaceChildren();
+    for (const t of c.turns) turns.appendChild(renderTurn(t));
+    $("conv-detail").hidden = false;
+    $("conv-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function renderTurn(t) {
+    const box = el("div", "turn");
+    const q = el("div", "msg USER");
+    q.appendChild(el("span", "at", "customer · " + when(t.startedAt)));
+    q.appendChild(document.createTextNode(t.question));
+    box.appendChild(q);
+    const meta = el("div", "meta");
+    meta.appendChild(badge(t.outcome));
+    meta.appendChild(el("span", null, t.path));
+    if (t.model) meta.appendChild(el("span", null, t.model));
+    if (t.inputTokens !== null && t.inputTokens !== undefined) meta.appendChild(el("span", null, t.inputTokens + " in / " + t.outputTokens + " out"));
+    if (t.endedAt) meta.appendChild(el("span", null, Math.max(0, new Date(t.endedAt) - new Date(t.startedAt)) + " ms"));
+    if (t.traceId) meta.appendChild(el("span", "mono", "trace " + t.traceId));
+    box.appendChild(meta);
+    if (t.answer) {
+      const a = el("div", "msg ASSISTANT");
+      a.appendChild(el("span", "at", "assistant"));
+      renderMarkdown(a, t.answer);
+      box.appendChild(a);
+    } else {
+      box.appendChild(el("p", "hint", t.outcome === "running" ? "Still running." : "No answer was recorded."));
+    }
+    if (t.failure) box.appendChild(el("div", "failure", t.failure));
+    box.appendChild(el("h4", null, "Retrieved (" + t.retrieval.length + ")"));
+    if (t.retrieval.length === 0) box.appendChild(el("p", "hint", "Nothing recorded for this turn."));
+    else {
+      const table = el("table");
+      const head = el("tr");
+      for (const h of ["#", "Entry", "Language", "Score"]) head.appendChild(el("th", null, h));
+      const thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
+      const body = el("tbody");
+      for (const r of t.retrieval) {
+        const tr = el("tr");
+        tr.appendChild(el("td", null, String(r.rank)));
+        tr.appendChild(el("td", "mono", r.entryId));
+        tr.appendChild(el("td", null, r.language || ""));
+        tr.appendChild(el("td", null, r.score.toFixed(4)));
+        body.appendChild(tr);
+      }
+      table.appendChild(body);
+      box.appendChild(table);
+    }
+    box.appendChild(el("h4", null, "Tools (" + t.toolCalls.length + ")"));
+    if (t.toolCalls.length === 0) box.appendChild(el("p", "hint", "None."));
+    for (const call of t.toolCalls) box.appendChild(el("div", "mono", call.tool + " → " + call.outcome + "  " + when(call.at)));
+    return box;
+  }
+
   // --- staff (admins) -----------------------------------------------------------------------
   function renderStaff(accounts) {
     const rows = $("staff-rows");
@@ -476,6 +623,7 @@
     me = await (await api("/me")).json();
     $("who").textContent = me.username + " · " + me.role;
     await loadTickets();
+    await loadConversations();
     if (me.role === "admin") {
       $("staff").hidden = false;
       await loadStaff();
