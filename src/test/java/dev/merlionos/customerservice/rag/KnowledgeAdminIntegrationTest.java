@@ -4,6 +4,7 @@ import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
+import dev.merlionos.customerservice.rag.api.KnowledgeRevision;
 import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
@@ -18,6 +19,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import com.zaxxer.hikari.HikariDataSource;
+
+import javax.sql.DataSource;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
@@ -41,6 +45,7 @@ class KnowledgeAdminIntegrationTest {
     @Autowired KnowledgeAdmin admin;
     @Autowired KnowledgeSearch search;
     @Autowired JdbcTemplate jdbc;
+    @Autowired DataSource dataSource;
     @Autowired FaqIngestionService ingestion;
 
     static String bundled;
@@ -150,27 +155,54 @@ class KnowledgeAdminIntegrationTest {
 
     @Test
     @Order(5)
-    @DisplayName("after many publications and retirements, a top-k search of the active version still returns k live rows")
-    void hnswStillReturnsKAfterChurn() {
-        // The .NET and Go sides found that an HNSW scan gathers its candidates from the graph
-        // before discarding dead or filtered ones, so a table full of deleted rows from
-        // retired versions, plus the corpus_version filter, could return fewer than k. Every
-        // version here inserts fresh ids and retention deletes whole versions; this is the
-        // churn a busy knowledge base would see, and k must still come back.
-        // The siblings reproduced it with autovacuum off and sixty reload cycles; nothing here
-        // may lean on the vacuum that happens to run between two publications.
+    @DisplayName("after many publications that change every entry, a top-k search of the active version still returns k live rows")
+    void hnswStillReturnsKAfterChurn() throws Exception {
+        // The .NET and Go sides found that an HNSW scan gathers hnsw.ef_search candidates from
+        // the graph and only then drops the dead and the filtered ones, so a table full of rows
+        // from retired versions, plus the corpus_version filter, returns fewer than k. Measured
+        // here on pgvector 0.8.6 with this data: 40 candidates, 26 of them dead, 14 live, 4 of
+        // the active version, so a top-8 returned 1 or 2. Two things hid it: the planner
+        // prefers a sequential scan on a table this small, which is exact, and a publication
+        // re-embeds an unchanged entry to an identical vector, which pgvector keeps as one graph
+        // element with several heap ids, so twenty copies cost one candidate. Neither holds
+        // for a larger corpus whose entries change. So: the index is forced, every entry
+        // changes on every publication, autovacuum is off so nothing leans on the vacuum that
+        // happens to run between two publications, and hnsw.iterative_scan on every pooled
+        // connection (application.yml) is what brings k back. This is the test that fails
+        // if that setting goes missing.
+        String database = jdbc.queryForObject("SELECT current_database()", String.class);
+        jdbc.execute("ALTER DATABASE \"" + database + "\" SET enable_seqscan = off");
+        dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().softEvictConnections();
+        assertThat(jdbc.queryForObject("SHOW enable_seqscan", String.class)).as("a fresh connection took the setting").isEqualTo("off");
+        assertThat(jdbc.queryForObject("SHOW hnsw.iterative_scan", String.class)).as("the pool's init SQL").isEqualTo("strict_order");
         jdbc.execute("ALTER TABLE vector_store SET (autovacuum_enabled = false)");
         for (int i = 0; i < 20; i++) {
+            for (KnowledgeEntry entry : admin.entries()) {
+                if (entry.retired()) {
+                    continue;
+                }
+                for (KnowledgeRevision revision : entry.revisions()) {
+                    if (revision.state().equals("published")) {
+                        admin.saveDraft(entry.entryId(), revision.language(), revision.question(),
+                                revision.answer() + " (revision " + i + ")", null, "alice");
+                    }
+                }
+            }
             admin.publish("churn " + i, "alice", null);
         }
         assertThat(jdbc.queryForObject("SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = 'vector_store'", Long.class))
                 .as("the dead rows the scan has to step over are really there").isGreaterThan(300);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM knowledge_version WHERE state = 'retired'", Integer.class))
-                .isGreaterThanOrEqualTo(10);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT embedding::text) FROM vector_store", Long.class))
+                .as("no two live rows share a vector, so none share a graph element")
+                .isEqualTo(jdbc.queryForObject("SELECT count(*) FROM vector_store", Long.class));
+        String active = admin.activeVersion().orElseThrow();
+        String plan = String.join("\n", jdbc.queryForList("EXPLAIN SELECT * FROM vector_store WHERE metadata::jsonb @@ '$.corpus_version == \""
+                + active + "\"'::jsonpath ORDER BY embedding <=> (SELECT embedding FROM vector_store LIMIT 1) LIMIT 8", String.class));
+        assertThat(plan).as("the search goes through the HNSW index, not an exact scan").contains("Index Scan using spring_ai_vector_index");
         for (String question : List.of("shipping", "退货", "password", "my parcel arrived crushed")) {
             List<Passage> found = admin.preview(new SearchQuery(question, 8, 0), null);
             assertThat(found).as("top-8 for '%s' after churn", question).hasSize(8);
-            assertThat(found).allSatisfy(p -> assertThat(p.metadata()).containsEntry("corpus_version", admin.activeVersion().orElseThrow()));
+            assertThat(found).allSatisfy(p -> assertThat(p.metadata()).containsEntry("corpus_version", active));
         }
         assertThat(search.search(new SearchQuery("shipping", 8, 0))).as("the seam sees the same").hasSize(8);
     }

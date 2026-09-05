@@ -154,7 +154,13 @@ admin's preview). The bundled corpus is adopted as the first version by `Knowled
 without re-embedding: its documents already carry `corpus_version`. Readiness is "an active
 version with documents". A failed build leaves the previous version serving; rollback
 re-activates a retained one; retention keeps the newest three ready versions and deletes the
-documents of older ones. Tests that publish must not share a database with tests that
+documents of older ones. **Every pooled connection sets `hnsw.iterative_scan = strict_order`**
+(`connection-init-sql`): an HNSW scan gathers 40 candidates before it drops the dead rows of
+retired versions and the rows the `corpus_version` filter rejects, and without the iterative
+scan a top-8 of the active version returned 1 or 2 with the index forced. The planner's
+preference for an exact scan on a small table and pgvector's sharing of one graph element
+between identical vectors hid it; `KnowledgeAdminIntegrationTest` forces the index and
+changes every entry per publication so neither can. Tests that publish must not share a database with tests that
 measure retrieval (`KnowledgeAdminIntegrationTest` has its own context for that reason).
 
 ### Failure and cost

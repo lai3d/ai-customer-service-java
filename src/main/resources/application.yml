@@ -54,6 +54,15 @@ spring:
     password: ${POSTGRES_PASSWORD:csagent}
     hikari:
       maximum-pool-size: 20
+      # An HNSW scan gathers hnsw.ef_search (40) candidates from the graph and only then drops
+      # the ones a WHERE clause rejects or that turned out dead, so a search confined to the
+      # active corpus_version over a table that also holds retained and not-yet-vacuumed
+      # versions returns fewer than k; measured at 1 or 2 of 8 with the index forced
+      # (KnowledgeAdminIntegrationTest). An iterative scan keeps walking the graph until k rows
+      # pass, bounded by hnsw.max_scan_tuples; strict_order keeps the results in distance
+      # order. A pgvector GUC, 0.8.0 and later; set per connection because Spring AI's query
+      # cannot carry it, and harmless on a connection that never touches the index.
+      connection-init-sql: SET hnsw.iterative_scan = strict_order
 
   # The schema is versioned in db/migration and owned here. Spring AI's own initialisers are
   # off (below); V1 recreates their tables IF NOT EXISTS, and baseline-on-migrate lets it run

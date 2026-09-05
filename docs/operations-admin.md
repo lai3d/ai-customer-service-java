@@ -301,17 +301,27 @@ reach the service.
   Node's types declared for the container's TypeScript to accept it.
 - **8084 was in use on the development machine**, by something unrelated; the local walk
   used another host port and the Compose port stays configurable (`ADMIN_UI_PORT`).
-- **The HNSW dead-entry defect the .NET and Go sides found does not reach the version
-  design, measured.** Their corpus reload deleted and reinserted the same rows, and an HNSW
-  scan gathers candidates from the graph before discarding dead ones, so after enough
-  reloads a top-8 returned fewer than eight live rows until `VACUUM`. Here every
-  publication inserts a fresh document set under its own `corpus_version`, retention deletes
-  whole retired versions, and retrieval filters by the active version.
-  `KnowledgeAdminIntegrationTest` now disables autovacuum on `vector_store`, publishes twenty
-  times, confirms more than three hundred dead rows, and asks top-8 for four questions in
-  both languages: eight live rows of the active version every time, through the preview and
-  through the retrieval seam. The one in-place upsert left is the bundled import, which runs
-  once per bundled version, never on an ordinary restart.
+- **The HNSW dead-entry defect the .NET and Go sides found does reach the version design,
+  and is closed by a pgvector setting, not by the design.** Their corpus reload deleted and
+  reinserted the same rows; an HNSW scan gathers `hnsw.ef_search` (40) candidates from the
+  graph and only then drops the dead ones and the ones the `WHERE` rejects, so after enough
+  reloads a top-8 returned fewer than eight rows until `VACUUM`. Here every publication
+  inserts a fresh document set under its own `corpus_version` and retrieval filters by the
+  active one, which is the same arithmetic with a filter in place of dead rows, plus the dead
+  rows of retired versions until autovacuum runs. Measured on pgvector 0.8.6 with the real
+  corpus, twenty publications that change every entry, autovacuum off and the index forced:
+  40 candidates, 26 dead, 14 live, 4 of the active version, a top-8 of 1 or 2. Two things had
+  hidden it in the first measurement: the planner prefers an exact sequential scan on a table
+  this small, and an unchanged entry re-embeds to an identical vector, which pgvector stores
+  as one graph element with several heap ids, so twenty copies of it cost one candidate. A
+  larger corpus whose entries change gets neither. The fix is `hnsw.iterative_scan =
+  strict_order` on every pooled connection (`connection-init-sql`): the scan keeps walking the
+  graph until k rows pass, in distance order, bounded by `hnsw.max_scan_tuples`. It exists
+  from pgvector 0.8.0; the image both repos use ships 0.8.6. `KnowledgeAdminIntegrationTest`
+  forces the index, changes every entry on every publication, confirms the dead rows and that
+  no two live rows share a vector, and asks top-8 for four questions in both languages: eight
+  rows of the active version, through the preview and through the retrieval seam. The one
+  in-place upsert left is the bundled import, which runs once per bundled version.
 - **A publication's row is `ready` for a moment before it is `active`**, between the build
   and the switch, and CI read it in that moment; the API test waits for a terminal state now.
 
