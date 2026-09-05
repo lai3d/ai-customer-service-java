@@ -14,6 +14,7 @@ Plain YAML, no Helm. Kustomize only for the two things a deployment actually cha
 | `kind/` | — | A throwaway-cluster harness that applies the base **unmodified** and asserts eleven things about the running pods. `--roles` does the same for the split. |
 | `roles/` | Deployments `chat`, `knowledge`, `ticket`; Services of the same names; Job `knowledge-import`; a ConfigMap; a NetworkPolicy | The distributed topology of [ADR 001](../docs/adr/001-deployment-targets.md): the same image as three roles, the corpus imported once by a Job, internal endpoints reachable only from chat pods. Applied with `kubectl apply -k k8s/roles`; needs `INTERNAL_TOKEN` in the Secret. |
 | `kind-roles/` | — | `roles/` plus the throwaway Postgres, for `kind/verify.sh --roles`. |
+| `observability/` | ServiceMonitor `ai-customer-service`; PrometheusRule `customer-service`; ConfigMaps `grafana-dashboard-customer-service`, `grafana-dashboard-customer-service-roles` | For a cluster running kube-prometheus-stack. One monitor scrapes both layouts; the rule and the dashboards are the Compose ones from `observability/`, rendered by `scripts/render-k8s-observability.sh`. Needs the prometheus-operator CRDs, so the kind harness builds it and does not apply it. `kubectl apply -k k8s/observability`; see [Observability](#observability). |
 
 **Why an overlay at all, when the previous answer was "no Kustomize".** This README used to
 say: edit `deployment.yaml`'s image and `configmap.yaml`'s `POSTGRES_HOST` before applying.
@@ -171,6 +172,40 @@ to the literal `${ANTHROPIC_API_KEY}` and the pod went green with no working key
 A **wrong** key still shows up nowhere: health checks never call Anthropic, so the first chat
 request is what returns 401. Smoke-test the actual chat endpoint after a deploy, not just
 `/actuator/health`.
+
+## Observability
+
+`kubectl apply -k k8s/observability` gives a cluster running
+[kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+the monitoring Compose has: a `ServiceMonitor` that scrapes `/actuator/prometheus` every 15 s
+from every Service carrying `app.kubernetes.io/name: ai-customer-service-java` -- the base's
+one or the roles' three, one object for both layouts -- and copies each Service's component
+label into the `role` label the dashboards split by; a `PrometheusRule` with the eight alerts
+from `observability/prometheus/rules/`; and one ConfigMap per dashboard, labelled
+`grafana_dashboard: "1"` for the chart's Grafana sidecar. It needs the `monitoring.coreos.com`
+CRDs, which is why `kind/verify.sh` only builds it -- an apply on the throwaway cluster would
+fail on the missing CRDs before saying anything about the objects -- and why neither layout's
+kustomization includes it. Apply it after the application, into the same namespace.
+
+Two things about the chart's defaults. Its Prometheus picks up only the `ServiceMonitor`s and
+`PrometheusRule`s labelled with the Helm release name unless
+`prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues` and
+`ruleSelectorNilUsesHelmValues` are set to `false`; the objects here carry no release label,
+because the release name is yours. And the roles layout's NetworkPolicy admits connections to
+knowledge and ticket pods on port 8080 from chat pods and the import Job only. The metrics
+endpoint is on that port, so on a CNI that enforces the policy Prometheus cannot scrape those
+two roles and `TargetDown` fires for them. That is the policy doing its job; allow ingress
+from the monitoring namespace on 8080 in your cluster's policy before trusting the alert.
+
+The rule and the dashboards are copies of the files under `observability/`, not references
+to them: Kustomize refuses any file outside the kustomization's own directory, which this
+repository found out the hard way. `scripts/render-k8s-observability.sh` regenerates the three
+files from the sources -- sed only: the rules file indented under `spec:` is the
+PrometheusRule's spec, comments included, and a dashboard under a block scalar is a
+ConfigMap's data -- and `ObservabilityManifestsTest` fails whenever a copy differs from its
+source, so a threshold changed on one side and not the other is a red build rather than a
+quiet difference between Compose and the cluster. Edit under `observability/`, run the
+script, commit both.
 
 ## Dry-run validation
 
