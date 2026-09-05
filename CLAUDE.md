@@ -168,6 +168,15 @@ as the database is concerned.
   is answered from the record, and reused with different input is a `409`. `HttpTicketOperations`
   tries twice, reads the record once, then returns `TicketResult.unavailable()` -- a value the
   model can act on, never a transport error.
+- **A tool result is prompt, so the serialiser is part of the prompt.** Spring AI's default
+  converter has no Jackson time module, and `Order`'s two `LocalDate`s were reaching the model
+  as `[2026,9,3]` — a customer asking when a parcel arrives was answered from an array of
+  integers. It *worked*, because the model inferred year-month-day, which is why nothing
+  caught it: every test asserted on the Java object, and a round trip through the same
+  serialiser cannot see it. `@Tool(resultConverter = ReadableToolResultConverter.class)` fixes
+  it; `ToolResultIsPromptTest` asserts on the literal string **and** that the annotations still
+  name the converter. Found by applying a .NET-implementation finding (its serialiser wrote an
+  enum as `1` and its model refused to translate a coded status).
 - **A `ConditionalOnTarget` must stay a plain `Condition`**, not a `ConfigurationCondition`: a
   phased condition is skipped in the other phase, and a scanned controller is registered in the
   registration phase, so a parse-phase condition on it would silently admit it everywhere.
