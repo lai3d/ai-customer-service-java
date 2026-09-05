@@ -148,6 +148,9 @@ public class CorpusImporter {
                     version, written, Timestamp.from(Instant.now()));
             return Outcome.IMPORTED;
         });
+        if (outcome == Outcome.IMPORTED) {
+            vacuumVectorStore();
+        }
         // The lock wait is included: a replica that waited on another's import was not ready
         // for that long, which is what the timer is for. A failed import records nothing; it
         // propagates, and in `once` mode ends the process non-zero.
@@ -173,6 +176,24 @@ public class CorpusImporter {
             bundledVersion = version;
         }
         return version;
+    }
+
+    /**
+     * Every import leaves the previous rows behind as dead tuples -- the upsert writes a new
+     * row version per document and the retire step deletes the old version's rows -- and
+     * their entries stay in the HNSW index until a vacuum removes them. The .NET
+     * implementation of this system saw an HNSW scan return fewer live rows than its LIMIT
+     * once the index was mostly dead entries, a race with autovacuum it lost about one run
+     * in four. On pgvector 0.8.6 that starvation did not reproduce here with either write
+     * pattern ({@code HnswDeadEntriesTest} tries both, thirty times, autovacuum off); what
+     * did reproduce is the bloat: 725 dead tuples and an index at twice its size after
+     * thirty upsert imports. A vacuum right after the import is cheap for a corpus this
+     * size and takes the daemon's timing out of the question. Outside the transaction,
+     * because {@code VACUUM} cannot run inside one; inside the timer, because it is part of
+     * the import.
+     */
+    private void vacuumVectorStore() {
+        jdbc.execute("VACUUM vector_store");
     }
 
     /** The document count recorded for a version, or empty if that version was never completed. */
