@@ -348,14 +348,27 @@ its thread and the scheduler responds by making another. The JVM avoids that wit
 model by bounding the carrier pool at the core count: it wins that one by being **less** clever,
 not more.
 
-Two findings crossed between the repositories and corrected something on this side. The Go
-implementation measured the raw wire and showed that
-[the usage-grouping rule](docs/reliability.md#a-turn-is-not-a-model-call) is a property of Spring
-AI's abstraction rather than of the protocols, and it flagged that
-[the retrieval threshold](docs/retrieval.md) was under-sampled — which it was, worse than the
-first measurement admitted. The comparison's most useful result so far is not a latency number:
-it is that three constraints this codebase enforces with tests are enforced by Go's type system
-instead, so the corresponding bugs cannot be written there.
+**The cross-review found ten defects between the two repositories, and neither test suite was
+failing on any of them.** Four of those were here. The Go implementation measured the raw wire
+and showed that [the usage-grouping rule](docs/reliability.md#a-turn-is-not-a-model-call) is a
+property of Spring AI's abstraction rather than of the protocols; it flagged that
+[the retrieval threshold](docs/retrieval.md) was under-sampled, which it was, worse than the
+first measurement admitted; and driving its demo page in a browser exposed that neither page
+rendered the Markdown the model writes, nor broke the seam between a tool-calling turn's two
+model calls — [visible in this README's own screenshot](docs/images/demo.png) for weeks, and
+in a database row for as long.
+
+Three of those defects had the same shape, and it is the finding worth keeping: **a green test
+asserting against a fixture that was built to satisfy the claim.** A threshold test comparing
+four hand-picked questions, a usage contract satisfied only by a stub, a persistence claim
+resting on a mocked model. A test written from the same understanding as the code confirms the
+understanding, not the code — and none of the three was caught from the inside. That is the
+argument for the exercise, more than any latency number: two implementations mean two readers
+who share the context to know where to look and none of the assumptions about what is settled.
+
+The runtime comparison's most useful result is the same kind of thing. Three constraints this
+codebase enforces with tests are enforced by Go's type system instead, so the corresponding
+bugs cannot be written there at all.
 
 ---
 
