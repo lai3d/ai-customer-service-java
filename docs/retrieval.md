@@ -127,6 +127,36 @@ Worth saying plainly: at eighteen entries, retrieval is barely earning its keep.
 size could sit in the system prompt. The design matters for a corpus that cannot, and the
 measurements here are what would carry over.
 
+### Re-imports leave dead entries in the HNSW index
+
+The .NET implementation of this system found that re-ingesting the corpus enough times
+without a vacuum made an HNSW index scan return fewer rows than its `LIMIT`: an HNSW scan
+collects `hnsw.ef_search` candidates from the graph and only then drops the ones whose heap
+tuples are dead, so once the index is mostly dead entries the candidates are too. Reproduced
+there in psql on pgvector 0.8.6 with autovacuum off, thirty delete-and-reinsert transactions
+of the same 36 rows, index scan returning zero rows against a table holding 36; with
+autovacuum on it was a race the suite lost about one run in four.
+
+The same experiment here, on the same pgvector version (`HnswDeadEntriesTest`, autovacuum
+off on the table, the scan forced through the index because a 36-row table would otherwise
+be read sequentially and hide it):
+
+| write pattern, x30 | live rows | dead tuples | index size | forced index scan returns |
+| --- | --- | --- | --- | --- |
+| this importer: upsert, then retire the old version | 36 | 725 | 200 kB | 8 of 8 |
+| delete everything, reinsert (the report's pattern) | 36 | 864 | 224 kB | 8 of 8 |
+| either, after `VACUUM` | 36 | 0 | unchanged | 8 of 8 |
+
+The starvation did not reproduce with either pattern; the bloat did. Why the scan still
+finds the live rows here and not there is not known -- same extension version, same
+pattern, a different result -- and the honest record is the table, not a theory. What
+changed: the importer now runs `VACUUM vector_store` after each import, outside the
+transaction because Postgres refuses it inside one, which is cheap for a corpus this size
+and takes the daemon's timing out of the question. The first test pins that the table is
+clean after thirty imports; the second keeps the reported pattern under observation, so a
+pgvector upgrade that changes the answer fails a test here rather than returning six
+passages in production.
+
 ### Cross-lingual retrieval
 
 Because both languages are indexed, a Chinese question matches a Chinese passage; same-language

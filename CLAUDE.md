@@ -221,6 +221,13 @@ as the database is concerned.
 - **`java.time.Instant` cannot be bound as a JDBC parameter** by the Postgres driver; pass
   `Timestamp.from(instant)`. The first import wrote its status row that way and failed every
   startup.
+- **The importer vacuums `vector_store` after every import**, outside the transaction. Each
+  import leaves the previous rows as dead tuples whose HNSW entries stay in the index until a
+  vacuum; the .NET implementation saw an index scan return fewer rows than its LIMIT once the
+  index was mostly dead entries. That starvation did not reproduce here on pgvector 0.8.6
+  (`HnswDeadEntriesTest` tries both write patterns thirty times with autovacuum off), but
+  725 dead tuples and a doubled index did. Do not move the `VACUUM` inside the transaction;
+  Postgres refuses it there.
 - **Readiness includes the `corpus` indicator.** A context with `app.rag.import-mode=off` and
   an empty database reports readiness (and `/actuator/health`) DOWN, correctly. Tests that
   assert health is UP need `import-mode=startup`.
