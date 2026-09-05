@@ -16,6 +16,12 @@ This is not a notebook demo. It runs on virtual threads, persists conversation m
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
 Dockerfile and Kubernetes manifests.
 
+**One artifact runs two ways.** The default is all-in-one: a single process, and what the
+benchmark measures. The same jar also runs as three microservices — `chat`, `knowledge` and
+`ticket`, chosen by `APP_TARGET`, with the internal seams becoming HTTP. Both topologies are
+verified in Compose, on kind and in CI; see [One process, or three](#one-process-or-three)
+and [ADR 001](docs/adr/001-deployment-targets.md).
+
 > **Status:** complete, and verified live against Anthropic, OpenAI, Gemini and Grok. The whole
 > suite runs without an API key. One limit is known and written down rather than
 > smoothed over: a multi-intent question can still miss the passage that answers it.
@@ -161,6 +167,8 @@ sequenceDiagram
 
 ### One process, or three
 
+*All-in-one or microservices, from one artifact.*
+
 Everything above is one process, and that is still the default: `docker compose up` and
 `k8s/base` run it, and it is what the benchmark measures. The same jar also runs as three
 roles, selected by `APP_TARGET`, with the seams in the diagram becoming HTTP:
@@ -275,6 +283,28 @@ The image bakes in the embedding model, so a cold start downloads nothing at run
 reaches ready in a few seconds. See [`docs/deployment.md`](docs/deployment.md) for the image
 layout, the Kubernetes manifests in [`k8s/`](k8s/README.md), and why the model is baked in
 rather than mounted.
+
+### As three services instead of one
+
+**Prerequisites:** Docker. No API key: the harness proves retrieval crosses the seam before
+the provider is reached, so a placeholder key is enough.
+
+```bash
+scripts/verify-services.sh          # build, start the four containers, assert, leave it running
+scripts/verify-services.sh --down   # stop and remove it, including the volume
+```
+
+It asserts what only separate processes can show: an importer that runs once and
+exits, readiness that crosses a container boundary, twelve concurrent ticket writes from outside
+the JVM leaving three rows, and — with `knowledge` stopped — a turn that returns `503` rather
+than an ungrounded answer.
+
+The stack it starts is [`docker-compose.services.yml`](docker-compose.services.yml); the same
+split on Kubernetes is `k8s/roles`, checked by `k8s/kind/verify.sh --roles`.
+
+> Both stacks publish Postgres on 5432 and the app on 8080, so the all-in-one stack must be down
+> first — or set `POSTGRES_PORT` and `APP_PORT`. Docker's error for the collision names a port,
+> not the other stack.
 
 ### Running the app from your IDE
 
