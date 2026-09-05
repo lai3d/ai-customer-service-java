@@ -28,7 +28,11 @@ public class LocalKnowledgeSearch implements KnowledgeSearch {
                 .similarityThreshold(query.similarityThreshold())
                 .build();
 
-        return vectorStore.similaritySearch(request).stream()
+        List<org.springframework.ai.document.Document> found = query.version() != null
+                && vectorStore instanceof ActiveVersionVectorStore versioned
+                ? versioned.similaritySearch(request, query.version())
+                : vectorStore.similaritySearch(request);
+        return found.stream()
                 .map(document -> new Passage(document.getId(), document.getText(),
                         document.getScore(), document.getMetadata()))
                 .toList();

@@ -57,6 +57,16 @@ public class FaqIngestionService {
         return String.valueOf(readCorpus().getFirst().getMetadata().get(FaqDocumentReader.METADATA_VERSION));
     }
 
+    /** The bundled entries as written, for the knowledge bootstrap to adopt. */
+    List<FaqEntry> bundledEntries() {
+        try (var in = resourceLoader.getResource(properties.corpusLocation()).getInputStream()) {
+            return objectMapper.readValue(in, FaqCorpus.class).entries();
+        }
+        catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("Failed to read FAQ corpus " + properties.corpusLocation(), e);
+        }
+    }
+
     private List<Document> readCorpus() {
         return new FaqDocumentReader(
                 resourceLoader.getResource(properties.corpusLocation()), objectMapper).get();

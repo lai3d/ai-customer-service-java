@@ -62,6 +62,7 @@ public class CorpusImporter {
     private final RagProperties properties;
     private final ConfigurableApplicationContext context;
     private final ObjectProvider<ExitHandler> exitHandler;
+    private final ObjectProvider<KnowledgeBootstrap> bootstrap;
     private final Timer imported;
     private final Timer alreadyPresent;
     /** Memoised: reading the version parses the bundled corpus, fine once and not per scrape. */
@@ -70,13 +71,14 @@ public class CorpusImporter {
     CorpusImporter(FaqIngestionService ingestion, JdbcTemplate jdbc,
                    PlatformTransactionManager transactionManager, RagProperties properties,
                    ConfigurableApplicationContext context, ObjectProvider<ExitHandler> exitHandler,
-                   MeterRegistry meterRegistry) {
+                   ObjectProvider<KnowledgeBootstrap> bootstrap, MeterRegistry meterRegistry) {
         this.ingestion = ingestion;
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.properties = properties;
         this.context = context;
         this.exitHandler = exitHandler;
+        this.bootstrap = bootstrap;
         // Both outcomes registered up front so the timer exists at zero, the way the tool
         // counters do; a start that skipped the import is a data point, not an absence.
         this.imported = importTimer(meterRegistry, "imported");
@@ -98,6 +100,7 @@ public class CorpusImporter {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @org.springframework.core.annotation.Order(0)
     void onReady() {
         ImportMode mode = properties.importMode() == null ? ImportMode.STARTUP : properties.importMode();
         switch (mode) {
@@ -150,6 +153,9 @@ public class CorpusImporter {
         // propagates, and in `once` mode ends the process non-zero.
         (outcome == Outcome.IMPORTED ? imported : alreadyPresent)
                 .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+        // The bundled corpus becomes the first managed knowledge version the moment it is in
+        // the database, whichever path put it there; readiness reads the active version.
+        bootstrap.ifAvailable(KnowledgeBootstrap::adoptBundledIfPresent);
         return outcome;
     }
 
