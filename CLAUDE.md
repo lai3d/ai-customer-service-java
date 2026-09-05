@@ -119,6 +119,17 @@ model, never by conversation id** — per-conversation tags are unbounded cardin
   output. Neither "keep the last" nor "add them all" is correct — they fail in opposite
   directions. This is a workaround for Spring AI's abstraction, not a property of the protocols;
   on the wire Anthropic sends usage on two frames per call, OpenAI and xAI on one.
+- **`CREATE ... IF NOT EXISTS` is not concurrency-safe in Postgres.** It checks the catalogue
+  and then inserts, with nothing holding the gap, so two replicas starting together collide on
+  `pg_extension_name_index`. `SchemaInitializationLock` takes a `pg_advisory_lock` across
+  `PgVectorStore` and the JDBC chat-memory schema initializer; it matches them **by class
+  name**, so a Spring AI rename silently disables it and `SchemaInitializationLockTest` is what
+  turns that into a build failure. Found by running the k8s manifests on a real cluster —
+  nothing with a concurrency of one can see it.
+- **A pooled `Connection.close()` ends no session.** It returns the connection with its
+  advisory locks intact. A test here took a lock on a pooled connection, closed it, and blocked
+  the next test for 25 minutes until Hikari retired it at `maxLifetime` — both tests green.
+  Anything testing session lifetime needs `DriverManager`, not the pool.
 - **Test config goes in `application-test.yml` with `@ActiveProfiles("test")`.** An
   `application.yml` on the test classpath replaces the main one wholesale rather than merging.
 - **Add `@AutoConfigureObservability`** to any test asserting on metrics; `@SpringBootTest`

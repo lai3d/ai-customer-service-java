@@ -137,7 +137,7 @@ spec:
             # (verified locally -- the equivalent Docker tmpfs needs an explicit `exec`).
             #
             # Note what is NOT here: no volume for the embedding model. It is baked into
-            # the image at /opt/onnx, so a fresh pod does not re-download 87 MB and needs
+            # the image at /opt/onnx, so a fresh pod does not re-download 470 MB and needs
             # no egress to githubusercontent.com. See docs/deployment.md.
             - name: tmp
               mountPath: /tmp

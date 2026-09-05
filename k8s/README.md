@@ -90,8 +90,31 @@ Running the old files through this script fails with
 | --- | --- |
 | The memory limit OOM-killed the pod during startup | The comment above it predicted this failure exactly and then set the number too low anyway. Measured: 2Gi and 2560Mi are OOMKilled; 3Gi starts at 94% of the limit; 4Gi at 70%. Peak plateaus at ~2.8 GiB, steady state is 1.65 GiB. Lowering `-XX:InitialRAMPercentage` does not help — the footprint is native, and heap in use is 0.13 GiB. |
 | `kubectl apply -f k8s/` replaced a working Secret with `REPLACE_ME_*` | This README warned about it in prose one screen above the command, and the warning stopped nothing. The template moved to `examples/`; a directory apply is not recursive. |
-| On a cold database, one replica always loses a `CREATE EXTENSION` race and restarts | **Not fixed.** `CREATE EXTENSION IF NOT EXISTS vector` is not concurrency-safe in Postgres: two replicas starting together, and one gets `duplicate key value violates unique constraint "pg_extension_name_index"`, fails its Spring context, and is restarted. It recovers on the retry because the extension now exists, so the cost is a slower first rollout and a `CrashLoopBackOff`-shaped event every time a fresh database is deployed against. Reproduces on every cold-database run, exactly one replica of two. Only visible with `replicas > 1`, which is why neither the Compose stack nor the Testcontainers suite has ever seen it. The fix is application-level idempotency or provisioning the schema once out of band, not a manifest change — `verify.sh` reports it as `KNOWN` rather than asserting on it. |
+| On a cold database, one replica always loses a `CREATE EXTENSION` race and restarts | **Fixed** by `SchemaInitializationLock`, a `BeanPostProcessor` holding a Postgres advisory lock across the two beans that issue schema DDL. The race is real and is now reproduced deterministically in `SchemaInitializationLockTest` rather than by hoping threads collide: an uncommitted `CREATE EXTENSION` is invisible to another session, so its `IF NOT EXISTS` finds nothing, proceeds, and collides on the catalogue's unique index. Measured cost of the lock: one replica waited 102 ms. Was: |
+| ~~On a cold database, one replica always loses a `CREATE EXTENSION` race~~ | **The original finding, kept because it is the reason the lock exists.** `CREATE EXTENSION IF NOT EXISTS vector` is not concurrency-safe in Postgres: two replicas starting together, and one gets `duplicate key value violates unique constraint "pg_extension_name_index"`, fails its Spring context, and is restarted. It recovers on the retry because the extension now exists, so the cost is a slower first rollout and a `CrashLoopBackOff`-shaped event every time a fresh database is deployed against. Reproduces on every cold-database run, exactly one replica of two. Only visible with `replicas > 1`, which is why neither the Compose stack nor the Testcontainers suite has ever seen it. |
+| Fixing that race removed an accidental stagger, and a capacity problem surfaced | The crash it caused was spacing out the two replicas' 470 MB model loads. With both starting cleanly they load together, and a default single-node kind cluster — 7.75 GiB, with 2 × 4Gi limits on it, 108% of the node — OOM-kills one intermittently. Nothing wrong with the manifests: on a real cluster the replicas land on different nodes. `verify.sh` now checks node capacity up front and says so, because an OOM reported at the end reads as the manifests' fault when it is the laptop's. **A bug can be load-bearing.** |
 | The requests were below the real steady state | 1Gi requested against 1.65 GiB steady, and the peak is at *startup* — so a node packed to requests does not degrade the pod, it crash-loops it. Now 3Gi. |
+
+### Which of these assertions has ever been seen to fail
+
+An assertion nobody has watched go red is a claim. Nine of the twelve have failed in front of
+me: `readyReplicas`, `OOMKilled`, uid, the read-only root filesystem, `/tmp`, ONNX, health,
+readiness and metrics all went red on a run with the original 2Gi limit. Two have not, and are
+listed here rather than counted as evidence:
+
+- **the Secret untouched by a directory apply** — passes, and has never been observed failing
+  since the template moved to `examples/`.
+- **no replica lost the `CREATE EXTENSION` race** — passes with the lock. Forcing it red needs
+  two replicas starting together against a cold database with
+  `app.schema.serialize-initialization=false`, and this machine's single 7.75 GiB kind node
+  cannot hold that reliably: the attempt thrashed the API server into TLS timeouts. The
+  mechanism is proven deterministically in `SchemaInitializationLockTest` instead, which is
+  better evidence than a flaky cluster run would have been — but it is not the same as having
+  watched *this* check fail, and it is not written down as if it were.
+
+Also worth knowing, from watching the OOM run: **`both replicas ready` stayed green while a
+container was being OOM-killed and restarted**. The two checks look redundant and are not — a
+pod can OOM its way to Ready.
 
 Everything else the manifests asserted turned out to be true on a real cluster: uid 10001,
 the read-only root filesystem, `/tmp` being exec-capable enough for ONNX Runtime to

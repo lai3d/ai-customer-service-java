@@ -162,7 +162,7 @@ spring:
     vectorstore:
       pgvector:
         initialize-schema: true
-        # Must match the embedding model's output width (all-MiniLM-L6-v2 = 384).
+        # Must match the embedding model's output width (multilingual-e5-small = 384).
         dimensions: 384
         index-type: hnsw
         # Readable primary keys: documents are keyed "faq:returns-window" rather than an

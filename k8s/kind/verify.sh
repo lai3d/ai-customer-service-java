@@ -19,6 +19,14 @@
 # Written because the manifests were committed unverified and were wrong: the memory limit
 # OOM-killed the pod during startup, and the Secret template was in the directory apply
 # path. Both are regressions this script would now catch.
+#
+# To see the CREATE EXTENSION assertion go red -- worth doing after changing anything near
+# SchemaInitializationLock, because an assertion nobody has watched fail is a claim:
+#
+#   kubectl -n ai-customer-service set env deploy/ai-customer-service \
+#     APP_SCHEMA_SERIALIZE_INITIALIZATION=false
+#   kubectl -n ai-customer-service delete pod -l app.kubernetes.io/component=app
+#   # then drop the schema so the cold path is exercised, and re-run this script
 set -euo pipefail
 
 CLUSTER=${CLUSTER:-ai-cs}
@@ -30,6 +38,13 @@ PASS=0; FAIL=0
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32mPASS\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }
+# Every caller that needs a pipeline wraps it in `sh -c`, and that is load-bearing rather
+# than stylistic: `set -o pipefail` is a shell option, not an environment variable, so a
+# fresh `sh` starts with it off and the pipeline reports grep's status. Run the same
+# pipeline in *this* shell and pipefail turns a match into a failure -- grep -q exits at the
+# first hit, the producer takes SIGPIPE and exits 141. Verified both ways with a producer
+# that keeps writing after the match; a short one completes first and hides it. Moving a
+# pipeline out of `sh -c` here silently inverts the check.
 check(){ local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi; }
 
 if [[ ${1:-} == --down ]]; then kind delete cluster --name "$CLUSTER"; exit 0; fi
@@ -49,6 +64,28 @@ else
   docker build -t "$IMAGE" "$ROOT"
 fi
 kind load docker-image "$IMAGE" --name "$CLUSTER"
+
+# Does this machine have room for what the manifests ask for? A kind cluster is one node,
+# so both replicas land on it and their limits are added together -- 2 x 4Gi against a
+# Docker VM that is 7.75 GiB by default is 108% of the node. The pods schedule anyway,
+# because requests fit, and then the kernel kills one while both are loading the 470 MB
+# ONNX model.
+#
+# This is worth checking up front rather than reporting as an OOM at the end, because it is
+# a property of the laptop and not of the manifests -- and an assertion that blames the
+# manifests for the machine is worse than no assertion. It stayed hidden until the
+# CREATE EXTENSION race was fixed: the crash it caused was staggering the two model loads.
+say "capacity"
+node_gib=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
+node_gib=$((node_gib / 1024 / 1024))
+want_gib=$(( $(kubectl create -f "$ROOT/k8s/deployment.yaml" --dry-run=client -o \
+             jsonpath='{.spec.replicas}') * 4 + 1 ))
+printf '  node allocatable %s GiB, manifests want about %s GiB with Postgres\n' "$node_gib" "$want_gib"
+if [[ $node_gib -lt $want_gib ]]; then
+  printf '  \033[33mNOTE\033[0m this node cannot hold both replicas at their limits. Any OOMKill\n'
+  printf '       below is this machine, not the manifests -- give Docker more memory, or\n'
+  printf '       scale to one replica to check everything else.\n'
+fi
 
 say "deploy"
 kubectl apply -f "$ROOT/k8s/namespace.yaml"
@@ -91,9 +128,11 @@ if kubectl -n "$NS" get secret ai-customer-service-secrets \
   bad "the directory apply overwrote the Secret with placeholders"
 else ok "the directory apply left the Secret alone"; fi
 
-# A known defect, reported rather than asserted. Making it a FAIL would leave this
-# harness permanently red, and a check that is always red is a check people stop reading.
-# Making it a PASS would be a lie. See "What running them found" in k8s/README.md.
+# This was a KNOWN line reporting an unfixed defect until SchemaInitializationLock took an
+# advisory lock across the schema-creating beans. It is an assertion now because the race
+# is supposed to be gone -- and because the lock matches its targets by class name, which
+# a Spring AI rename would silently defeat. A unit test catches the rename; this catches
+# everything else that could stop the lock working on a real two-replica rollout.
 #
 # `grep -c`, not `grep -q`, and the `|| true` is load-bearing. Under `set -o pipefail`,
 # `kubectl logs | grep -q` fails *because it matched*: grep exits at the first hit, kubectl
@@ -105,8 +144,10 @@ for p in $(kubectl -n "$NS" get pods -l app.kubernetes.io/component=app -o name)
   hits=$(kubectl -n "$NS" logs "$p" --previous 2>/dev/null | grep -c pg_extension_name_index || true)
   if [[ ${hits:-0} -gt 0 ]]; then raced=$((raced + 1)); fi
 done
-if [[ $raced -gt 0 ]]; then
-  printf '  \033[33mKNOWN\033[0m %s replica(s) lost the CREATE EXTENSION race on a cold database and restarted\n' "$raced"
+if [[ $raced -eq 0 ]]; then
+  ok "no replica lost the CREATE EXTENSION race"
+else
+  bad "$raced replica(s) lost the CREATE EXTENSION race -- SchemaInitializationLock is not holding"
 fi
 
 check "runs as uid 10001"        sh -c "kubectl -n $NS exec $POD -- id -u | grep -qx 10001"
