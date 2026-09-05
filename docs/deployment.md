@@ -312,8 +312,10 @@ APP_TARGET=chat KNOWLEDGE_URL=http://localhost:8081 TICKET_URL=http://localhost:
 ```
 
 The operations admin lives in the `chat` process: `/admin` and `/admin/api/**` are served
-there, staff sessions are rows every `chat` replica reads, and ticket changes reach the
-`ticket` process over `/internal/v1/ticket-workflow` with the same token. `ADMIN_SEED_*` and
+there, staff sessions are rows every `chat` replica reads, ticket changes reach the
+`ticket` process over `/internal/v1/ticket-workflow`, and knowledge edits and publications
+reach the `knowledge` process over `/internal/v1/knowledge-admin`, both with the same token.
+A publication embeds on the knowledge role, which is where the model is. `ADMIN_SEED_*` and
 `ADMIN_SESSION_TIMEOUT` are read by `chat` only.
 
 What to expect: `chat`'s `/actuator/health/readiness` is `DOWN` until `knowledge` reports its

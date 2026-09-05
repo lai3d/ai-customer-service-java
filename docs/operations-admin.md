@@ -1,10 +1,12 @@
 # Operations admin
 
-Status: the first slice is built and merged -- staff login and the ticket loop, PRs #22, #24
-and #26 on 2026-09-05. This document is in two parts. The record of what was built, where it
-departs from the proposal and what was found while building it comes first. The proposal as
-reviewed in PR #16 follows, kept as written, because the departures only mean something
-against the text they depart from.
+Status: built and merged, in two rounds. The first slice -- staff login and the ticket loop
+-- landed as PRs #22, #24 and #26 on 2026-09-05; the rest of the proposal's first release --
+the turn record, conversations, answer feedback, knowledge editing and publication, and the
+overview -- as PRs #28, #30, #31, #33, #34 and #35 on 2026-09-06, with #32 fixing the test
+infrastructure in between. This document is in three parts: the record of the first round,
+the record of the second, and then the proposal as reviewed in PR #16, kept as written,
+because the departures only mean something against the text they depart from.
 
 ## The record (2026-09-05)
 
@@ -143,6 +145,99 @@ admin has signed in, accounts are created in the page. On Kubernetes the two go 
 Secret as the API key; see [Deployment](deployment.md#kubernetes). If the first admin's
 password is lost, delete its row and restart with the seed set, or insert a row by hand with
 a bcrypt hash carrying the `{bcrypt}` prefix.
+
+## The record, second round (2026-09-06)
+
+### What was decided
+
+On 2026-09-06 the owner asked for every remaining slice ("后续切片都做了吧"). Two premises
+were stated and not objected to: the bundled corpus stays untouched, since it is the fixture
+the Java and Go retrieval numbers are compared on, so managed knowledge lives in new tables
+and the bundled file is only ever adopted as a version; and each PR merges when its CI is
+green without a separate ask. Asked whether the front end should now be separated, the owner
+kept the static page over JSON: the interface is separated, the deployment is not.
+
+### What was built
+
+| Piece | Where | PR |
+| --- | --- | --- |
+| The turn record: `conversation_turn`, `turn_retrieval`, `turn_tool_call`, written at the service boundary on both chat paths; the first row before the model and able to refuse the turn; outcomes `completed`, `failed`, `interrupted`, `unknown`; a sweeper for what a dead process left `running` | `chat/TurnRecorder`, `chat/TurnRecordSweeper`, `V7` | [#28](https://github.com/lai3d/ai-customer-service-java/pull/28) |
+| Conversations in the admin: a list from the record with turn counts and outcomes, filters by id, outcome and time; a conversation as its turns with retrieval, tools, cost, trace, failure; views recorded | `chat/TurnRecords`, `admin/AdminConversationController` | [#30](https://github.com/lai3d/ai-customer-service-java/pull/30) |
+| Answer feedback: a flag on a recorded turn, handled with a required conclusion or dismissed, once, versioned; on the conversation detail and in a list | `admin/AnswerFeedback`, `V8` | [#31](https://github.com/lai3d/ai-customer-service-java/pull/31) |
+| One Postgres container per test JVM, a database per context | `PostgresTestcontainer` | [#32](https://github.com/lai3d/ai-customer-service-java/pull/32) |
+| The knowledge model: entries, per-language revisions (`draft`, `published`, `superseded`), versions as immutable snapshots with a `corpus_version` in the vector store, one active row switched under a lock with an expected-version check, rollback, retention of the newest three, the bundled corpus adopted without re-embedding, retrieval confined to the active version through a `VectorStore` decorator, readiness on the active version | `rag/api/KnowledgeAdmin`, `rag/JdbcKnowledgeAdmin`, `rag/ActiveVersionVectorStore`, `rag/KnowledgeBootstrap`, `V9` | [#33](https://github.com/lai3d/ai-customer-service-java/pull/33) |
+| Knowledge in the admin: drafts for staff, retire, publish and rollback for admins, publication as a `202` job polled through the version row, preview against any retained version, the `/internal/v1/knowledge-admin` seam for the split, publications and rollbacks in `admin_audit`, a handled flag naming the revision that fixed it | `admin/AdminKnowledgeController`, `rag/KnowledgeAdminController`, `clients/HttpKnowledgeAdmin`, `V10` | [#34](https://github.com/lai3d/ai-customer-service-java/pull/34) |
+| The overview: turns by outcome with a failure rate that leaves interruptions out, tokens with unmetered turns counted apart, tickets by state with minutes to first claim and to resolution, flags, the knowledge base's state, what staff did; every number with its definition | `admin/AdminOverview` | [#35](https://github.com/lai3d/ai-customer-service-java/pull/35) |
+
+Every piece works in both topologies: what a `chat` process cannot do locally it does over
+the seams (`/internal/v1/ticket-workflow`, `/internal/v1/knowledge-admin`, and the
+existing search seam, which now takes a version), and `TopologyParityTest` drives each of
+them from the chat process against the other processes' rows.
+
+### Where it departs from the proposal
+
+| The proposal said | What was built | Why |
+| --- | --- | --- |
+| Persist a stable turn id with outcome, both chat paths; distinguish completed, failed, interrupted and incompletely recorded | Done as written, with `unknown` as the name for "incompletely recorded": a row still `running` past the turn lease, marked by the sweeper at startup and every minute | Nothing knows how such a turn ended, and a name that says so is better than a guess |
+| Store customer-visible messages and the knowledge versions referenced, with snapshots | Question and answer are snapshots on the turn; retrieval rows carry entry, language and score. The corpus version is in the passages' metadata but not yet on the retrieval row | One column, when a turn needs to be tied to a version; the rows already say what was found |
+| Retention policies for memory and records, decided before implementation | Not decided. `conversation_turn` is customer text and is subject to whatever retention memory gets; the record says so in its migration | A retention decision is the owner's; the tables are built so it can be one statement |
+| Bind feedback to a turn and optionally to a knowledge revision and conclusion | Done, with the revision link arriving one PR after the flag, once revisions existed | Order of construction |
+| Publication as a job with `202`, the page polling | Done; the version row is the job, there is no separate job table | One row already had every state a job needs |
+| Pin each retrieval to a version and record it with the turn; requests started before a switch keep reading the previous version | Retrieval filters by the active version at query time, and a switch is one row; a request that started before the switch reads the version it started on because its search already ran. Deleting a retired version's documents waits for retention, which never touches the active or the newest three | Same guarantee, no reservation bookkeeping |
+| Initial migration from the bundled FAQ to the first managed version; restarts must not overwrite operator-maintained content | The bundled corpus is adopted as a version without re-embedding; a newer bundled corpus on upgrade becomes `ready`, not active, and never overwrites managed text | `faq.json` stays the comparison fixture |
+| Three roles | Still two; drafts for everyone signed in, retire, publish and rollback for admins | Nothing in this slice needed a third |
+| An overview starting with volume, failure rate, feedback volume, pending tickets and model usage; satisfaction, resolution and takeover rates only after the events exist | As written, and cost is left to the meters | The proposal's own rule, kept |
+
+### What was found
+
+- **The CI ceiling was Postgres containers, not the model.** #30's job was killed the way
+  #22's was, at the same class, with every test green. Each cached Spring test context
+  started its own Postgres container and kept it for the JVM's life, so a run held about
+  fifteen servers beside fifteen embedding models. One container per JVM with a database per
+  context (#32) took the suite from over two minutes to under a minute locally and removed
+  the ceiling; the next wall was Postgres's default of 100 clients, since every cached pool
+  stays open, so the container allows 500 and pools idle at one. CLAUDE.md's first version
+  of this finding blamed the ONNX session; it is corrected.
+- **CI's test order is not this machine's.** A `DELETE FROM conversation_turn` in one test's
+  setup passed locally and tripped a foreign key in CI because the feedback test had run first
+  there and left flags pointing at turns. Shared-context tests delete in dependency order now.
+- **A test that publishes must not share a database with tests that measure retrieval.** The
+  first run of the knowledge test, in the retrieval tests' context, changed their row counts
+  and their document ids. It has its own context, deliberately, which the container fix made
+  affordable.
+- **`doFinally` runs after the terminal signal has been handed downstream.** Finishing the turn
+  record there let a client that blocked for the end of the stream read the row before it was
+  written; the test found it as a race on its second run. The record is finished on
+  `doOnComplete`, `doOnError` and `doOnCancel`, which run before the signal is propagated.
+- **Spring AI reports a failed model stream as "Stream processing failed"** and keeps the
+  provider's reason one level down. The recorded failure carries both.
+- **`findFirst` refuses a null.** The one row of `knowledge_active` has a null version until
+  something is active; reading it with a stream broke every context with no active version.
+  Filtered rather than found.
+- **A decorator bean makes an auto-configuration back off.** Wrapping the pgvector store to
+  confine searches to the active version could not be a `VectorStore` bean of its own, since
+  `PgVectorStoreAutoConfiguration` would then have had nothing to wrap; a
+  `BeanPostProcessor` wraps the auto-configured bean in place.
+- **A publication started off the request thread can be polled before its row exists.** The
+  first API test waited for "no version building" and returned at once. The wait is for the
+  publication's own row to appear and settle.
+
+### What is not built
+
+- Retention for `conversation_turn` and chat memory: a decision, then one statement.
+- The corpus version on a turn's retrieval rows.
+- Disabling an account, changing a role, resetting a password.
+- The Go side's `docs/operations.md` records the deliberate differences between the two
+  implementations; that document, not this one, is where the comparison lives.
+
+### Operating it
+
+Nothing new in the environment. A `knowledge` process now also serves
+`/internal/v1/knowledge-admin` and a `ticket` process `/internal/v1/ticket-workflow`, both
+behind the same bearer token and reachable only from `chat` pods under the roles
+NetworkPolicy. Publishing embeds every managed entry in every language on the knowledge
+role; for the bundled corpus that is 36 documents and about a second. Retained versions
+keep their documents in `vector_store`; retention removes them after the newest three.
 
 ---
 
