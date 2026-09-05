@@ -1,0 +1,35 @@
+# What Compose's prometheus.yml and prometheus-roles.yml say with static targets, said once for
+# both Kubernetes layouts: scrape /actuator/prometheus every 15 s on every Service that the
+# base or the roles layout creates. The pods' prometheus.io/* annotations are for a Prometheus
+# configured with the annotation convention; the operator ignores annotations and reads this.
+#
+# The dashboards split every panel by a `role` label -- chat, knowledge, ticket, or `all` for
+# the single process in Compose -- so the Service's component label is copied into `role`, and
+# into `job` too, which is what the two Compose files set by hand. The base's single process
+# is therefore role="app", after its component label, where Compose calls it "all"; the
+# dashboards' variable lists whichever values exist.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ai-customer-service
+  namespace: ai-customer-service
+  labels:
+    app.kubernetes.io/name: ai-customer-service-java
+    app.kubernetes.io/component: observability
+spec:
+  # The label every Service in k8s/base and k8s/roles carries. Selecting on it rather than on
+  # a name is what lets one monitor cover one Service or three.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-customer-service-java
+  namespaceSelector:
+    matchNames:
+      - ai-customer-service
+  jobLabel: app.kubernetes.io/component
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+          targetLabel: role

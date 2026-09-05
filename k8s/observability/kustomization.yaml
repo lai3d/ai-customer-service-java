@@ -1,0 +1,26 @@
+# The application's observability as Kubernetes objects, for a cluster running
+# kube-prometheus-stack (the prometheus-operator plus Grafana with the dashboard sidecar):
+#
+#   kubectl apply -k k8s/observability
+#
+# One ServiceMonitor covers both layouts -- it selects every Service the base and the roles
+# layout create by the label they share -- and a PrometheusRule and two dashboard ConfigMaps
+# carry exactly what observability/ carries for Compose. Needs the monitoring.coreos.com CRDs,
+# which is why k8s/kind/verify.sh only builds this overlay and does not apply it: the operator
+# is not installed on the throwaway cluster, and an apply there would fail on the CRDs before
+# saying anything about the objects.
+#
+# The rule and the dashboards are copies, and deliberately not references. Kustomize refuses
+# any file outside the kustomization's own directory, so `../../observability/...` is a hard
+# error rather than a shortcut. scripts/render-k8s-observability.sh writes the three generated
+# files from the sources under observability/, and ObservabilityManifestsTest fails whenever
+# a copy differs from its source -- so a threshold or a panel changed on one side cannot be
+# quietly different on the other. servicemonitor.yaml is the only file here written by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - servicemonitor.yaml
+  - prometheus-rule.yaml
+  - dashboard-customer-service.yaml
+  - dashboard-customer-service-roles.yaml

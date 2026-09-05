@@ -169,6 +169,12 @@ overlapping-turn refusals.
 Prometheus rules rather than Grafana's, because they live in git, `promtool check rules` can
 check them in CI, and the same file is what a `PrometheusRule` carries on a cluster.
 
+On Kubernetes the same rules and dashboards are `k8s/observability`, a Kustomize overlay for
+kube-prometheus-stack: a `ServiceMonitor`, a `PrometheusRule` and one ConfigMap per dashboard.
+The rule and the ConfigMaps are copies rendered by `scripts/render-k8s-observability.sh`,
+because Kustomize cannot reach this directory from there; `ObservabilityManifestsTest` fails if
+a copy and its source differ. See [k8s/README.md](../k8s/README.md#observability).
+
 ## Pull or push
 
 Prometheus pulling `/actuator/prometheus` is the default and needs nothing between the

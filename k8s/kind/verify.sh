@@ -239,6 +239,7 @@ else bad "the $OVERLAY overlay modifies $SOURCE -- the assertions below would no
 check "the example overlay builds"  command kubectl kustomize "$ROOT/k8s/overlays/example"
 check "the base layout builds"      command kubectl kustomize "$ROOT/k8s/base"
 check "the roles layout builds"     command kubectl kustomize "$ROOT/k8s/roles"
+check "the observability overlay builds" command kubectl kustomize "$ROOT/k8s/observability"
 
 say "deploy"
 kubectl apply -f "$ROOT/k8s/base/namespace.yaml"
