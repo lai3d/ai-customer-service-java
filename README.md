@@ -7,9 +7,10 @@
 [![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-The Java implementation of an AI customer service backend, built on **Spring Boot 3.5**,
-**Spring AI 1.1**, and **Anthropic Claude**, with retrieval-augmented answers over an FAQ corpus, tool calling for real
-business actions, SSE streaming, and first-class observability.
+The Java implementation of an AI customer service backend, built on **Spring Boot 3.5** and
+**Spring AI 1.1**, with retrieval-augmented answers over an FAQ corpus, tool calling for real
+business actions, SSE streaming, and first-class observability. The chat model is a
+configuration choice — **Claude, GPT, Gemini or Grok** — with Claude as the default.
 
 This is not a notebook demo. It runs on virtual threads, persists conversation memory and vectors in
 the same Postgres instance, exports Prometheus metrics for every model call, and ships with a
@@ -172,7 +173,7 @@ sequenceDiagram
 | Runtime | JDK 21, virtual threads (`spring.threads.virtual.enabled=true`) |
 | Framework | Spring Boot 3.5.16, Spring MVC |
 | AI | Spring AI 1.1.8 — `ChatClient` + advisor chain |
-| Chat model | Anthropic Claude (`claude-opus-5` by default) |
+| Chat model | Anthropic Claude (`claude-opus-5`) by default; OpenAI, Google Gemini or xAI Grok by configuration |
 | Embeddings | Spring AI Transformers — `multilingual-e5-small` ONNX, in-process |
 | Vector store | pgvector |
 | Memory | Spring AI JDBC chat memory repository |

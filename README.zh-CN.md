@@ -7,9 +7,9 @@
 [![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-一个 AI 智能客服后端的 Java 实现，基于 **Spring Boot 3.5**、**Spring AI 1.1** 和
-**Anthropic Claude**：基于 FAQ 语料的检索增强回答、面向真实业务动作的工具调用、SSE 流式输出，
-以及一等公民级别的可观测性。
+一个 AI 智能客服后端的 Java 实现，基于 **Spring Boot 3.5** 和 **Spring AI 1.1**：
+基于 FAQ 语料的检索增强回答、面向真实业务动作的工具调用、SSE 流式输出，以及一等公民级别的可观测性。
+对话模型是一个配置项——**Claude、GPT、Gemini 或 Grok**——默认是 Claude。
 
 这不是一个 notebook demo。它跑在虚拟线程上，会话记忆和向量存在同一个 Postgres 实例里，
 每一次模型调用都导出 Prometheus 指标，并附带 Dockerfile 和 Kubernetes 清单。
@@ -164,7 +164,7 @@ sequenceDiagram
 | 运行时 | JDK 21，虚拟线程（`spring.threads.virtual.enabled=true`） |
 | 框架 | Spring Boot 3.5.16，Spring MVC |
 | AI | Spring AI 1.1.8 — `ChatClient` + advisor 链 |
-| 对话模型 | Anthropic Claude（默认 `claude-opus-5`） |
+| 对话模型 | 默认 Anthropic Claude（`claude-opus-5`）；可配置切换到 OpenAI、Google Gemini 或 xAI Grok |
 | 嵌入 | Spring AI Transformers — `multilingual-e5-small` ONNX，进程内 |
 | 向量库 | pgvector |
 | 记忆 | Spring AI JDBC chat memory repository |
