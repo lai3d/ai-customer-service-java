@@ -1,0 +1,40 @@
+# What a real deployment changes, expressed as an overlay instead of as an edit to a tracked
+# file. Copy this directory, point it at your registry and your database, and apply it:
+#
+#   kubectl apply -k k8s/overlays/mine
+#
+# The base stays exactly as committed, so `git diff` on k8s/*.yaml keeps meaning "someone
+# changed the system" rather than "someone deployed it". That distinction is the whole
+# reason this exists: the previous instruction was "edit deployment.yaml and configmap.yaml
+# before applying", and an instruction to hand-edit a tracked file is a drift generator.
+#
+# This overlay is an example and is not applied by anything. It is checked, though --
+# k8s/kind/verify.sh builds it, because an example that stopped building would be worse than
+# no example.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Replace the image without touching deployment.yaml. Prefer a digest over a tag in anything
+# you care about: `newTag` still lets the contents change under you, `digest` does not.
+images:
+  - name: ghcr.io/lai3d/ai-customer-service-java
+    newName: registry.example.com/team/ai-customer-service-java
+    newTag: "0.1.0"
+
+# Point at your managed Postgres. A patch rather than a configMapGenerator on purpose: a
+# generator would replace the whole ConfigMap, silently dropping the graceful-shutdown and
+# ingest settings the base sets and the comments explaining why they are there.
+patches:
+  - target:
+      kind: ConfigMap
+      name: ai-customer-service-config
+    patch: |
+      - op: replace
+        path: /data/POSTGRES_HOST
+        value: ai-customer-service.abc123.ap-southeast-1.rds.amazonaws.com
+      - op: replace
+        path: /data/POSTGRES_DB
+        value: csagent_production

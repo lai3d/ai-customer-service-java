@@ -1,0 +1,16 @@
+# The kind harness: the base, plus the one thing the base deliberately does not ship.
+#
+# It patches nothing, and that is the point rather than an oversight. This overlay exists so
+# verify.sh can apply the manifests a real cluster would get, unmodified -- a harness that
+# quietly lowers the replica count or the memory limit to fit a laptop verifies the patch and
+# not the file anyone else will use. When the node cannot hold what the base asks for, the
+# right answer is the capacity NOTE verify.sh prints, not a smaller number here.
+#
+# `verify.sh` asserts that: it diffs this build against the base build and fails if anything
+# but the added Postgres differs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../base
+  - postgres.yaml
