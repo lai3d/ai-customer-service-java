@@ -57,7 +57,19 @@ check(){ local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"
 # that runs, reports nothing, and puts back the wrong value.
 kubectl() { command kubectl --context "kind-$CLUSTER" "$@"; }
 ORIGINAL_CONTEXT=$(command kubectl config current-context 2>/dev/null || true)
-trap '[[ -n $ORIGINAL_CONTEXT ]] && command kubectl config use-context "$ORIGINAL_CONTEXT" >/dev/null 2>&1 || true' EXIT
+PF=""
+
+# One EXIT trap, because `trap ... EXIT` replaces the previous handler rather than adding to
+# it. This script had two -- context restore here, port-forward cleanup later -- and the
+# second silently disabled the first, so the restore never ran and the context was left
+# pointing at the kind cluster. Caught by printing the context before and after, which is the
+# only reason it was ever noticed: nothing errors when a trap is overwritten.
+cleanup() {
+  [[ -n $PF ]] && kill "$PF" 2>/dev/null
+  [[ -n $ORIGINAL_CONTEXT ]] && command kubectl config use-context "$ORIGINAL_CONTEXT" >/dev/null 2>&1
+  true
+}
+trap cleanup EXIT
 
 if [[ ${1:-} == --down ]]; then kind delete cluster --name "$CLUSTER"; exit 0; fi
 
@@ -92,7 +104,22 @@ say "capacity"
 # hardcodes the limit it is checking keeps passing after someone changes the limit -- which is
 # the failure this whole harness exists to catch, and it was in this function until a parallel
 # session hit the same shape in theirs and said so.
+# Allocatable minus what everything else has already reserved. Comparing against
+# allocatable alone passes on a node that is already full and keeps passing right up until a
+# pod goes Pending -- which is the failure this check exists to pre-empt. Found by the
+# parallel session running its copy while a stray namespace of mine sat on its node: 81% of
+# requests taken, and its brand-new precheck said fine.
 node_ki=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
+reserved_mib=$(command kubectl --context "kind-$CLUSTER" get pods -A \
+  -o jsonpath="{range .items[?(@.metadata.namespace!='$NS')]}{range .spec.containers[*]}{.resources.requests.memory}{'\n'}{end}{end}" 2>/dev/null \
+  | python3 -c "
+import re, sys
+total = 0
+for line in sys.stdin:
+    m = re.match(r'(\d+)(Gi|Mi|Ki|G|M|K)?\s*\$', line.strip())
+    if m:
+        total += int(m.group(1)) * {'Gi':1024,'Mi':1,'Ki':1/1024,'G':954,'M':1,'K':1/1024,None:1/1048576}[m.group(2)]
+print(int(total))" 2>/dev/null || echo 0)
 spec=$(command kubectl create -f "$ROOT/k8s/base/deployment.yaml" --dry-run=client -o \
          jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].resources.limits.memory}')
 replicas=${spec%% *}; limit=${spec##* }
@@ -106,10 +133,12 @@ v=sys.argv[1]; m=re.match(r'(\d+)(Gi|Mi|G|M)?$', v)
 u={'Gi':1024,'Mi':1,'G':954,'M':1}[m.group(2) or 'Mi']
 print(int(m.group(1))*u)" "$limit")
 node_mib=$((node_ki / 1024))
+free_mib=$((node_mib - ${reserved_mib:-0}))
 want_mib=$((replicas * limit_mib + 1024))
-printf '  node allocatable %s MiB; %s replicas x %s = %s MiB, plus Postgres\n' \
-       "$node_mib" "$replicas" "$limit" "$want_mib"
-if [[ $node_mib -lt $want_mib ]]; then
+printf '  node allocatable %s MiB, %s MiB reserved by other namespaces, %s MiB free\n' \
+       "$node_mib" "${reserved_mib:-0}" "$free_mib"
+printf '  %s replicas x %s = %s MiB wanted, plus Postgres\n' "$replicas" "$limit" "$want_mib"
+if [[ $free_mib -lt $want_mib ]]; then
   printf '  \033[33mNOTE\033[0m this node cannot hold both replicas at their limits. Any OOMKill\n'
   printf '       below is this machine, not the manifests -- give Docker more memory, or\n'
   printf '       scale to one replica to check everything else.\n'
@@ -217,7 +246,7 @@ check "ONNX unpacked its native library into /tmp" \
       sh -c "kubectl -n $NS exec $POD -- ls /tmp | grep -q onnxruntime-java"
 
 kubectl -n "$NS" port-forward svc/ai-customer-service 18080:8080 >/dev/null 2>&1 &
-PF=$!; trap 'kill $PF 2>/dev/null || true' EXIT
+PF=$!
 sleep 4
 
 check "health is UP through the Service" \
