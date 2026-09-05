@@ -91,6 +91,24 @@ if kubectl -n "$NS" get secret ai-customer-service-secrets \
   bad "the directory apply overwrote the Secret with placeholders"
 else ok "the directory apply left the Secret alone"; fi
 
+# A known defect, reported rather than asserted. Making it a FAIL would leave this
+# harness permanently red, and a check that is always red is a check people stop reading.
+# Making it a PASS would be a lie. See "What running them found" in k8s/README.md.
+#
+# `grep -c`, not `grep -q`, and the `|| true` is load-bearing. Under `set -o pipefail`,
+# `kubectl logs | grep -q` fails *because it matched*: grep exits at the first hit, kubectl
+# takes SIGPIPE and exits 141, and pipefail reports the pipeline as failed. This check
+# silently reported nothing on a cluster where the race had definitely happened -- the
+# detector broke in exactly the case it existed for.
+raced=0
+for p in $(kubectl -n "$NS" get pods -l app.kubernetes.io/component=app -o name); do
+  hits=$(kubectl -n "$NS" logs "$p" --previous 2>/dev/null | grep -c pg_extension_name_index || true)
+  if [[ ${hits:-0} -gt 0 ]]; then raced=$((raced + 1)); fi
+done
+if [[ $raced -gt 0 ]]; then
+  printf '  \033[33mKNOWN\033[0m %s replica(s) lost the CREATE EXTENSION race on a cold database and restarted\n' "$raced"
+fi
+
 check "runs as uid 10001"        sh -c "kubectl -n $NS exec $POD -- id -u | grep -qx 10001"
 check "root filesystem read-only" sh -c "kubectl -n $NS exec $POD -- sh -c 'touch /nope' 2>&1 | grep -q 'Read-only'"
 check "/tmp is writable"          kubectl -n "$NS" exec "$POD" -- sh -c 'touch /tmp/.probe && rm /tmp/.probe'
