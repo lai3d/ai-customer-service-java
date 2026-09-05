@@ -24,7 +24,8 @@ Testcontainers.
 
 docker compose up -d postgres                   # database only, for running from an IDE
 set -a && source .env && set +a && ./mvnw spring-boot:run
-docker compose up -d                            # full stack: Postgres, the Grafana stack, the app
+docker compose up -d                            # Postgres and the app
+COMPOSE_PROFILES=observability docker compose up -d   # plus Tempo, Prometheus, Loki, Alloy, Grafana
 
 ./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'   # opt-in benchmark
 

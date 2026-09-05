@@ -19,8 +19,12 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 COMPOSE=(docker compose -f "$ROOT/docker-compose.services.yml")
+# The Grafana stack is optional in the file and required by the pipeline assertions below.
+# Set as an environment variable rather than --profile, because the app's trace export reads
+# COMPOSE_PROFILES too: that is what keeps export off when nobody asked for the stack.
+export COMPOSE_PROFILES=observability
 if [[ ${COLLECTOR:-0} == 1 ]]; then
-  COMPOSE+=(--profile collector)
+  export COMPOSE_PROFILES=observability,collector
   export OTLP_TRACING_ENDPOINT=http://otel-collector:4318/v1/traces
   export OTLP_METRICS_EXPORT_ENABLED=true
   export OTLP_METRICS_ENDPOINT=http://otel-collector:4318/v1/metrics

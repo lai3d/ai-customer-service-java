@@ -440,13 +440,14 @@ model comes from `file:` — but the directory has to be creatable.
 
 ## Tracing
 
-`docker compose up` also starts the Grafana stack -- Tempo for traces, Prometheus for metrics,
-Loki and Alloy for logs, Grafana in front -- and points the application's OTLP exporter at
-Tempo. The application-side variables:
+`COMPOSE_PROFILES=observability docker compose up` also starts the Grafana stack -- Tempo for
+traces, Prometheus for metrics, Loki and Alloy for logs, Grafana in front -- and points the
+application's OTLP exporter at Tempo. Without the profile, `docker compose up` is Postgres
+and the application and export stays off. The application-side variables:
 
 | Variable | Compose sets | Notes |
 | --- | --- | --- |
-| `OTLP_TRACING_EXPORT_ENABLED` | `true` | Off by default, so running the app without a collector does not log export failures on every span |
+| `OTLP_TRACING_EXPORT_ENABLED` | `true` with the profile, unset without | Follows `COMPOSE_PROFILES`, so the app never exports into a backend that is not running |
 | `OTLP_TRACING_ENDPOINT` | `http://tempo:4318/v1/traces` | OTLP/HTTP traces endpoint; the `collector` profile points it at the Collector instead |
 | `OTLP_METRICS_EXPORT_ENABLED` | unset (`false`) | Push metrics over OTLP as well as serving them for pull; only with the `collector` profile |
 | `TRACING_SAMPLE_RATE` | `1.0` | Spring Boot's default is `0.1`; lower this deliberately under real traffic |

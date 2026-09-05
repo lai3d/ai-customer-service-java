@@ -65,7 +65,7 @@ class ComposeEnvironmentTest {
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
         List<String> declared = matcher.results().map(result -> result.group(1)).distinct()
                 // Host-port knobs Compose itself reads; they never need to reach the container.
-                .filter(name -> !Set.of("GRAFANA_PORT", "PROMETHEUS_PORT", "OTLP_HTTP_PORT").contains(name))
+                .filter(name -> !Set.of("GRAFANA_PORT", "PROMETHEUS_PORT", "OTLP_HTTP_PORT", "COMPOSE_PROFILES").contains(name))
                 .toList();
 
         assertThat(declared).as("sanity: .env.example should document something").isNotEmpty();
@@ -94,7 +94,7 @@ class ComposeEnvironmentTest {
         Matcher matcher = DECLARED.matcher(Files.readString(ENV_EXAMPLE));
         Set<String> declared = matcher.results().map(result -> result.group(1)).collect(Collectors.toSet());
         // Compose-only knobs, and the two the file sets for the reader rather than passing through.
-        declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "OTLP_HTTP_PORT", "GRAFANA_PORT", "PROMETHEUS_PORT",
+        declared.removeAll(Set.of("APP_PORT", "APP_IMAGE", "OTLP_HTTP_PORT", "GRAFANA_PORT", "PROMETHEUS_PORT", "COMPOSE_PROFILES",
                 "KNOWLEDGE_URL", "TICKET_URL", "APP_TARGET", "APP_RAG_IMPORT_MODE"));
 
         Set<String> chat = servicesEnvironment("chat").keySet();
@@ -130,7 +130,9 @@ class ComposeEnvironmentTest {
         @SuppressWarnings("unchecked")
         List<String> entries = (List<String>) composeService("app").get("environment");
 
-        assertThat(entries).contains("OTLP_TRACING_EXPORT_ENABLED=true");
+        // Export follows the profile that starts Tempo: on when COMPOSE_PROFILES is set,
+        // unset otherwise, so `docker compose up` alone never exports into nothing.
+        assertThat(entries).contains("OTLP_TRACING_EXPORT_ENABLED=${COMPOSE_PROFILES:+true}");
         // Overridable, so the Collector profile can redirect it, but the default that applies
         // with nothing set must be the compose alias: localhost inside the app container is
         // the app container.
