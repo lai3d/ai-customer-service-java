@@ -59,7 +59,7 @@ Most of what is worth reading here is a measurement or a mistake, not a feature 
 | A phased bean condition silently admitted every controller into every process | [ADR 001](docs/adr/001-deployment-targets.md#plan) |
 | CI killed the job at the sixteenth Spring test context holding an ONNX session, with every test green, and called it "canceled" | [Operations admin](docs/operations-admin.md#what-was-found) |
 | An audit trail of what succeeded is missing exactly the rows an investigation opens it for; refusals are recorded now, and a resolution lives in the history, not on the row | [Operations admin](docs/operations-admin.md#what-was-found) |
-| The CI ceiling was fifteen Postgres containers, one per cached test context, not the embedding model; one container with a database per context halved the suite's time | [Operations admin](docs/operations-admin.md#what-was-found-1) |
+| The CI ceiling was fifteen Postgres containers and fifteen embedding models, one each per cached test context; one container with a database per context and one shared model took the suite from over two minutes to half a minute | [Operations admin](docs/operations-admin.md#what-was-found-1) |
 | `doFinally` runs after the completion signal has already released a blocking client; a turn's record finished there could be read before it was written | [Operations admin](docs/operations-admin.md#what-was-found-1) |
 | The knowledge role's 2.8 GiB peak is the single-process pod's: the ONNX session was the whole footprint | [Kubernetes](k8s/README.md#what-running-the-split-found) |
 
