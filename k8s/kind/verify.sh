@@ -47,6 +47,18 @@ bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAIL=$((FAIL+1)); }
 # pipeline out of `sh -c` here silently inverts the check.
 check(){ local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi; }
 
+# Every kubectl call names its context instead of switching the current one. `kubectl config
+# use-context` edits the user's kubeconfig globally, and a parallel session found its namespace
+# apparently empty because this script had moved its context out from under it.
+#
+# `kind create` switches it anyway as a side effect, so the original is captured here -- before
+# anything touches the kubeconfig -- and restored on exit. The first version captured it after
+# the cluster was created, which faithfully restored the context kind had just set: a restore
+# that runs, reports nothing, and puts back the wrong value.
+kubectl() { command kubectl --context "kind-$CLUSTER" "$@"; }
+ORIGINAL_CONTEXT=$(command kubectl config current-context 2>/dev/null || true)
+trap '[[ -n $ORIGINAL_CONTEXT ]] && command kubectl config use-context "$ORIGINAL_CONTEXT" >/dev/null 2>&1 || true' EXIT
+
 if [[ ${1:-} == --down ]]; then kind delete cluster --name "$CLUSTER"; exit 0; fi
 
 for t in kind kubectl docker; do
@@ -55,7 +67,7 @@ done
 
 say "cluster"
 kind get clusters 2>/dev/null | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 120s
-kubectl config use-context "kind-$CLUSTER" >/dev/null
+
 
 say "image  $IMAGE"
 if [[ ${1:-} == --keep ]] && docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -76,12 +88,28 @@ kind load docker-image "$IMAGE" --name "$CLUSTER"
 # manifests for the machine is worse than no assertion. It stayed hidden until the
 # CREATE EXTENSION race was fixed: the crash it caused was staggering the two model loads.
 say "capacity"
-node_gib=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
-node_gib=$((node_gib / 1024 / 1024))
-want_gib=$(( $(kubectl create -f "$ROOT/k8s/deployment.yaml" --dry-run=client -o \
-             jsonpath='{.spec.replicas}') * 4 + 1 ))
-printf '  node allocatable %s GiB, manifests want about %s GiB with Postgres\n' "$node_gib" "$want_gib"
-if [[ $node_gib -lt $want_gib ]]; then
+# Read from the rendered spec, not from a grep and not from a number typed here. A check that
+# hardcodes the limit it is checking keeps passing after someone changes the limit -- which is
+# the failure this whole harness exists to catch, and it was in this function until a parallel
+# session hit the same shape in theirs and said so.
+node_ki=$(kubectl get node "${CLUSTER}-control-plane" -o jsonpath='{.status.allocatable.memory}' | sed 's/Ki$//')
+spec=$(command kubectl create -f "$ROOT/k8s/deployment.yaml" --dry-run=client -o \
+         jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].resources.limits.memory}')
+replicas=${spec%% *}; limit=${spec##* }
+if [[ ! $node_ki =~ ^[0-9]+$ || ! $replicas =~ ^[0-9]+$ || -z $limit ]]; then
+  echo "  could not read node capacity or the deployment's limits (node=$node_ki spec=$spec)" >&2
+  exit 1
+fi
+limit_mib=$(python3 -c "
+import re,sys
+v=sys.argv[1]; m=re.match(r'(\d+)(Gi|Mi|G|M)?$', v)
+u={'Gi':1024,'Mi':1,'G':954,'M':1}[m.group(2) or 'Mi']
+print(int(m.group(1))*u)" "$limit")
+node_mib=$((node_ki / 1024))
+want_mib=$((replicas * limit_mib + 1024))
+printf '  node allocatable %s MiB; %s replicas x %s = %s MiB, plus Postgres\n' \
+       "$node_mib" "$replicas" "$limit" "$want_mib"
+if [[ $node_mib -lt $want_mib ]]; then
   printf '  \033[33mNOTE\033[0m this node cannot hold both replicas at their limits. Any OOMKill\n'
   printf '       below is this machine, not the manifests -- give Docker more memory, or\n'
   printf '       scale to one replica to check everything else.\n'
