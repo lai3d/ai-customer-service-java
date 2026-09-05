@@ -85,6 +85,12 @@
   .msg.rendered ul { margin: 0 0 8px; padding-left: 20px; }
   .msg.rendered code { font-family: var(--mono); font-size: 0.92em; background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 4px; }
   .pager { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+  .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat .v { font-size: 22px; font-weight: 600; line-height: 1.2; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stat .g { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+  details summary { cursor: pointer; }
   .turn { border-top: 1px solid var(--line); padding: 14px 0; }
   .turn:first-child { border-top: 0; padding-top: 0; }
   .turn .meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); margin: 8px 0; }
@@ -107,6 +113,19 @@
   </form>
 </header>
 <main>
+  <section id="overview">
+    <h2>Overview</h2>
+    <form class="row" id="ov-filters">
+      <label>From <input name="from" type="datetime-local"></label>
+      <label>To <input name="to" type="datetime-local"></label>
+      <button type="submit" class="primary">Show</button>
+      <span class="hint" id="ov-window"></span>
+    </form>
+    <div class="stats" id="ov-stats"></div>
+    <details><summary class="hint">What each number means</summary><dl class="facts" id="ov-definitions"></dl></details>
+    <div class="status" id="ov-status"></div>
+  </section>
+
   <section id="tickets">
     <h2>Tickets</h2>
     <form class="row" id="filters">
@@ -302,6 +321,7 @@
   let current = null;       // the ticket on the detail panel, with its version
   let listQuery = { page: 0, size: 25 };
 
+  function localToIso(value) { return value ? new Date(value).toISOString() : ""; }
   function csrfToken() {
     const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
     return match ? decodeURIComponent(match[1]) : "";
@@ -334,6 +354,40 @@
     node.className = "status" + (isError ? " err" : "");
     node.textContent = text || "";
   }
+
+  // --- the overview: numbers with their definitions ---------------------------------------
+  async function loadOverview(from, to) {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const response = await api("/overview?" + params.toString());
+    if (!response.ok) { setStatus("ov-status", await problem(response), true); return; }
+    const o = await response.json();
+    $("ov-window").textContent = when(o.from) + " – " + when(o.to);
+    const stats = $("ov-stats");
+    const defs = $("ov-definitions");
+    stats.replaceChildren();
+    defs.replaceChildren();
+    const groups = [["Turns", o.turns], ["Tickets", o.tickets], ["Feedback", o.feedback], ["Knowledge", o.knowledge], ["Staff", o.staff]];
+    for (const [group, list] of groups) {
+      for (const s of list) {
+        const box = el("div", "stat");
+        box.title = s.definition;
+        box.appendChild(el("div", "g", group));
+        box.appendChild(el("div", "v", s.value === null || s.value === undefined ? "—" : String(s.value) + (s.key.endsWith("Rate") ? "%" : "")));
+        box.appendChild(el("div", "l", s.label));
+        stats.appendChild(box);
+        defs.appendChild(el("dt", null, group + " · " + s.label));
+        defs.appendChild(el("dd", null, s.definition));
+      }
+    }
+    setStatus("ov-status", "");
+  }
+  $("ov-filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const f = event.target.elements;
+    loadOverview(localToIso(f.from.value), localToIso(f.to.value));
+  });
 
   // --- the queue -------------------------------------------------------------------------
   async function loadTickets() {
@@ -550,7 +604,6 @@
   // --- conversations, from the turn record -------------------------------------------------
   let convQuery = { page: 0, size: 25 };
   let currentFeedback = [];
-  function localToIso(value) { return value ? new Date(value).toISOString() : ""; }
   async function loadConversations() {
     const params = new URLSearchParams();
     for (const key of ["conversationId", "outcome", "from", "to"]) if (convQuery[key]) params.set(key, convQuery[key]);
@@ -957,6 +1010,7 @@
   (async () => {
     me = await (await api("/me")).json();
     $("who").textContent = me.username + " · " + me.role;
+    await loadOverview();
     await loadTickets();
     await loadConversations();
     await loadFeedback();
