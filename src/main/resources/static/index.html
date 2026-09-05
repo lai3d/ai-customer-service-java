@@ -280,13 +280,23 @@ async function send(question) {
     if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
 
     let toolCard = null;
+    // A tool-calling turn is two model calls, and the second one's text is a fresh message
+    // rather than a continuation. Appended raw, the join reads as a typo -- the hero
+    // screenshot in the README once showed "I'll check that order for you.Your order
+    // ORD-10042". A paragraph break at the seam says what actually happened.
+    let textSinceTool = false;
     for await (const event of sse(response)) {
       if (!current()) return;
       let payload;
       try { payload = JSON.parse(event.data); } catch { payload = { text: event.data }; }
 
       if (event.name === "message") {
-        answer.textContent += payload.text ?? "";
+        const text = payload.text ?? "";
+        if (text && !textSinceTool && answer.textContent) {
+          answer.textContent += "\n\n";
+        }
+        if (text) textSinceTool = true;
+        answer.textContent += text;
         log.scrollTop = log.scrollHeight;
       } else if (event.name === "retrieval") {
         const c = card(panel, `${t.retrieval} · ${payload.passages.length}`);
@@ -312,6 +322,7 @@ async function send(question) {
         note.textContent = t.relative;
         c.appendChild(note);
       } else if (event.name === "tool") {
+        textSinceTool = false;
         toolCard = toolCard || card(panel, t.tools);
         const pill = document.createElement("span");
         pill.className = "pill";
