@@ -192,10 +192,12 @@ Two things about the chart's defaults. Its Prometheus picks up only the `Service
 `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues` and
 `ruleSelectorNilUsesHelmValues` are set to `false`; the objects here carry no release label,
 because the release name is yours. And the roles layout's NetworkPolicy admits connections to
-knowledge and ticket pods on port 8080 from chat pods and the import Job only. The metrics
-endpoint is on that port, so on a CNI that enforces the policy Prometheus cannot scrape those
-two roles and `TargetDown` fires for them. That is the policy doing its job; allow ingress
-from the monitoring namespace on 8080 in your cluster's policy before trusting the alert.
+knowledge and ticket pods on port 8080 from chat pods, the import Job, and Prometheus pods in
+the `monitoring` namespace -- the metrics endpoint is on that port. The first version of the
+policy did not admit Prometheus at all; the overlay's author noticed that on an enforcing CNI
+both roles would be unscrapeable and `TargetDown` would fire for them, the policy doing its job
+against the wrong caller. If your Prometheus runs elsewhere or is labelled differently, patch
+that rule in your overlay before trusting the alert.
 
 The rule and the dashboards are copies of the files under `observability/`, not references
 to them: Kustomize refuses any file outside the kustomization's own directory, which this
