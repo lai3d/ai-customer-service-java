@@ -14,6 +14,11 @@
 这不是一个 notebook demo。它跑在虚拟线程上，会话记忆和向量存在同一个 Postgres 实例里，
 每一次模型调用都导出 Prometheus 指标，并附带 Dockerfile 和 Kubernetes 清单。
 
+**一个制品，两种部署方式。** 默认是 all-in-one：单进程，也是基准测试测的那个。同一个 jar
+还能作为三个微服务运行——`chat`、`knowledge`、`ticket`，由 `APP_TARGET` 选择，内部接缝变成 HTTP。
+两种拓扑都在 Compose、kind 和 CI 里验证过；见
+[ADR 001](docs/adr/001-deployment-targets.md) 和 [部署](docs/deployment.md)。
+
 > **状态：** 已完成，并对 Anthropic、OpenAI、Gemini 和 Grok 四家做过真实调用验证。
 > 整套测试不需要 API key 就能跑。有一个已知限制，写下来而不是抹平：
 > 多意图问题仍可能漏掉能回答它的那个段落。见 [路线图](#路线图)。
@@ -201,6 +206,26 @@ open http://localhost:3000         # Grafana：dashboard，以及每一轮对话
 镜像里烤进了嵌入模型，所以冷启动不会在运行时下载任何东西，几秒钟就 ready。
 镜像分层、[`k8s/`](k8s/README.md) 里的 Kubernetes 清单，以及为什么模型是烤进去而不是挂载进去，
 见 [`docs/deployment.md`](docs/deployment.md)。
+
+### 作为三个服务运行，而不是一个
+
+**前置条件：** Docker。不需要 API key——这个 harness 证明的是「检索在到达 provider 之前就跨过了缝」，
+所以一个占位 key 就够。
+
+```bash
+scripts/verify-services.sh          # 构建、起四个容器、断言，然后留着运行
+scripts/verify-services.sh --down   # 停掉并删除，包括数据卷
+```
+
+它断言的都是只有独立进程才看得出来的东西：导入器跑一次就退出、readiness 跨容器边界、
+**跨进程的十二个并发工单写入只落三行**，以及——停掉 `knowledge` 之后——一轮对话返回 `503`
+**而不是一个没有依据的回答**。
+
+它起的栈是 [`docker-compose.services.yml`](docker-compose.services.yml)；同样的拆分在
+Kubernetes 上是 `k8s/roles`，由 `k8s/kind/verify.sh --roles` 检查。
+
+> 两个栈都会把 Postgres 发布在 5432、应用在 8080，所以要先把 all-in-one 栈停掉——或者设置
+> `POSTGRES_PORT` 和 `APP_PORT`。Docker 报的错只会说端口被占，不会告诉你是另一个栈占的。
 
 ### 从 IDE 里跑应用
 
