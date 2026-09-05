@@ -1,7 +1,15 @@
-# The token is one half of internal-endpoint security; this is the other. Only chat pods and
-# the import Job may open a connection to knowledge and ticket pods; nothing else in the
-# cluster can reach /internal/** to try a token against it. Chat itself stays reachable from
-# anywhere, which is what an Ingress in front of it needs.
+# The token is one half of internal-endpoint security; this is the other. Only chat pods, the
+# import Job and the cluster's Prometheus may open a connection to knowledge and ticket pods;
+# nothing else in the cluster can reach /internal/** to try a token against it. Chat itself
+# stays reachable from anywhere, which is what an Ingress in front of it needs.
+#
+# Prometheus is admitted because /actuator/prometheus is on the same port as the internal
+# endpoints. The first version of this policy did not admit it, and the k8s/observability
+# overlay's author noticed that on an enforcing CNI both roles would be unscrapeable and
+# TargetDown would fire for them -- the policy doing its job against the wrong caller. The
+# selector names kube-prometheus-stack's conventions, the `monitoring` namespace and pods
+# labelled app.kubernetes.io/name=prometheus; if yours differ, patch this rule in your overlay
+# rather than widening it. The token still guards /internal/** against anything admitted here.
 #
 # Kubelet probes are not subject to NetworkPolicy on the common CNIs, so readiness keeps
 # working. Two caveats worth knowing: a CNI that does not implement NetworkPolicy (kind's
@@ -29,6 +37,14 @@ spec:
               - key: app.kubernetes.io/component
                 operator: In
                 values: [chat, knowledge-import]
+        # namespaceSelector and podSelector in one entry are ANDed: Prometheus pods in the
+        # monitoring namespace, not every pod in it and not Prometheus pods elsewhere.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - port: 8080
           protocol: TCP
