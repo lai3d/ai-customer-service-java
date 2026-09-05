@@ -4,12 +4,22 @@ import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.clients.KnowledgeUnavailableException;
+import dev.merlionos.customerservice.clients.HttpTicketWorkflow;
 import dev.merlionos.customerservice.clients.RemoteKnowledgeVectorStore;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.RagProperties;
 import dev.merlionos.customerservice.rag.api.SearchQuery;
+import dev.merlionos.customerservice.ticket.api.TicketActor;
+import dev.merlionos.customerservice.ticket.api.TicketConflictException;
+import dev.merlionos.customerservice.ticket.api.TicketEvent;
+import dev.merlionos.customerservice.ticket.api.TicketFilter;
+import dev.merlionos.customerservice.ticket.api.TicketNotFoundException;
+import dev.merlionos.customerservice.ticket.api.TicketRecord;
 import dev.merlionos.customerservice.ticket.api.TicketResult;
+import dev.merlionos.customerservice.ticket.api.TicketRuleException;
+import dev.merlionos.customerservice.ticket.api.TicketState;
+import dev.merlionos.customerservice.ticket.api.TicketWorkflow;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -287,6 +297,42 @@ class TopologyParityTest {
 
     @Test
     @Order(8)
+    @DisplayName("the workflow seam: what the chat process's admin does to a ticket is what the ticket process's rows say, and every refusal crosses as itself")
+    void workflowParity() {
+        TicketWorkflow remote = chat.getBean(TicketWorkflow.class);
+        assertThat(remote).isInstanceOf(HttpTicketWorkflow.class);
+        TicketWorkflow local = ticket.getBean(TicketWorkflow.class);
+        JdbcTemplate ticketDb = ticket.getBean(JdbcTemplate.class);
+        String number = local.search(new TicketFilter(null, TicketFilter.UNASSIGNED, null, null, 0, 1))
+                .tickets().getFirst().ticketNumber();
+
+        TicketRecord claimed = remote.claim(number, TicketActor.staff("alice"), 0);
+        assertThat(claimed.owner()).isEqualTo("alice");
+        assertThat(ticketDb.queryForMap("SELECT state, owner, version FROM support_ticket WHERE ticket_number = ?", number))
+                .containsEntry("state", "claimed").containsEntry("owner", "alice").containsEntry("version", 1);
+        assertThat(remote.find(number)).hasValueSatisfying(t -> assertThat(t.version()).isEqualTo(1));
+        assertThat(remote.find("TKT-0")).isEmpty();
+
+        assertThatThrownBy(() -> remote.claim(number, TicketActor.staff("bob"), 0))
+                .isInstanceOf(TicketConflictException.class).hasMessageContaining("changed since it was read");
+        assertThatThrownBy(() -> remote.resolve(number, "done", TicketActor.staff("bob"), 1))
+                .isInstanceOf(TicketRuleException.class).hasMessageContaining("owned by alice");
+        assertThatThrownBy(() -> remote.claim("TKT-0", TicketActor.staff("bob"), 0))
+                .isInstanceOf(TicketNotFoundException.class);
+
+        TicketRecord resolved = remote.resolve(number, "Sent a replacement.", TicketActor.admin("root"), 1);
+        assertThat(resolved.state()).isEqualTo(TicketState.RESOLVED);
+        assertThat(remote.history(number)).extracting(TicketEvent::kind)
+                .containsExactlyElementsOf(local.history(number).stream().map(TicketEvent::kind).toList())
+                .containsExactly(TicketEvent.Kind.CLAIMED, TicketEvent.Kind.RESOLVED);
+        assertThat(remote.history(number).get(1).note()).isEqualTo("Sent a replacement.");
+        assertThat(remote.search(new TicketFilter(TicketState.RESOLVED, "alice", null, null, 0, 10)).total())
+                .isEqualTo(local.search(new TicketFilter(TicketState.RESOLVED, "alice", null, null, 0, 10)).total())
+                .isEqualTo(1);
+    }
+
+    @Test
+    @Order(9)
     @DisplayName("a request built from the chat process's client builder carries the trace across the seam")
     void traceCrossesTheSeam() throws Exception {
         // The internal clients are built from the auto-configured RestClient.Builder, which is
@@ -316,7 +362,7 @@ class TopologyParityTest {
     // --- when a downstream process is gone ---------------------------------------------------
 
     @Test
-    @Order(9)
+    @Order(10)
     @DisplayName("with the ticket process gone, the tool returns an unavailable value, never an exception")
     void ticketProcessGone() {
         ticket.close();
@@ -332,7 +378,7 @@ class TopologyParityTest {
     }
 
     @Test
-    @Order(10)
+    @Order(11)
     @DisplayName("with the knowledge process gone, a turn fails rather than answering ungrounded, chat is not ready, and the failure is counted")
     void knowledgeProcessGone() {
         assertThat(counter(chat, "chat_knowledge_unavailable_total"))

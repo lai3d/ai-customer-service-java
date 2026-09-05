@@ -12,17 +12,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.io.IOException;
-import java.net.CookieManager;
-import java.net.HttpCookie;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -67,7 +58,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("an anonymous visitor is sent to the login page, and an anonymous API call gets 401 with no session")
     void anonymousIsTurnedAway() throws Exception {
-        Browser browser = new Browser();
+        AdminBrowser browser = new AdminBrowser(port);
 
         HttpResponse<String> api = browser.get("/admin/api/me");
         assertThat(api.statusCode()).isEqualTo(401);
@@ -85,7 +76,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("the login page hands out the CSRF cookie, and a login without the token is refused")
     void loginNeedsTheCsrfToken() throws Exception {
-        Browser browser = new Browser();
+        AdminBrowser browser = new AdminBrowser(port);
 
         HttpResponse<String> login = browser.get("/admin/login");
         assertThat(login.statusCode()).isEqualTo(200);
@@ -101,7 +92,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("a wrong password lands back on the page with ?error, and stays signed out")
     void wrongPassword() throws Exception {
-        Browser browser = new Browser();
+        AdminBrowser browser = new AdminBrowser(port);
         browser.get("/admin/login");
 
         HttpResponse<String> attempt = browser.login("root", "not-the-password");
@@ -120,7 +111,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("the admin signs in, holds a session in Postgres, and signs out of it")
     void adminSignsInAndOut() throws Exception {
-        Browser browser = new Browser();
+        AdminBrowser browser = new AdminBrowser(port);
         browser.get("/admin/login");
 
         HttpResponse<String> login = browser.login("Root", "first-admin-password");
@@ -148,7 +139,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("an admin creates a support account; support can sign in but is not an admin")
     void rolesAreEnforcedOnTheServer() throws Exception {
-        Browser admin = new Browser();
+        AdminBrowser admin = new AdminBrowser(port);
         admin.get("/admin/login");
         admin.login("root", "first-admin-password");
 
@@ -169,7 +160,7 @@ class AdminLoginTest {
         assertThat(tooShort.statusCode()).isEqualTo(400);
         assertThat(tooShort.body()).contains("12 characters");
 
-        Browser support = new Browser();
+        AdminBrowser support = new AdminBrowser(port);
         support.get("/admin/login");
         support.login("sam", "support-password-1");
         assertThat(support.get("/admin/api/me").body()).isEqualTo("{\"username\":\"sam\",\"role\":\"support\"}");
@@ -186,7 +177,7 @@ class AdminLoginTest {
     @Test
     @DisplayName("the public side is untouched: no login, no CSRF, no session on the demo page or the chat API")
     void publicEndpointsAreNotBehindTheLogin() throws Exception {
-        Browser browser = new Browser();
+        AdminBrowser browser = new AdminBrowser(port);
 
         assertThat(browser.get("/").statusCode()).isEqualTo(200);
         assertThat(browser.get("/actuator/health/liveness").statusCode()).isEqualTo(200);
@@ -196,55 +187,5 @@ class AdminLoginTest {
         assertThat(chat.statusCode()).isEqualTo(400);
         assertThat(browser.cookie("SESSION")).isEmpty();
         assertThat(browser.cookie("XSRF-TOKEN")).isEmpty();
-    }
-
-    /** A cookie jar over the JDK client; redirects are left alone so the test sees them. */
-    class Browser {
-        final CookieManager cookies = new CookieManager();
-        final HttpClient client = HttpClient.newBuilder()
-                .cookieHandler(cookies).followRedirects(HttpClient.Redirect.NEVER).build();
-
-        HttpResponse<String> get(String path) throws IOException, InterruptedException {
-            return client.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString());
-        }
-
-        HttpResponse<String> login(String username, String password) throws IOException, InterruptedException {
-            return postForm("/admin/login", Map.of("username", username, "password", password, "_csrf", csrf()));
-        }
-
-        HttpResponse<String> postForm(String path, Map<String, String> fields) throws IOException, InterruptedException {
-            String body = fields.entrySet().stream()
-                    .map(e -> URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8) + "="
-                            + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
-                    .reduce((a, b) -> a + "&" + b).orElse("");
-            return client.send(HttpRequest.newBuilder(uri(path))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-        }
-
-        HttpResponse<String> postJson(String path, String json, boolean withCsrfHeader) throws IOException, InterruptedException {
-            HttpRequest.Builder request = HttpRequest.newBuilder(uri(path))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json));
-            if (withCsrfHeader) {
-                request.header("X-XSRF-TOKEN", csrf());
-            }
-            return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
-        }
-
-        String csrf() {
-            return cookie("XSRF-TOKEN").orElseThrow(() -> new AssertionError("no XSRF-TOKEN cookie yet"));
-        }
-
-        Optional<String> cookie(String name) {
-            return cookies.getCookieStore().getCookies().stream()
-                    .filter(cookie -> cookie.getName().equals(name))
-                    .map(HttpCookie::getValue).findFirst();
-        }
-
-        private URI uri(String path) {
-            return URI.create("http://localhost:" + port + path);
-        }
     }
 }

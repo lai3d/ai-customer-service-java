@@ -16,6 +16,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
@@ -64,7 +65,7 @@ public class AdminSecurityConfiguration {
     public static final String API_PATH = ADMIN_PATH + "/api";
 
     @Bean
-    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminAudit audit) throws Exception {
         PathPatternRequestMatcher.Builder path = PathPatternRequestMatcher.withDefaults();
         RequestMatcher api = path.matcher(API_PATH + "/**");
         // Remember where a person was going only for page requests: an API 401 has no page
@@ -98,7 +99,20 @@ public class AdminSecurityConfiguration {
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .requestCache(cache -> cache.requestCache(requestCache))
-                .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint));
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(entryPoint)
+                        // A signed-in person refused by role is written to admin_audit before the 403
+                        // goes out: a trail that holds only what succeeded is missing exactly the
+                        // rows an investigation would open it for. CSRF failures are not refusals of
+                        // a person and are not recorded.
+                        .accessDeniedHandler((request, response, denied) -> {
+                            var principal = request.getUserPrincipal();
+                            if (principal != null && !(denied instanceof CsrfException)) {
+                                audit.record(principal.getName(), AdminAudit.Action.REFUSED,
+                                        request.getMethod() + " " + request.getRequestURI(), denied.getMessage());
+                            }
+                            response.sendError(HttpStatus.FORBIDDEN.value());
+                        }));
         return http.build();
     }
 
@@ -124,5 +138,15 @@ public class AdminSecurityConfiguration {
     @Bean
     StaffSeeder staffSeeder(StaffAccounts accounts, AdminProperties properties) {
         return new StaffSeeder(accounts, properties);
+    }
+
+    @Bean
+    AdminAudit adminAudit(JdbcTemplate jdbcTemplate) {
+        return new AdminAudit(jdbcTemplate);
+    }
+
+    @Bean
+    ConversationTranscripts conversationTranscripts(JdbcTemplate jdbcTemplate) {
+        return new ConversationTranscripts(jdbcTemplate);
     }
 }
