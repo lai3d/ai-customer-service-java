@@ -517,13 +517,124 @@ data:
           }
         },
         {
+          "id": 115,
+          "type": "stat",
+          "title": "Knowledge unavailable, last 10 min",
+          "description": "Searches over the seam that failed; each is a turn refused with a 503 rather than answered ungrounded. Only a chat process can raise it.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 8,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(sum(increase(chat_knowledge_unavailable_total{role=~\"$role\"}[10m]))) or vector(0)",
+              "legendFormat": "unavailable, 10m",
+              "exemplar": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area"
+          }
+        },
+        {
+          "id": 116,
+          "type": "stat",
+          "title": "Corpus import",
+          "description": "Documents recorded for the bundled corpus version, 0 until the import has completed (readiness reads the same row), and how long the import took where it ran. Starts that found it already done are corpus_import_seconds{outcome=\"already_present\"}.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 30,
+            "w": 16,
+            "h": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(max(corpus_documents{role=~\"$role\"})) or vector(0)",
+              "legendFormat": "documents recorded",
+              "exemplar": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "(sum(corpus_import_seconds_sum{outcome=\"imported\", role=~\"$role\"}) / (sum(corpus_import_seconds_count{outcome=\"imported\", role=~\"$role\"}) > 0)) or vector(0)",
+              "legendFormat": "import duration",
+              "exemplar": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {}
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area"
+          }
+        },
+        {
           "id": 112,
           "type": "row",
           "title": "Pipeline",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 30,
+            "y": 36,
             "w": 24,
             "h": 1
           },
@@ -540,7 +651,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 31,
+            "y": 37,
             "w": 12,
             "h": 8
           },
@@ -589,7 +700,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 31,
+            "y": 37,
             "w": 12,
             "h": 8
           },
