@@ -61,6 +61,9 @@ class AdminConversationApiTest {
         jdbc.update("DELETE FROM spring_session");
         jdbc.update("DELETE FROM admin_audit");
         jdbc.update("DELETE FROM staff_account");
+        // Flags reference turns; another test in this shared context may have left some.
+        // CI's test order is not this machine's, which is how that surfaced.
+        jdbc.update("DELETE FROM answer_feedback");
         jdbc.update("DELETE FROM turn_retrieval");
         jdbc.update("DELETE FROM turn_tool_call");
         jdbc.update("DELETE FROM conversation_turn");
