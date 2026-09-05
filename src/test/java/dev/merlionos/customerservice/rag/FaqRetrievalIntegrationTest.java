@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.RagProperties;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -56,6 +56,39 @@ whatever user message it is handed. Reversed, every retrieved passage is written
 customer's history and re-sent on every later turn, inflating prompts silently. Spring AI's
 defaults happen to be right; `AdvisorChainOrderTest` fails if that changes.
 
+### Deployment targets and the package map
+
+One artifact runs as everything (`app.target=all`, the default and the only runnable value so
+far) or, once role composition lands, as one role: `chat`, `knowledge` or `ticket`. The design
+is `docs/adr/001-deployment-targets.md`; do not re-argue it in code comments. What is built:
+
+```
+target/        DeploymentTarget, @ConditionalOnTarget, TargetEnvironmentPostProcessor
+chat/ config/ cost/ orders/ provider/ tools/   the chat role   (ChatRoleConfiguration)
+rag/           the knowledge role, package name kept        (KnowledgeRoleConfiguration)
+ticket/        the ticket role                              (TicketRoleConfiguration)
+rag/api/ ticket/api/   the contracts the chat side may depend on
+observability/ shared by every role, scanned from the application class
+```
+
+`CustomerServiceApplication` is deliberately not `@SpringBootApplication`: each role
+configuration scans its own packages and is gated on the target, so a `ticket` process never
+discovers the chat controller. Adding a package means adding it to a role's
+`@ComponentScan(basePackageClasses = ...)`, or it is silently absent.
+
+**The `@Tool` classes stay in `tools/` on the chat side; only their implementations sit behind
+`OrderLookup`, `TicketOperations` and `KnowledgeSearch`.** That is what keeps `TurnEventBus`,
+the advisor order and the tool-context constraint untouched across topologies. Business
+modules return values and know nothing about `ToolContext`, turn events or meters.
+`ArchitectureTest` enforces the direction: the chat side may reach `ticket` and `rag` only
+through their `api` packages, and those two may not reach the chat side at all. It was checked
+to fail on a planted violation before it was trusted.
+
+`app.target` is validated by an `EnvironmentPostProcessor` before auto-configuration runs, so a
+misspelt value is a one-line failure. Tests that start the application with a target must pass
+it as a command-line argument (`.run("--app.target=...")`), not via `.properties()`: those are
+default properties and `application.yml`'s own `app.target` overrides them.
+
 ### Streaming carries typed events, not tokens
 
 `ChatService.stream` returns `Flux<TurnEvent>` — `retrieval`, `tool`, `message`, `usage`,

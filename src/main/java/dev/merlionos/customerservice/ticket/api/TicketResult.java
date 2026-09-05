@@ -1,4 +1,4 @@
-package dev.merlionos.customerservice.tools;
+package dev.merlionos.customerservice.ticket.api;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -15,16 +15,16 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TicketResult(boolean created, SupportTicket ticket, String explanation) {
 
-    static TicketResult created(SupportTicket ticket) {
+    public static TicketResult created(SupportTicket ticket) {
         return new TicketResult(true, ticket, null);
     }
 
-    static TicketResult existing(SupportTicket ticket) {
+    public static TicketResult existing(SupportTicket ticket) {
         return new TicketResult(false, ticket,
                 "A ticket for this was already raised in this conversation.");
     }
 
-    static TicketResult refused(String explanation) {
+    public static TicketResult refused(String explanation) {
         return new TicketResult(false, null, explanation);
     }
 }

@@ -1,6 +1,10 @@
 package dev.merlionos.customerservice.tools;
 
 import dev.merlionos.customerservice.chat.TurnEventBus;
+import dev.merlionos.customerservice.orders.OrderStatus;
+import dev.merlionos.customerservice.orders.OrderLookupResult;
+import dev.merlionos.customerservice.orders.MockOrderRepository;
+import dev.merlionos.customerservice.orders.LocalOrderLookup;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -17,7 +21,7 @@ class OrderToolsTest {
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final OrderTools tools =
-            new OrderTools(new MockOrderRepository(), meterRegistry, new TurnEventBus());
+            new OrderTools(new LocalOrderLookup(new MockOrderRepository()), meterRegistry, new TurnEventBus());
 
     private static final ToolContext CONTEXT = new ToolContext(
             Map.of(SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1",

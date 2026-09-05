@@ -40,7 +40,7 @@ import org.springframework.web.reactive.function.client.WebClient;
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "spring.ai.model.chat", havingValue = "xai")
-class XaiChatConfig {
+public class XaiChatConfig {
 
     @Bean
     OpenAiApi xaiApi(XaiProperties properties,

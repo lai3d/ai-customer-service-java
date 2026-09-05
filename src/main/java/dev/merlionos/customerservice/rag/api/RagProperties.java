@@ -1,4 +1,4 @@
-package dev.merlionos.customerservice.rag;
+package dev.merlionos.customerservice.rag.api;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+dev.merlionos.customerservice.target.TargetEnvironmentPostProcessor

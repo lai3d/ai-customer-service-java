@@ -29,6 +29,7 @@ the measured numbers below are from that run, not estimates.
 | `POSTGRES_DB` | no | `csagent` | |
 | `POSTGRES_USER` | no | `csagent` | |
 | `POSTGRES_PASSWORD` | no | `csagent` | Change this anywhere that is not a laptop. |
+| `APP_TARGET` | no | `all` | What the process is. `all` is every role in one JVM; `chat`, `knowledge` and `ticket` are defined but fail at startup until role composition lands. See [ADR 001](adr/001-deployment-targets.md). |
 | `APP_PORT` | no | `8080` | Compose only: host port for the app. |
 | `APP_IMAGE` | no | `ai-customer-service-java:local` | Compose only: lets you run a pre-built image instead of building. |
 

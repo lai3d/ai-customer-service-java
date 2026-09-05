@@ -1,4 +1,4 @@
-package dev.merlionos.customerservice.tools;
+package dev.merlionos.customerservice.orders;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -14,11 +14,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record OrderLookupResult(boolean found, Order order, String explanation) {
 
-    static OrderLookupResult found(Order order) {
+    public static OrderLookupResult found(Order order) {
         return new OrderLookupResult(true, order, null);
     }
 
-    static OrderLookupResult notFound(String explanation) {
+    public static OrderLookupResult notFound(String explanation) {
         return new OrderLookupResult(false, null, explanation);
     }
 }

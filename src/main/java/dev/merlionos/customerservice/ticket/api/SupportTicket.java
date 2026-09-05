@@ -1,4 +1,4 @@
-package dev.merlionos.customerservice.tools;
+package dev.merlionos.customerservice.ticket.api;
 
 import java.time.Instant;
 

@@ -1,4 +1,4 @@
-package dev.merlionos.customerservice.tools;
+package dev.merlionos.customerservice.orders;
 
 /**
  * Order lifecycle states. These names are the ones the FAQ corpus refers to -- the

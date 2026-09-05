@@ -2,6 +2,8 @@ package dev.merlionos.customerservice.tools;
 
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
+import dev.merlionos.customerservice.orders.OrderLookup;
+import dev.merlionos.customerservice.orders.OrderLookupResult;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +16,10 @@ import org.springframework.stereotype.Component;
  * Tool descriptions are prompt, not documentation. They are the only thing the model reads
  * when deciding whether to call this instead of answering from retrieved FAQ text, so they
  * say what the tool is for and, just as importantly, what it is not for.
+ *
+ * <p>This is the adapter: it reads the tool context, asks {@link OrderLookup}, and reports
+ * the outcome to the meter and the turn's event stream. Where the answer comes from is the
+ * lookup's business.
  */
 @Component
 public class OrderTools {
@@ -22,11 +28,11 @@ public class OrderTools {
 
     private static final String TOOL_NAME = "lookup_order_status";
 
-    private final MockOrderRepository orders;
+    private final OrderLookup orders;
     private final MeterRegistry meterRegistry;
     private final TurnEventBus turnEventBus;
 
-    OrderTools(MockOrderRepository orders, MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
+    OrderTools(OrderLookup orders, MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
         this.orders = orders;
         this.meterRegistry = meterRegistry;
         this.turnEventBus = turnEventBus;
@@ -44,19 +50,11 @@ public class OrderTools {
             @ToolParam(description = "The order number, for example ORD-10042") String orderNumber,
             ToolContext toolContext) {
 
-        return orders.findByOrderNumber(orderNumber)
-                .map(order -> {
-                    report(toolContext, "found");
-                    log.debug("Order lookup hit for {}", order.orderNumber());
-                    return OrderLookupResult.found(order);
-                })
-                .orElseGet(() -> {
-                    report(toolContext, "not_found");
-                    log.debug("Order lookup miss for {}", orderNumber);
-                    return OrderLookupResult.notFound(
-                            "No order matches that number. It may have been mistyped, or it may "
-                                    + "belong to a different account.");
-                });
+        OrderLookupResult result = orders.lookup(orderNumber);
+        String outcome = result.found() ? "found" : "not_found";
+        report(toolContext, outcome);
+        log.debug("Order lookup {} for {}", outcome, result.found() ? result.order().orderNumber() : orderNumber);
+        return result;
     }
 
     /**

@@ -180,6 +180,11 @@ spring:
             initialize-schema: always
 
 app:
+  # What this process is: all (the default, every role in one JVM), or one of chat, knowledge,
+  # ticket. Only `all` is runnable until role composition lands; the others fail at startup
+  # and say so. See docs/adr/001-deployment-targets.md.
+  target: ${APP_TARGET:all}
+
   cost:
     # A single conversation is otherwise an open-ended bill: memory is windowed so any one
     # request is bounded, but the number of requests is not. Reaching the cap hands the

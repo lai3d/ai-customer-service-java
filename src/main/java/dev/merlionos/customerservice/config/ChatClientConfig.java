@@ -9,7 +9,7 @@ import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvi
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import dev.merlionos.customerservice.chat.RetrievalReportingAdvisor;
-import dev.merlionos.customerservice.rag.RagProperties;
+import dev.merlionos.customerservice.rag.api.RagProperties;
 import dev.merlionos.customerservice.tools.OrderTools;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import org.slf4j.Logger;

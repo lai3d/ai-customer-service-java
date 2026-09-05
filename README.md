@@ -397,8 +397,11 @@ migrations are the part worth reading, in both directions.
 ├── docs/                    # the deeper reading linked above
 ├── k8s/                     # Namespace, ConfigMap, Deployment, Service, Secret template
 ├── src/main/java/dev/merlionos/customerservice/
-│   ├── CustomerServiceApplication.java
-│   └── config/              # explicit overrides of Spring AI defaults
+│   ├── CustomerServiceApplication.java   # imports one gated configuration per role
+│   ├── target/              # app.target: all (default) or one role
+│   ├── chat/ config/ cost/ orders/ provider/ tools/   # the chat role
+│   ├── rag/                 # the knowledge role; rag/api/ is its contract
+│   └── ticket/              # the ticket role; ticket/api/ is its contract
 ├── src/main/resources/
 └── src/test/java/           # Testcontainers-backed integration tests
 ```
