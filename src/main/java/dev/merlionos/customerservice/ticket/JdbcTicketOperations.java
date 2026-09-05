@@ -144,12 +144,16 @@ public class JdbcTicketOperations implements TicketOperations {
                     request.orderNumber(),
                     Instant.now(),
                     false);
+            // updated_at is written from the same clock as created_at rather than left to the
+            // column default: now() is the transaction's start, a few milliseconds earlier, and
+            // a fresh ticket "updated before it was created" is a wrong answer to a right question.
             jdbc.update("""
                     INSERT INTO support_ticket
-                        (ticket_number, conversation_id, dedupe_key, category, summary, order_number, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (ticket_number, conversation_id, dedupe_key, category, summary, order_number, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, ticket.ticketNumber(), conversationId, deduplicationKey, ticket.category(),
-                    ticket.summary(), ticket.orderNumber(), Timestamp.from(ticket.createdAt()));
+                    ticket.summary(), ticket.orderNumber(), Timestamp.from(ticket.createdAt()),
+                    Timestamp.from(ticket.createdAt()));
             jdbc.update("UPDATE conversation_ticket_guard SET ticket_count = ticket_count + 1 WHERE conversation_id = ?",
                     conversationId);
             return TicketResult.created(ticket);

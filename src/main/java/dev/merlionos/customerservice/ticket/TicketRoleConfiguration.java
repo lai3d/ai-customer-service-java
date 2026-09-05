@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.ticket;
 import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
+import dev.merlionos.customerservice.ticket.api.TicketWorkflow;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -21,5 +22,11 @@ public class TicketRoleConfiguration {
     @Bean
     TicketOperations ticketOperations(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
         return new JdbcTicketOperations(jdbcTemplate, transactionManager);
+    }
+
+    /** The human side of the same rows: what the operations admin works tickets through. */
+    @Bean
+    TicketWorkflow ticketWorkflow(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
+        return new JdbcTicketWorkflow(jdbcTemplate, transactionManager);
     }
 }
