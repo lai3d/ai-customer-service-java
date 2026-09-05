@@ -46,7 +46,9 @@ import static org.mockito.BDDMockito.given;
  * those where they are made.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "app.rag.import-mode=startup")
+        // Its own embedding model, not the JVM-shared one: the embedding timer this asserts
+        // on is observed into the registry of whichever context built the model.
+        properties = {"app.rag.import-mode=startup", PostgresTestcontainer.OWN_EMBEDDING_MODEL + "=true"})
 @Import(PostgresTestcontainer.class)
 @ActiveProfiles("test")
 @AutoConfigureObservability
