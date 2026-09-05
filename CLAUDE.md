@@ -162,6 +162,15 @@ as the database is concerned.
   `IF NOT EXISTS` and `baseline-on-migrate` adopts a database they already populated.
   Flyway's own Postgres advisory lock is what serialises two replicas starting against a cold
   database; `k8s/kind/verify.sh` asserts no replica lost the `CREATE EXTENSION` race.
+- **Every change to a ticket's human side goes through one transaction shape** in
+  `JdbcTicketWorkflow`: lock the row (`FOR UPDATE`), compare the version the caller read,
+  decide the next state and owner from the current row, write the row and a `ticket_event`,
+  read back. The row lock is what makes a claim atomic across replicas; the version check is
+  what makes a stale page and a double-submitted form harmless (`TicketConflictException`,
+  reload and retry) as opposed to a rule violation (`TicketRuleException`, reloading will not
+  help). `ticket_event` is append-only and creation is not an event: the ticket's own
+  `created_at` and `ticket_operation` already say how it came to exist. `JdbcTicketWorkflowTest`
+  races ten claims over two instances.
 - **Ticket writes over the seam carry an operation id**, generated per tool invocation in
   `SupportTicketTools`, never by the model. `JdbcTicketOperations` records every outcome
   against it in `ticket_operation` inside the ticket's transaction; the same id asked again
