@@ -115,6 +115,25 @@ competing story: Anthropic showed two distinct `(input, output)` pairs per call 
 one, matching the frame counts measured on the wire. A client that owns its own request loop
 gets one usage per call and needs none of this.
 
+**And a comparable abstraction does not lose it, which is the part that took a third
+measurement.** "Not the protocols" left open whether any unified multi-provider chat abstraction
+must flatten the boundary while normalising usage. It does not:
+`Microsoft.Extensions.AI` does the same job as `ChatClient`
+plus the advisor chain — one `IChatClient` over several providers, a middleware pipeline, an
+automatic tool-call loop — and on the same turn shape against the same three providers it
+delivers **one usage per model call**, tags every update with the provider's response id so the
+two calls are distinguishable frame by frame, sets `FinishReason` at the end of each, and inserts
+a tool-role message between them. Summing naively is exact there. On xAI — the provider that
+produced the 124 frames here — it produced two usage updates for the whole turn.
+
+So this is a Spring AI design choice, not a cost of the abstraction. That is a narrower claim
+than the one this document used to imply, and a fairer one to make about a library.
+
+The measurement is not in this repository — it is a separate probe, run twice against live
+providers with every request body and SSE byte captured, and its write-up is
+`dotnet-probe/FINDINGS.md` in the workspace that holds this repo. Deliberately not linked: a
+relative path from here would leave the repository and 404 for anyone reading on GitHub.
+
 ### The same turn, on four providers
 
 One tool-calling question, asked of each, after the accounting was fixed:
@@ -249,6 +268,22 @@ abstraction that discards a call boundary discards it for everything crossing th
 tokens, text, timing, anything a caller might later want to attribute to one call rather than
 the turn. The symptoms scatter far enough apart that the second one does not look like a repeat
 of the first, which is what makes it worth writing down: the next one will not look like either.
+
+That sentence is conditional and it survived being tested. What did not survive is the reading
+it invites — that losing the boundary is what such abstractions do. A .NET
+probe measured `Microsoft.Extensions.AI` on the same turn
+against the same providers and found the boundary kept on every count this document lost it on:
+one usage per call, per-call response ids, and the two assistant messages preserved as separate
+messages rather than a run-together string. Three of the four questions it asked narrowed from
+"this class of abstraction" to "this library".
+
+The fourth generalised, and got worse on the way. Advisor ordering — retrieval rewriting the
+message that memory then stores — is expressible in the .NET pipeline too, and there
+`ChatMessage` is mutable and the caller's instances are passed down, so a middleware that
+rewrites in place corrupts the stored history **in either order**, and the caller's own object
+with it. Spring AI's immutable `Prompt` makes only the ordering mistake available. That is the
+one place where this repository's constraint is the general one and the comparison made it
+larger rather than smaller.
 
 ---
 
