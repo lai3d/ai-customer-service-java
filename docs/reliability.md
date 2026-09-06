@@ -37,7 +37,10 @@ at once both add rather than one overwriting the other's read. It used to be a b
 per replica and reset on restart — honest blast-radius limiting, not a ledger — and the supplied
 manifest's two replicas each gave a conversation its own allowance. Rows untouched for
 `app.cost.budget-retention` are swept hourly, because the map's bound was guarding against a
-real leak and a table keyed by conversation id has the same one.
+real leak and a table keyed by conversation id has the same one. The customer's text -- the
+turn record and chat memory -- has its own retention, `app.chat.record-retention` (90 days),
+swept the same way by `ConversationRetentionSweeper`; see
+[Operations admin](operations-admin.md).
 
 What the row still is not is an exact ledger, for a reason that has nothing to do with where it
 lives: usage arrives on the provider's final chunk, so a turn cancelled early is recorded as
