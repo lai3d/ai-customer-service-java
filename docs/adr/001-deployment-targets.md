@@ -310,6 +310,46 @@ each other.
 | A real order service | A real order system |
 | Zero-downtime topology switching | A need to switch topologies without a maintenance window; the first switch uses one |
 | Arbitrary target combinations (`chat,ticket`) | A deployment that needs one |
+| A service registry and configuration centre (Nacos, Spring Cloud Alibaba) | See [below](#a-registry-and-a-configuration-centre): deployment on hosts without DNS-level discovery, a configuration that genuinely cannot wait for a release, or the stack being required to join that ecosystem |
+
+### A registry and a configuration centre
+
+Asked on 2026-09-07: does the split need Nacos, or the rest of Spring Cloud Alibaba? Not
+now, and adding it would contradict two decisions above rather than extend them.
+
+Discovery is already solved with nothing to run. The roles find each other through the
+Kubernetes Service DNS and, locally, the Compose network alias; a `chat` process needs two
+URL properties. A registry would replace DNS with a stateful component that has to be up
+before every service and highly available on its own account, and no failure mode this
+system has, or has measured, is one a registry removes. That is decision 6's "no gateway,
+registry, broker or mesh", still holding.
+
+Configuration is environment variables through the ConfigMap and the Secret, and changing
+a value is a commit. That is deliberate: every measured number -- top-k, the similarity
+threshold, model prices, the token budget -- lives in git next to its measurement, and the
+kind harness and the Kustomize overlay exist because hand-edited running configuration was
+how the manifests in git stopped being the manifests anyone ran. A configuration centre's
+value is changing values at runtime, which is the fastest way to make the documented number
+and the effective number differ again.
+
+One practical note: Spring Cloud Alibaba's support for the Spring Boot 3.5 / Spring AI 1.1
+line would need checking against its release notes before any of this; it has tended to
+follow Boot by half a step, and nothing here asserts a version.
+
+What would reopen it, one condition per reason to have it:
+
+1. **Deployment on hosts without DNS-level discovery** -- a fleet of virtual machines rather
+   than a cluster. There, Nacos is the natural registry in an Alibaba Cloud estate.
+2. **A configuration that genuinely cannot wait for a release** -- switching a model by
+   time of day, a budget changed under incident. The first question is why a release is
+   too slow; if the answer holds, Spring Cloud Kubernetes reloading a ConfigMap is the
+   smaller step, and a configuration centre comes after that has been found wanting.
+3. **The stack being required to join that ecosystem** -- Sentinel for rate limiting and
+   circuit breaking, Seata for distributed transactions. The seams today have a five-second
+   timeout, one retry and one recovery read, and no circuit breaker; if the split's call
+   volume ever needs one, Resilience4j is the option that brings no registry with it.
+
+None of the three holds today.
 
 ---
 
