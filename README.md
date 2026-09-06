@@ -451,15 +451,20 @@ All three answer from the same bilingual corpus over pgvector, run their embeddi
 in-process, call the same two tools, and stream over SSE.
 
 The benchmark is the same 1000 concurrent requests against a 1000 ms stubbed model, on the full
-production path. Go's rows were measured there; the Java rows are [this repository's](docs/benchmark.md).
-**There is no .NET row: that implementation has not run this benchmark, and it says so** — an
-absent number is better than one measured differently and printed in the same table.
+production path. Go's rows were measured there; the Java rows are [this repository's](docs/benchmark.md);
+the .NET row is [that repository's](https://github.com/lai3d/ai-customer-service-dotnet/blob/main/docs/benchmark.md).
+**The .NET row was measured inside Docker Desktop's Linux VM, not on the host** — there is no
+.NET SDK on this machine by design — so it carries a mark instead of being left out: same
+silicon, a different operating system and a hypervisor between, and one query embeds in 5.8 ms
+there against Go's 2 ms on the host. Read it against its own stubbed-embedding run (1644 ms,
+608 req/s) before reading it against the rows above it.
 
 | | duration | throughput | p50 | OS threads |
 |---|---|---|---|---|
 | Java, platform threads | 6254 ms | 160 req/s | 4037 ms | 246 |
 | Java, virtual threads | 2220 ms | 450 req/s | 1767 ms | 53 |
 | Go, goroutines | 1667 ms | 600 req/s | 1648 ms | 135 |
+| .NET, thread pool, in a Linux VM | 2227 ms | 449 req/s | 1843 ms | 40 |
 
 The Java rows are the current code: about 10% slower on the virtual run than
 [first measured](docs/benchmark.md), since every request now takes a conversation lease and
@@ -471,7 +476,9 @@ Go is about 25% faster with a much flatter tail — p50 to p99 inside 17 ms, aga
 and spends several times the OS threads to get it, because a goroutine inside a cgo call blocks
 its thread and the scheduler responds by making another. The JVM avoids that with the same ONNX
 model by bounding the carrier pool at the core count: it wins that one by being **less** clever,
-not more.
+not more. .NET reaches the same 40 threads by the same bound, and found a knob under it: ONNX
+Runtime gives every forward pass its own thread pool sized to the core count, so eighteen
+concurrent queries put 73 threads on 18 cores; one intra-op thread cut its p50 by 47%.
 
 **The cross-review found ten defects between this repository and the Go one, and neither test
 suite was failing on any of them.** Four of those were here. The Go implementation measured the raw wire
