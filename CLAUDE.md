@@ -359,7 +359,11 @@ by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table. Admins
 re-role and reset accounts (`POST /admin/api/staff/{username}/...`); each change deletes the
 account's `spring_session` rows, since a session carries the authorities it was signed in
 with, and the rules (never your own access, never the last enabled admin) are decided under
-a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`.
+a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`. Besides the idle timeout a
+session has an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h, a filter
+in the admin chain) and an account a concurrent-session limit (`ADMIN_SESSION_LIMIT`, 3,
+applied at sign-in by ending the least recently used, newest wins); both in
+`StaffSessionPolicy`, both read from `spring_session` so every replica agrees.
 
 **The UI is a separate deployable**: `admin-ui/` (Vite + React + TypeScript, its own nginx
 image on 8084) proxies `/admin/api` to the app, so the browser sees one origin, the session

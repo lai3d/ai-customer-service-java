@@ -241,6 +241,12 @@ app:
     seed:
       username: ${ADMIN_SEED_USERNAME:}
       password: ${ADMIN_SEED_PASSWORD:}
+    # The two bounds on a staff session besides the idle timeout (spring.session.timeout):
+    # how long a session may live from its sign-in however busy it is, and how many sessions
+    # one account may hold at once. Signing in past the limit ends the account's least
+    # recently used sessions, never the one signing in. See docs/operations-admin.md.
+    session-max-lifetime: ${ADMIN_SESSION_MAX_LIFETIME:12h}
+    session-limit: ${ADMIN_SESSION_LIMIT:3}
 
   chat:
     # How long one turn may hold its conversation. A second request on a conversation with a

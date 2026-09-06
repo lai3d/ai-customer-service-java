@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.admin;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -22,7 +23,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Sign in and out as JSON, for a UI that is deployed on its own. The session is still a
@@ -31,9 +34,11 @@ import java.util.Map;
  * here had to become a bearer token. What changed is the shape of the two requests: a
  * {@code fetch} cannot follow a form login's redirect anywhere useful.
  *
- * <p>Signing in rotates the session id (fixation) and the CSRF token, as the form login did.
- * A wrong password and a disabled account get the same sentence, so the endpoint cannot be
- * used to tell accounts apart.
+ * <p>Signing in rotates the session id (fixation) and the CSRF token, as the form login did,
+ * and makes room under the account's session limit ({@link StaffSessionPolicy}): the least
+ * recently used of its other sessions are ended, never the one signing in. A wrong password
+ * ends nothing. A wrong password and a disabled account get the same sentence, so the
+ * endpoint cannot be used to tell accounts apart.
  */
 @RestController
 @RequestMapping(AdminSecurityConfiguration.API_PATH)
@@ -42,12 +47,14 @@ class AdminSessionController {
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
+    private final StaffSessionPolicy sessionPolicy;
 
     AdminSessionController(AuthenticationManager authenticationManager, SecurityContextRepository securityContextRepository,
-                           CsrfTokenRepository csrfTokenRepository) {
+                           CsrfTokenRepository csrfTokenRepository, StaffSessionPolicy sessionPolicy) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
+        this.sessionPolicy = sessionPolicy;
     }
 
     /** Nothing but the CSRF cookie: what a fresh page asks for before it can post anything. */
@@ -78,13 +85,20 @@ class AdminSessionController {
         catch (AuthenticationException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Could not sign in."));
         }
-        if (request.getSession(false) != null) {
-            request.changeSessionId();
+        // Every id this request's own session has had: the row still carries the old one until
+        // the request commits, and neither may be counted against the limit or ended by it.
+        Set<String> own = new HashSet<>();
+        HttpSession existing = request.getSession(false);
+        if (existing != null) {
+            own.add(existing.getId());
+            own.add(request.changeSessionId());
         }
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
+        own.add(request.getSession().getId());
+        sessionPolicy.makeRoom(authentication.getName(), own);
         // A new token for the new session, the way the form login's strategy issued one.
         csrfTokenRepository.saveToken(null, request, response);
         CsrfToken fresh = csrfTokenRepository.generateToken(request);

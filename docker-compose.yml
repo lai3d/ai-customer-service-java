@@ -112,6 +112,8 @@ services:
       - ADMIN_SEED_USERNAME
       - ADMIN_SEED_PASSWORD
       - ADMIN_SESSION_TIMEOUT
+      - ADMIN_SESSION_MAX_LIFETIME
+      - ADMIN_SESSION_LIMIT
     ports:
       - "${APP_PORT:-8080}:8080"
     restart: unless-stopped

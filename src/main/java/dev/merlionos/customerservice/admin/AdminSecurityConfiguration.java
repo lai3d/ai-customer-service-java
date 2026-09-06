@@ -17,12 +17,15 @@ import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
 
 
 /**
@@ -41,7 +44,8 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
  * anything else is {@code 401}, never a redirect.</li>
  * <li>Sessions in Postgres through Spring Session (see {@code V4__staff_accounts.sql}),
  * because the chat role runs as replicas behind one Service. The session id is rotated on
- * login.</li>
+ * login. Besides the idle timeout, a session has an absolute lifetime and an account a
+ * limit on concurrent sessions ({@link StaffSessionPolicy}).</li>
  * <li>CSRF on every mutation, the token in a readable {@code XSRF-TOKEN} cookie that the UI
  * copies into an {@code X-XSRF-TOKEN} header; {@code GET /admin/api/csrf} exists so a fresh
  * page can obtain one before its first post. The plain request handler rather than the
@@ -61,8 +65,8 @@ public class AdminSecurityConfiguration {
     public static final String CSRF_PATH = API_PATH + "/csrf";
 
     @Bean
-    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminAudit audit, CsrfTokenRepository csrfTokenRepository)
-            throws Exception {
+    SecurityFilterChain adminSecurityFilterChain(HttpSecurity http, AdminAudit audit, CsrfTokenRepository csrfTokenRepository,
+                                                 StaffSessionPolicy sessionPolicy) throws Exception {
         http.securityMatcher(API_PATH + "/**")
                 .authorizeHttpRequests(requests -> requests
                         .requestMatchers(HttpMethod.POST, LOGIN_PATH).permitAll()
@@ -71,6 +75,7 @@ public class AdminSecurityConfiguration {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                .addFilterAfter(new StaffSessionLifetimeFilter(sessionPolicy), SecurityContextHolderFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .requestCache(cache -> cache.disable())
                 .formLogin(login -> login.disable())
@@ -99,6 +104,13 @@ public class AdminSecurityConfiguration {
     @Bean
     SecurityContextRepository securityContextRepository() {
         return new HttpSessionSecurityContextRepository();
+    }
+
+    /** The absolute lifetime and the concurrent-session limit, over the same rows the sessions live in. */
+    @Bean
+    StaffSessionPolicy staffSessionPolicy(FindByIndexNameSessionRepository<? extends Session> sessions,
+                                          AdminProperties properties) {
+        return new StaffSessionPolicy(sessions, properties.sessionMaxLifetime(), properties.sessionLimit());
     }
 
     @Bean
