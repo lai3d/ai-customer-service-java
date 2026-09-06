@@ -255,6 +255,7 @@ keep their documents in `vector_store`; retention removes them after the newest 
 | The knowledge version on every retrieval row: `turn_retrieval.corpus_version`, carried from the passage metadata through the `retrieval` event, shown on the conversation page; null on rows written before `V12` | `chat/TurnEvent`, `chat/TurnRecorder`, `chat/TurnRecords`, `V12` | [#43](https://github.com/lai3d/ai-customer-service-java/pull/43) |
 | Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
 | Two bounds on a staff session besides the idle timeout: an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h), applied by a filter in the admin chain that invalidates the row and answers `401`; and a per-account limit on concurrent sessions (`ADMIN_SESSION_LIMIT`, 3), applied at sign-in by ending the least recently used, never the one signing in; both read from `spring_session`, so every replica applies them alike; zero, negative or a limit below one refuses to start | `admin/StaffSessionPolicy`, `admin/StaffSessionLifetimeFilter`, `admin/AdminProperties` | [#44](https://github.com/lai3d/ai-customer-service-java/pull/44) |
+| Staff changing their own password, any role: `POST /admin/api/me/password` with the current and the new password, and an Account page every role can reach; a wrong current password is a `422` recorded as a refusal, a new password equal to the current one is refused too, and the length rule is creation's; success ends the account's other sessions, keeps the one it was done from, and is recorded as `password_changed` (`V13`) | `admin/StaffAccounts`, `admin/AdminStaffController`, `admin-ui/src/pages/Account.tsx` | [#NN](https://github.com/lai3d/ai-customer-service-java/pull/NN) |
 
 ### The rules, and why they are rules
 
@@ -262,6 +263,10 @@ keep their documents in `vector_store`; retention removes them after the newest 
   own role is refused (`422`, recorded as a refusal). An admin who could demote themselves by
   a mis-click would need another admin to undo it; the same admin can still reset their own
   password, and keeps the session they did it from.
+- **A session is not proof of knowing the password.** Anyone changes their own password on
+  the Account page, but only with the current one: a browser left signed in must not be
+  enough to lock the owner out. A wrong current password is refused and recorded, and the
+  session that asked stays signed in, since the caller is whoever holds it either way.
 - **The last enabled admin stays an enabled admin.** Disabling or demoting the only one is
   refused. Enforced in one transaction that locks every enabled admin's row (`FOR UPDATE`)
   before deciding, so two admins demoting each other at the same moment take turns and the
@@ -286,8 +291,8 @@ keep their documents in `vector_store`; retention removes them after the newest 
 
 ### What is still not built
 
-- Staff changing their own password. Every account operation is an admin's; a support
-  member asks an admin. The API shape allows it later without a new table.
+- Nothing from this round's list. What remains of the proposal is in the departure tables
+  above, each item with its reason.
 
 ## The record, third round (2026-09-06): the front end deployed separately
 

@@ -20,9 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Managing accounts over the API: disabling, a role change and a password reset, each
- * ending the account's sessions in Postgres; the rules that protect the last admin and the
- * caller's own access, refused and recorded; and support kept out. Same context as
- * {@link AdminLoginTest}.
+ * ending the account's sessions in Postgres; anyone changing their own password with the
+ * current one; the rules that protect the last admin and the caller's own access, refused
+ * and recorded; and support kept out. Same context as {@link AdminLoginTest}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "app.rag.import-mode=startup")
@@ -121,6 +121,63 @@ class AdminStaffApiTest {
                 .containsExactly("password_reset sam", "password_reset root");
         assertThat(jdbc.queryForList("SELECT password_hash FROM staff_account", String.class))
                 .allSatisfy(hash -> assertThat(hash).startsWith("{bcrypt}"));
+    }
+
+    @Test
+    @DisplayName("anyone signed in changes their own password with the current one; the old fails, the new works, and only the session it was done from survives")
+    void changeOwnPassword() throws Exception {
+        AdminBrowser sam = AdminBrowser.signedIn(port, "sam", "support-password-1");
+        AdminBrowser samElsewhere = AdminBrowser.signedIn(port, "sam", "support-password-1");
+        AdminBrowser admin = AdminBrowser.signedIn(port, "root", "first-admin-password");
+
+        HttpResponse<String> changed = sam.postJson("/admin/api/me/password",
+                "{\"currentPassword\":\"support-password-1\",\"newPassword\":\"a-password-of-my-own\"}");
+        assertThat(changed.statusCode()).isEqualTo(204);
+        assertThat(sam.get("/admin/api/me").statusCode()).as("the session the change was made from stays").isEqualTo(200);
+        assertThat(samElsewhere.get("/admin/api/me").statusCode()).as("the other one is gone").isEqualTo(401);
+        assertThat(admin.get("/admin/api/me").statusCode()).as("nobody else's session is touched").isEqualTo(200);
+        AdminBrowser old = new AdminBrowser(port);
+        old.get("/admin/api/csrf");
+        assertThat(old.login("sam", "support-password-1").statusCode()).isEqualTo(401);
+        assertThat(AdminBrowser.signedIn(port, "sam", "a-password-of-my-own").get("/admin/api/me").statusCode()).isEqualTo(200);
+        assertThat(audit()).singleElement().satisfies(row -> {
+            assertThat(row).containsEntry("actor", "sam").containsEntry("action", "password_changed").containsEntry("target", "sam");
+            assertThat(row.get("detail")).isNull();
+        });
+        assertThat(jdbc.queryForObject("SELECT password_hash FROM staff_account WHERE username = 'sam'", String.class))
+                .startsWith("{bcrypt}");
+    }
+
+    @Test
+    @DisplayName("a wrong current password, a short new one and a new one equal to the current are refused, and nothing changes")
+    void changeOwnPasswordRefusals() throws Exception {
+        AdminBrowser sam = AdminBrowser.signedIn(port, "sam", "support-password-1");
+        AdminBrowser samElsewhere = AdminBrowser.signedIn(port, "sam", "support-password-1");
+
+        HttpResponse<String> wrong = sam.postJson("/admin/api/me/password",
+                "{\"currentPassword\":\"not-my-password-1\",\"newPassword\":\"a-password-of-my-own\"}");
+        assertThat(wrong.statusCode()).isEqualTo(422);
+        assertThat(wrong.body()).contains("current password is wrong");
+        assertThat(sam.postJson("/admin/api/me/password",
+                "{\"currentPassword\":\"support-password-1\",\"newPassword\":\"short\"}").statusCode()).isEqualTo(400);
+        HttpResponse<String> same = sam.postJson("/admin/api/me/password",
+                "{\"currentPassword\":\"support-password-1\",\"newPassword\":\"support-password-1\"}");
+        assertThat(same.statusCode()).isEqualTo(422);
+        assertThat(same.body()).contains("must differ");
+        assertThat(sam.postJson("/admin/api/me/password", "{}").statusCode()).isEqualTo(400);
+
+        assertThat(samElsewhere.get("/admin/api/me").statusCode()).as("a refused change ends no session").isEqualTo(200);
+        assertThat(AdminBrowser.signedIn(port, "sam", "support-password-1").get("/admin/api/me").statusCode())
+                .as("the password is what it was").isEqualTo(200);
+        assertThat(audit()).extracting(row -> row.get("actor") + " " + row.get("action") + " " + row.get("target") + ": " + row.get("detail"))
+                .containsExactly("sam refused sam: The current password is wrong",
+                        "sam refused sam: The new password must differ from the current one");
+
+        AdminBrowser anonymous = new AdminBrowser(port);
+        anonymous.get("/admin/api/csrf");
+        assertThat(anonymous.postJson("/admin/api/me/password",
+                "{\"currentPassword\":\"support-password-1\",\"newPassword\":\"a-password-of-my-own\"}").statusCode())
+                .as("not signed in: nothing to change").isEqualTo(401);
     }
 
     @Test

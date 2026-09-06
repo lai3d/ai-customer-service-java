@@ -152,6 +152,32 @@ public class StaffAccounts {
         });
     }
 
+    /**
+     * Replaces the account's own password, given the current one. A wrong current password
+     * and a new password equal to the current one are {@link StaffRuleException}s: the
+     * caller is signed in, so neither is an authentication failure, and both are refusals
+     * worth a row. The rule on length is creation's. The caller ends the account's other
+     * sessions, keeping the one this was done from.
+     */
+    public void changePassword(String username, String currentPassword, String newPassword) {
+        String name = normalise(username);
+        if (newPassword == null || newPassword.length() < MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("password must be at least " + MIN_PASSWORD_LENGTH + " characters");
+        }
+        String hash = passwordEncoder.encode(newPassword);
+        transaction.executeWithoutResult(status -> {
+            lockedAccount(name);
+            String current = jdbc.queryForObject("SELECT password_hash FROM staff_account WHERE username = ?", String.class, name);
+            if (currentPassword == null || !passwordEncoder.matches(currentPassword, current)) {
+                throw new StaffRuleException(name, "The current password is wrong");
+            }
+            if (currentPassword.equals(newPassword)) {
+                throw new StaffRuleException(name, "The new password must differ from the current one");
+            }
+            jdbc.update("UPDATE staff_account SET password_hash = ? WHERE username = ?", hash, name);
+        });
+    }
+
     /** Locks the enabled admins' rows and the target's, so two changes to who is an admin take turns. */
     private StaffAccount lockedAccount(String name) {
         jdbc.queryForList("SELECT username FROM staff_account WHERE (role = 'admin' AND enabled) OR username = ? "

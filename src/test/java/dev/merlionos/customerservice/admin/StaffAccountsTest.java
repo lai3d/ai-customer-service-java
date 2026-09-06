@@ -112,6 +112,32 @@ class StaffAccountsTest {
     }
 
     @Test
+    @DisplayName("changing your own password needs the current one, a new one of creation's length, and one that differs")
+    void changePassword() {
+        accounts.create("sam", "support-password-1", StaffRole.SUPPORT, "root");
+        String before = db.jdbc.queryForObject("SELECT password_hash FROM staff_account WHERE username = 'sam'", String.class);
+
+        assertThatThrownBy(() -> accounts.changePassword("sam", "not-my-password-1", "a-password-of-my-own"))
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("current password");
+        assertThatThrownBy(() -> accounts.changePassword("sam", null, "a-password-of-my-own"))
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("current password");
+        assertThatThrownBy(() -> accounts.changePassword("sam", "support-password-1", "short"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("12");
+        assertThatThrownBy(() -> accounts.changePassword("sam", "support-password-1", "support-password-1"))
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("differ");
+        assertThatThrownBy(() -> accounts.changePassword("nobody", "support-password-1", "a-password-of-my-own"))
+                .isInstanceOf(StaffAccountNotFoundException.class);
+        assertThat(db.jdbc.queryForObject("SELECT password_hash FROM staff_account WHERE username = 'sam'", String.class))
+                .as("a refusal writes nothing").isEqualTo(before);
+
+        accounts.changePassword("Sam", "support-password-1", "a-password-of-my-own");
+        String after = db.jdbc.queryForObject("SELECT password_hash FROM staff_account WHERE username = 'sam'", String.class);
+        assertThat(after).startsWith("{bcrypt}$2").isNotEqualTo(before);
+        assertThat(encoder.matches("a-password-of-my-own", after)).isTrue();
+        assertThat(encoder.matches("support-password-1", after)).isFalse();
+    }
+
+    @Test
     @DisplayName("two replicas seeding the same empty table produce one admin and no failed start")
     void seedRaceIsBenign() throws Exception {
         StaffSeeder first = new StaffSeeder(accounts, new AdminProperties(new AdminProperties.Seed("root", "seed-password-1")));
