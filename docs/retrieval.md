@@ -145,12 +145,24 @@ be read sequentially and hide it):
 | --- | --- | --- | --- | --- | --- |
 | this importer: upsert, then retire the old version | 30 | 36 | 725 | 200 kB | 8 of 8 |
 | delete everything, reinsert (the report's pattern) | 30 | 36 | 864 | 224 kB | 8 of 8 |
-| delete everything, reinsert | 60 | 36 | 2016 | 528 kB | **6 of 8** |
+| delete everything, reinsert, raw scan (`hnsw.iterative_scan = off`), five runs | 60 | 36 | ~2000 | ~450 kB | **6 or 7 of 8** |
+| the same, through the application's connections (`strict_order`) | 60 | 36 | 2124 | 472 kB | 8 of 8 |
 | either, after `VACUUM` | | 36 | 0 | unchanged | 8 of 8 |
 
-At thirty reloads the starvation did not reproduce and the bloat did; at sixty it is there,
-as degradation: six passages where the request said eight, with nothing in the response to
-say two are missing. The zero in the original report turned out to be a degenerate case --
+At thirty reloads the starvation did not reproduce and the bloat did; at sixty it is there:
+six or seven passages where the request said eight, with nothing in the response to say two are
+missing. The application does not see it, for a reason that arrived on the same day from the
+other direction: the knowledge-version design keeps retired rows in the table until
+retention removes them, so every pooled connection now carries
+`hnsw.iterative_scan = strict_order` (Hikari `connection-init-sql`), and an iterative scan
+keeps walking the graph until k live rows pass. That is the first guard, on reads; the vacuum
+after the bundled import is the second, on the table, and they are complementary rather
+than redundant: the GUC bounds the walk with `hnsw.max_scan_tuples` and the vacuum is what
+keeps the walk short. A first version of the test pinned "6 of 8" and CI answered "8 of 8",
+because the pooled connection had the GUC on and the pin was measuring the guard, not the
+defect. The test measures the raw scan with the GUC off, prints the count rather than
+pinning it -- it has been measured on one machine -- and asserts what holds anywhere: the
+dead entries accumulate, the scan returns at most top-k, a vacuum restores exactly top-k. The zero in the original report turned out to be a degenerate case --
 its stub embeddings were all identical, so every graph point sat at distance zero and the
 candidates were one point's dead copies; re-run there with 36 distinct vectors it became
 7 of 8 after sixty reloads. This corpus is closer to the degenerate case than random vectors
@@ -160,10 +172,9 @@ it loses two rather than one.
 What changed: the importer now runs `VACUUM vector_store` after each import, outside the
 transaction because Postgres refuses it inside one, which is cheap for a corpus this size
 and takes the daemon's timing out of the question. `HnswDeadEntriesTest` pins that sixty
-imports through the importer leave no dead tuples and the top-k whole, and keeps the defect
-itself under observation -- sixty delete-and-reinserts return fewer than eight through the
-index, a vacuum restores them -- so a pgvector release that fixes it is noticed here, and the
-guard reconsidered, rather than assumed.
+imports through the importer leave no dead tuples and the top-k whole, and keeps the
+delete-and-reinsert pattern under observation with the raw scan's count printed, so the
+number is re-read on every run rather than remembered from this one.
 
 ### Cross-lingual retrieval
 
