@@ -39,6 +39,8 @@ the measured numbers below are from that run, not estimates.
 | `APP_IMAGE` | no | `ai-customer-service-java:local` | Compose only: lets you run a pre-built image instead of building. |
 | `ADMIN_SEED_USERNAME`, `ADMIN_SEED_PASSWORD` | first deploy | none | The seed command for the operations admin's first staff account (`/admin`): with both set, the process creates that admin at startup **only if `staff_account` is empty**, and logs what it did. Never overwrites or resets an account, so it is safe to leave set; one without the other refuses to start. Read by `all` and `chat` processes. Password at least 12 characters. |
 | `ADMIN_SESSION_TIMEOUT` | no | `30m` | Idle time before a staff session ends. Sessions are rows in `spring_session`, shared by every replica. |
+| `ADMIN_SESSION_MAX_LIFETIME` | no | `12h` | How long a staff session may live from its sign-in, however busy it is; older ones are ended on their next request. Must be positive. |
+| `ADMIN_SESSION_LIMIT` | no | `3` | How many sessions one account may hold at once. Signing in past it ends the account's least recently used sessions, never the one signing in. At least 1. |
 | `ADMIN_UI_PORT`, `ADMIN_UI_IMAGE` | no | `8084`, `ai-customer-service-java-admin-ui:local` | Compose only: the operations UI's host port and image. The UI container reads one variable of its own, `ADMIN_API_UPSTREAM`, which the Compose files set to the app or the chat role. |
 
 `.env.example` documents the first five. Copy it to `.env` (git-ignored) and fill it in,
@@ -317,7 +319,7 @@ there (the UI container proxies to it), staff sessions are rows every `chat` rep
 `ticket` process over `/internal/v1/ticket-workflow`, and knowledge edits and publications
 reach the `knowledge` process over `/internal/v1/knowledge-admin`, both with the same token.
 A publication embeds on the knowledge role, which is where the model is. `ADMIN_SEED_*` and
-`ADMIN_SESSION_TIMEOUT` are read by `chat` only.
+the three `ADMIN_SESSION_*` settings are read by `chat` only.
 
 What to expect: `chat`'s `/actuator/health/readiness` is `DOWN` until `knowledge` reports its
 corpus present, because readiness crosses the seam; a `/internal/**` call without the token is

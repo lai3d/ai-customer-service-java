@@ -13,16 +13,20 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Staff sign-in as the separated UI does it, over real HTTP with a real cookie jar: a CSRF
  * cookie first, then a JSON login. The claims: a stranger gets {@code 401} and no session;
  * every mutation, the login included, needs the CSRF token; a signed-in support member is
- * not an admin; signing out ends the session in Postgres; the public side never sees any of
- * it; and nothing under {@code /admin} but the API exists here any more.
+ * not an admin; signing out ends the session in Postgres; a session outlives neither the
+ * absolute lifetime nor a fourth sign-in as the same account; the public side never sees any
+ * of it; and nothing under {@code /admin} but the API exists here any more.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "app.rag.import-mode=startup")
@@ -42,6 +46,9 @@ class AdminLoginTest {
 
     @Autowired
     StaffSeeder seeder;
+
+    @Autowired
+    AdminProperties properties;
 
     @BeforeEach
     void oneAdminAndNoSessions() {
@@ -157,6 +164,67 @@ class AdminLoginTest {
                 .containsEntry("actor", "sam").containsEntry("action", "refused").containsEntry("target", "GET /admin/api/staff");
         assertThat(admin.get("/admin/api/staff").body()).contains("\"username\":\"root\"", "\"username\":\"sam\"")
                 .doesNotContain("password");
+    }
+
+    @Test
+    @DisplayName("a session signed in longer ago than the absolute lifetime is ended on its next request, idle or not")
+    void absoluteLifetimeEndsABusySession() throws Exception {
+        AdminBrowser browser = AdminBrowser.signedIn(port, "root", "first-admin-password");
+        long signedInAt = creationTimeOf("root");
+        assertThat(Instant.ofEpochMilli(signedInAt)).isCloseTo(Instant.now(), within(java.time.Duration.ofMinutes(1)));
+
+        // Signing in again from the same browser rotates the session id on the same row: the
+        // lifetime clock keeps running from the first sign-in.
+        assertThat(browser.login("root", "first-admin-password").statusCode()).isEqualTo(200);
+        assertThat(sessionsOf("root")).isEqualTo(1);
+        assertThat(creationTimeOf("root")).as("rotation keeps the creation time").isEqualTo(signedInAt);
+
+        // Older than the lifetime by the creation time, but used just now: the idle timeout
+        // alone would keep it.
+        long tooOld = Instant.now().minus(properties.sessionMaxLifetime()).minusSeconds(60).toEpochMilli();
+        jdbc.update("UPDATE spring_session SET creation_time = ? WHERE principal_name = 'root'", tooOld);
+        HttpResponse<String> me = browser.get("/admin/api/me");
+        assertThat(me.statusCode()).isEqualTo(401);
+        assertThat(me.headers().firstValue("Location")).isEmpty();
+        assertThat(sessionsOf("root")).as("the row is deleted, so no replica honours the cookie").isZero();
+        assertThat(browser.cookie("SESSION")).as("and the cookie is expired").isEmpty();
+
+        assertThat(AdminBrowser.signedIn(port, "root", "first-admin-password").get("/admin/api/me").statusCode())
+                .as("a fresh sign-in opens a fresh session").isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("a fourth sign-in as one account ends its least recently used session; newest wins, and a wrong password ends nothing")
+    void concurrentSessionsAreCapped() throws Exception {
+        assertThat(properties.sessionLimit()).as("the default the test is written against").isEqualTo(3);
+        AdminBrowser first = AdminBrowser.signedIn(port, "root", "first-admin-password");
+        AdminBrowser second = AdminBrowser.signedIn(port, "root", "first-admin-password");
+        AdminBrowser third = AdminBrowser.signedIn(port, "root", "first-admin-password");
+        for (AdminBrowser browser : List.of(first, second, third)) {
+            assertThat(browser.get("/admin/api/me").statusCode()).isEqualTo(200);
+            Thread.sleep(5); // distinct last-accessed times, in this order
+        }
+        assertThat(sessionsOf("root")).isEqualTo(3);
+
+        AdminBrowser wrong = new AdminBrowser(port);
+        wrong.get("/admin/api/csrf");
+        assertThat(wrong.login("root", "not-the-password").statusCode()).isEqualTo(401);
+        assertThat(sessionsOf("root")).as("a failed sign-in evicts nobody").isEqualTo(3);
+
+        AdminBrowser fourth = AdminBrowser.signedIn(port, "root", "first-admin-password");
+        assertThat(first.get("/admin/api/me").statusCode()).as("the least recently used session is gone").isEqualTo(401);
+        assertThat(second.get("/admin/api/me").statusCode()).isEqualTo(200);
+        assertThat(third.get("/admin/api/me").statusCode()).isEqualTo(200);
+        assertThat(fourth.get("/admin/api/me").statusCode()).as("the newest always gets in").isEqualTo(200);
+        assertThat(sessionsOf("root")).isEqualTo(3);
+    }
+
+    private int sessionsOf(String principal) {
+        return jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name = ?", Integer.class, principal);
+    }
+
+    private long creationTimeOf(String principal) {
+        return jdbc.queryForObject("SELECT creation_time FROM spring_session WHERE principal_name = ?", Long.class, principal);
     }
 
     @Test

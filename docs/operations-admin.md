@@ -135,7 +135,7 @@ proposal's stage 2, not this slice.
 - Filtering the queue by created time on the page; the API takes `from` and `to`.
 - The resolve dialog is a browser `prompt()`, single-line.
 - Session timeout is idle-based, 30 minutes by default (`ADMIN_SESSION_TIMEOUT`); there is no
-  absolute lifetime and no concurrent-session limit.
+  absolute lifetime and no concurrent-session limit. (Built in the fourth round, below.)
 
 ### Operating it
 
@@ -254,6 +254,7 @@ keep their documents in `vector_store`; retention removes them after the newest 
 | --- | --- | --- |
 | The knowledge version on every retrieval row: `turn_retrieval.corpus_version`, carried from the passage metadata through the `retrieval` event, shown on the conversation page; null on rows written before `V12` | `chat/TurnEvent`, `chat/TurnRecorder`, `chat/TurnRecords`, `V12` | [#43](https://github.com/lai3d/ai-customer-service-java/pull/43) |
 | Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
+| Two bounds on a staff session besides the idle timeout: an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h), applied by a filter in the admin chain that invalidates the row and answers `401`; and a per-account limit on concurrent sessions (`ADMIN_SESSION_LIMIT`, 3), applied at sign-in by ending the least recently used, never the one signing in; both read from `spring_session`, so every replica applies them alike; zero, negative or a limit below one refuses to start | `admin/StaffSessionPolicy`, `admin/StaffSessionLifetimeFilter`, `admin/AdminProperties` | PR_LINK_PLACEHOLDER |
 
 ### The rules, and why they are rules
 
@@ -272,13 +273,21 @@ keep their documents in `vector_store`; retention removes them after the newest 
 - **A disabled account signing in reads exactly like a wrong password**, as before; the
   disablement is visible to admins on the Staff page and in the audit, not to the person
   trying the door.
+- **A session ends twelve hours after it was signed in, however busy it was, and an account
+  holds at most three at once.** The idle timeout never ends a session that is used every
+  few minutes, so without the lifetime a cookie taken once worked for as long as its owner
+  kept working; the clock is the row's `creation_time`, which the sign-in's session-id
+  rotation keeps (it is an `UPDATE` of the id on the same row). The limit is newest-wins:
+  the fourth sign-in ends the account's least recently used session rather than being
+  refused, because refusing it would let whoever holds a stolen cookie keep the owner out,
+  and the owner signing in is the one act that must always succeed. The sessions ended are
+  the ones nobody has used for longest. A wrong password ends nothing. `AdminLoginTest`
+  ages a busy session by its creation time and signs in four times from four cookie jars.
 
 ### What is still not built
 
 - Staff changing their own password. Every account operation is an admin's; a support
   member asks an admin. The API shape allows it later without a new table.
-- An absolute session lifetime and a concurrent-session limit; the idle timeout is the
-  only bound.
 
 ## The record, third round (2026-09-06): the front end deployed separately
 
