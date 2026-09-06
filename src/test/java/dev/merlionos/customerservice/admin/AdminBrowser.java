@@ -9,20 +9,27 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * A cookie jar over the JDK client, for driving the admin the way a browser does: a real
  * session cookie, the CSRF cookie copied into a header, redirects left alone so the test
- * sees them.
+ * sees them. Every request carries a timeout: a suite once sat for ten minutes in
+ * {@code GET /admin/api/csrf} on an overloaded machine (three suites at once), and a hang
+ * that fails in thirty seconds naming the request is worth more than one that waits.
  */
 class AdminBrowser {
 
     final int port;
     final CookieManager cookies = new CookieManager();
     final HttpClient client = HttpClient.newBuilder()
-            .cookieHandler(cookies).followRedirects(HttpClient.Redirect.NEVER).build();
+            .cookieHandler(cookies).followRedirects(HttpClient.Redirect.NEVER)
+            .connectTimeout(Duration.ofSeconds(10)).build();
+
+    /** Long enough for the first request of a cold context; short enough to fail a hung suite. */
+    static final Duration TIMEOUT = Duration.ofSeconds(30);
 
     AdminBrowser(int port) {
         this.port = port;
@@ -40,7 +47,7 @@ class AdminBrowser {
     }
 
     HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        return client.send(HttpRequest.newBuilder(uri(path)).header("Accept", "application/json, text/html")
+        return client.send(HttpRequest.newBuilder(uri(path)).timeout(TIMEOUT).header("Accept", "application/json, text/html")
                 .GET().build(), HttpResponse.BodyHandlers.ofString());
     }
 
@@ -53,7 +60,7 @@ class AdminBrowser {
                 .map(e -> URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8) + "="
                         + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
                 .reduce((a, b) -> a + "&" + b).orElse("");
-        return client.send(HttpRequest.newBuilder(uri(path))
+        return client.send(HttpRequest.newBuilder(uri(path)).timeout(TIMEOUT)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -63,7 +70,7 @@ class AdminBrowser {
     }
 
     HttpResponse<String> postJson(String path, String json, boolean withCsrfHeader) throws IOException, InterruptedException {
-        HttpRequest.Builder request = HttpRequest.newBuilder(uri(path))
+        HttpRequest.Builder request = HttpRequest.newBuilder(uri(path)).timeout(TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json));
