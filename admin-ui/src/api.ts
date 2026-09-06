@@ -105,6 +105,7 @@ export const api = {
   login: (username: string, password: string) => call<Me>('POST', '/login', { username, password }, false),
   logout: () => call<void>('POST', '/logout', {}),
   me: () => call<Me>('GET', '/me'),
+  changeOwnPassword: (currentPassword: string, newPassword: string) => call<void>('POST', '/me/password', { currentPassword, newPassword }),
 
   overview: (f: { from?: string; to?: string }) => call<Overview>('GET', '/overview' + query(f)),
 

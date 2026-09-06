@@ -28,8 +28,9 @@ import java.util.Map;
  * stops honouring them at once: a disabled account has no signed-in browser, a changed role
  * is not carried by a session signed in under the old one, and a reset password is not
  * undercut by a session the old password opened. The one session kept is the caller's own,
- * when an admin resets their own password. The rules ({@link StaffRuleException}) are the
- * account store's; refusals are recorded like every other refusal.
+ * when an admin resets their own password or anyone changes theirs. The rules
+ * ({@link StaffRuleException}) are the account store's; refusals are recorded like every
+ * other refusal.
  */
 @RestController
 @RequestMapping(AdminSecurityConfiguration.API_PATH)
@@ -123,6 +124,26 @@ class AdminStaffController {
         HttpSession own = http.getSession(false);
         endSessionsOf(name, name.equals(authentication.getName()) && own != null ? own.getId() : null);
         audit.record(authentication.getName(), AdminAudit.Action.PASSWORD_RESET, name, null);
+        return ResponseEntity.noContent().build();
+    }
+
+    record ChangePassword(String currentPassword, String newPassword) {
+    }
+
+    /**
+     * The signed-in account changing its own password, any role. The current password is
+     * asked for because a session is not proof of knowing it -- a browser left signed in
+     * must not be enough to lock the owner out. Every other session of the account ends;
+     * the one this was done from stays.
+     */
+    @PostMapping("/me/password")
+    ResponseEntity<Void> changeOwnPassword(@RequestBody ChangePassword request, Authentication authentication,
+                                           HttpServletRequest http) {
+        String name = authentication.getName();
+        accounts.changePassword(name, request.currentPassword(), request.newPassword());
+        HttpSession own = http.getSession(false);
+        endSessionsOf(name, own != null ? own.getId() : null);
+        audit.record(name, AdminAudit.Action.PASSWORD_CHANGED, name, null);
         return ResponseEntity.noContent().build();
     }
 

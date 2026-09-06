@@ -363,7 +363,10 @@ a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`. Besides the idle
 session has an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h, a filter
 in the admin chain) and an account a concurrent-session limit (`ADMIN_SESSION_LIMIT`, 3,
 applied at sign-in by ending the least recently used, newest wins); both in
-`StaffSessionPolicy`, both read from `spring_session` so every replica agrees.
+`StaffSessionPolicy`, both read from `spring_session` so every replica agrees. Anyone changes their own
+password with the current one (`POST /admin/api/me/password`, the Account page); a wrong
+current password is a `422` recorded as a refusal, and success ends the account's other
+sessions but not the caller's.
 
 **The UI is a separate deployable**: `admin-ui/` (Vite + React + TypeScript, its own nginx
 image on 8084) proxies `/admin/api` to the app, so the browser sees one origin, the session
