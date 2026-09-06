@@ -231,8 +231,12 @@ as the database is concerned.
   import leaves the previous rows as dead tuples whose HNSW entries stay in the index until a
   vacuum, and an HNSW scan drops dead candidates only after collecting them. Measured here on
   pgvector 0.8.6 with the real corpus (`HnswDeadEntriesTest`, autovacuum off, index scan
-  forced): sixty delete-and-reinserts return **6 of 8** through the index, a vacuum restores
-  8. Do not move the `VACUUM` inside the transaction; Postgres refuses it there.
+  forced, `hnsw.iterative_scan = off`): sixty delete-and-reinserts return **6 or 7 of 8**; through
+  the application's pooled connections, which carry `hnsw.iterative_scan = strict_order`
+  from Hikari's `connection-init-sql`, 8 of 8. Two guards, complementary: the GUC on reads,
+  the vacuum on the table. The test measures the raw scan and prints its count rather than
+  pinning it; a pin went red on CI once because the pooled connection had the GUC on.
+  Do not move the `VACUUM` inside the transaction; Postgres refuses it there.
 - **Readiness includes the `corpus` indicator.** A context with `app.rag.import-mode=off` and
   an empty database reports readiness (and `/actuator/health`) DOWN, correctly. Tests that
   assert health is UP need `import-mode=startup`.
