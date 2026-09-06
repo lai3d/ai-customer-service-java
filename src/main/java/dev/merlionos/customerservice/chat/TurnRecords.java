@@ -48,7 +48,7 @@ public class TurnRecords {
     public record Page(List<Summary> conversations, long total, int page, int size) {
     }
 
-    public record Retrieved(int rank, String entryId, String language, double score) {
+    public record Retrieved(int rank, String entryId, String language, double score, String corpusVersion) {
     }
 
     public record ToolCall(String tool, String outcome, Instant at) {
@@ -123,9 +123,9 @@ public class TurnRecords {
     }
 
     private List<Retrieved> retrieval(String turnId) {
-        return jdbc.query("SELECT rank, entry_id, language, score FROM turn_retrieval WHERE turn_id = ? ORDER BY rank",
+        return jdbc.query("SELECT rank, entry_id, language, score, corpus_version FROM turn_retrieval WHERE turn_id = ? ORDER BY rank",
                 (rs, i) -> new Retrieved(rs.getInt("rank"), rs.getString("entry_id"), rs.getString("language"),
-                        rs.getDouble("score")), turnId);
+                        rs.getDouble("score"), rs.getString("corpus_version")), turnId);
     }
 
     private List<ToolCall> toolCalls(String turnId) {

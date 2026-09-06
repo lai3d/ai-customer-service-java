@@ -45,8 +45,8 @@ class TurnRecorderTest {
         assertThat(row(turn)).containsEntry("outcome", "running").containsEntry("path", "stream")
                 .containsEntry("question", "运费多少钱").containsEntry("ended_at", null);
 
-        recorder.retrieved(turn, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.87),
-                new TurnEvent.Passage("returns-damaged", "zh", 0.81)));
+        recorder.retrieved(turn, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.87, "v1"),
+                new TurnEvent.Passage("returns-damaged", "zh", 0.81, "v1")));
         recorder.toolCalled(turn, "lookup_order", "found");
         recorder.finish(turn, TurnRecorder.Outcome.COMPLETED, "满 50 美元免运费。", "claude-opus-5", 1204, 87, "abc123", null);
         recorder.finish(turn, TurnRecorder.Outcome.FAILED, null, null, null, null, null, new RuntimeException("late"));
@@ -54,6 +54,8 @@ class TurnRecorderTest {
         assertThat(row(turn)).containsEntry("outcome", "completed").containsEntry("answer", "满 50 美元免运费。")
                 .containsEntry("model", "claude-opus-5").containsEntry("input_tokens", 1204)
                 .containsEntry("output_tokens", 87).containsEntry("trace_id", "abc123").containsEntry("failure", null);
+        assertThat(db.jdbc.queryForList("SELECT corpus_version FROM turn_retrieval WHERE turn_id = ?", String.class, turn))
+                .as("the version the passages were found in").containsExactly("v1", "v1");
         assertThat(db.jdbc.queryForList("SELECT entry_id FROM turn_retrieval WHERE turn_id = ? ORDER BY rank", String.class, turn))
                 .containsExactly("shipping-cost", "returns-damaged");
         assertThat(db.jdbc.queryForList("SELECT tool || ':' || outcome FROM turn_tool_call WHERE turn_id = ? ORDER BY id", String.class, turn))

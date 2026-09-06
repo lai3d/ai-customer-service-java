@@ -115,6 +115,10 @@ class TurnEventStreamIntegrationTest {
                 String.class, turn.get("turn_id")))
                 .as("the passages, in rank order, written before the model answered")
                 .isNotEmpty().contains("shipping-cost");
+        assertThat(jdbc.queryForList("SELECT DISTINCT corpus_version FROM turn_retrieval WHERE turn_id = ?",
+                String.class, turn.get("turn_id")))
+                .as("every passage is tied to the version that was active for the turn")
+                .containsExactly(jdbc.queryForObject("SELECT version FROM knowledge_active", String.class));
     }
 
     @Test

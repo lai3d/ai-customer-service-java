@@ -15,8 +15,13 @@ public sealed interface TurnEvent {
     /** SSE event name. */
     String name();
 
-    /** One retrieved passage and how strongly it matched. */
-    record Passage(String entryId, String language, double score) {
+    /**
+     * One retrieved passage and how strongly it matched.
+     *
+     * @param corpusVersion the knowledge version the passage was found in, so the record
+     *                      can be read against that version's text after a publication
+     */
+    record Passage(String entryId, String language, double score, String corpusVersion) {
     }
 
     /**
