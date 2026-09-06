@@ -60,7 +60,8 @@ public class TurnRecorder {
 
     public void retrieved(String turnId, List<TurnEvent.Passage> passages) {
         try {
-            jdbc.batchUpdate("INSERT INTO turn_retrieval (turn_id, rank, entry_id, language, score) VALUES (?, ?, ?, ?, ?) "
+            jdbc.batchUpdate("INSERT INTO turn_retrieval (turn_id, rank, entry_id, language, score, corpus_version) "
+                            + "VALUES (?, ?, ?, ?, ?, ?) "
                             + "ON CONFLICT DO NOTHING",
                     passages, passages.size(), (ps, passage) -> {
                         ps.setString(1, turnId);
@@ -68,6 +69,7 @@ public class TurnRecorder {
                         ps.setString(3, passage.entryId());
                         ps.setString(4, passage.language());
                         ps.setDouble(5, passage.score());
+                        ps.setString(6, passage.corpusVersion());
                     });
         }
         catch (DataAccessException e) {

@@ -28,7 +28,7 @@ export interface ConversationSummary {
   failed: number; interrupted: number; unknown: number;
 }
 export interface ConversationPage { conversations: ConversationSummary[]; total: number; page: number; size: number }
-export interface Retrieved { rank: number; entryId: string; language: string | null; score: number }
+export interface Retrieved { rank: number; entryId: string; language: string | null; score: number; corpusVersion: string | null }
 export interface ToolCall { tool: string; outcome: string; at: string }
 export interface Turn {
   turnId: string; conversationId: string; path: string; startedAt: string; endedAt: string | null; outcome: string;

@@ -202,7 +202,9 @@ as the database is concerned.
   past the turn lease is a process that died mid-turn; `TurnRecordSweeper` marks it
   `unknown`, never `completed`. The blocking path opens a `TurnEventBus` channel of its own
   so retrieval and tool events reach the record there too. Question and answer are
-  snapshots, not references into chat memory, which is windowed.
+  snapshots, not references into chat memory, which is windowed; each retrieval row names the
+  `corpus_version` it was found in, so the record reads against that version's text after a
+  publication or rollback.
 - **Ticket writes over the seam carry an operation id**, generated per tool invocation in
   `SupportTicketTools`, never by the model. `JdbcTicketOperations` records every outcome
   against it in `ticket_operation` inside the ticket's transaction; the same id asked again

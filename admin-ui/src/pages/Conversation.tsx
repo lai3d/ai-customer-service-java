@@ -31,8 +31,8 @@ function TurnView({ t, flags, onFlagged }: { t: Turn; flags: ConversationDetail[
       <h4>Retrieved ({t.retrieval.length})</h4>
       {t.retrieval.length === 0 ? <p className="hint">Nothing recorded for this turn.</p> : (
         <table>
-          <thead><tr><th>#</th><th>Entry</th><th>Language</th><th>Score</th></tr></thead>
-          <tbody>{t.retrieval.map(r => <tr key={r.rank}><td>{r.rank}</td><td className="mono">{r.entryId}</td><td>{r.language ?? ''}</td><td>{r.score.toFixed(4)}</td></tr>)}</tbody>
+          <thead><tr><th>#</th><th>Entry</th><th>Language</th><th>Score</th><th>Version</th></tr></thead>
+          <tbody>{t.retrieval.map(r => <tr key={r.rank}><td>{r.rank}</td><td className="mono">{r.entryId}</td><td>{r.language ?? ''}</td><td>{r.score.toFixed(4)}</td><td className="mono">{r.corpusVersion ?? 'not recorded'}</td></tr>)}</tbody>
         </table>
       )}
       <h4>Tools ({t.toolCalls.length})</h4>

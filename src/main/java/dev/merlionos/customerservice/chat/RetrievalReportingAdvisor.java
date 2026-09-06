@@ -29,6 +29,7 @@ public class RetrievalReportingAdvisor implements BaseAdvisor {
 
     private static final String METADATA_ENTRY_ID = "entry_id";
     private static final String METADATA_LANGUAGE = "language";
+    private static final String METADATA_VERSION = "corpus_version";
 
     private final TurnEventBus turnEventBus;
 
@@ -73,6 +74,7 @@ public class RetrievalReportingAdvisor implements BaseAdvisor {
         return new TurnEvent.Passage(
                 String.valueOf(metadata.get(METADATA_ENTRY_ID)),
                 String.valueOf(metadata.get(METADATA_LANGUAGE)),
-                document.getScore() == null ? 0d : document.getScore());
+                document.getScore() == null ? 0d : document.getScore(),
+                metadata.get(METADATA_VERSION) == null ? null : String.valueOf(metadata.get(METADATA_VERSION)));
     }
 }

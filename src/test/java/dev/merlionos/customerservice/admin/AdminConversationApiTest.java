@@ -72,7 +72,7 @@ class AdminConversationApiTest {
         good = UUID.randomUUID().toString();
         String turn1 = UUID.randomUUID().toString();
         recorder.start(turn1, good, TurnRecorder.Path.STREAM, "运费多少钱");
-        recorder.retrieved(turn1, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.8731)));
+        recorder.retrieved(turn1, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.8731, "2026-09-01-bilingual")));
         recorder.finish(turn1, TurnRecorder.Outcome.COMPLETED, "满 **50** 美元免运费。", "claude-opus-5", 1204, 87, "trace-1", null);
         String turn2 = UUID.randomUUID().toString();
         recorder.start(turn2, good, TurnRecorder.Path.BLOCKING, "My parcel arrived crushed");
@@ -120,7 +120,7 @@ class AdminConversationApiTest {
         assertThat(detail.statusCode()).isEqualTo(200);
         assertThat(detail.body())
                 .contains("\"question\":\"运费多少钱\"", "\"answer\":\"满 **50** 美元免运费。\"")
-                .contains("\"entryId\":\"shipping-cost\"", "\"score\":0.8731")
+                .contains("\"entryId\":\"shipping-cost\"", "\"score\":0.8731", "\"corpusVersion\":\"2026-09-01-bilingual\"")
                 .contains("\"tool\":\"create_support_ticket\"", "\"outcome\":\"created\"")
                 .contains("\"inputTokens\":1204", "\"traceId\":\"trace-1\"")
                 .contains("\"ticketNumber\":\"" + ticketNumber + "\"")
