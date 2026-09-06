@@ -44,8 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Measured with pgvector's raw scan: thirty reloads of either pattern still returned 8 of 8
  * (725 and 864 dead tuples, the index at twice its size); sixty delete-and-reinserts returned
- * <b>6 or 7 of 8</b> with about 2000 dead tuples and the index at five times its size, five
- * runs in a row. The application's own connections do not see that: since the knowledge-version
+ * <b>6 or 7 of 8</b> with about 1100 dead tuples on the heap (the statistics view says about
+ * 2000) and the index at five times its size, seven runs in a row. The application's own connections do not see that: since the knowledge-version
  * design keeps retired rows around, every pooled connection carries
  * {@code hnsw.iterative_scan = strict_order} (Hikari connection-init-sql), and an iterative
  * scan keeps walking the graph until k live rows pass. So there are two guards -- the GUC on
@@ -113,9 +113,10 @@ class HnswDeadEntriesTest {
         int viaIndex = forcedIndexScan();
         System.out.printf("### delete+reinsert x%d: live=%d dead=%d index=%s forced index scan rows=%d%n",
                 RELOADS, liveRows(), dead, indexSize(), viaIndex);
-        // Thirty reloads delete 1080 rows; some are already invisible to the statistics
-        // collector by the time it is read, so the bar is half of that, not all of it.
-        assertThat(dead).as("the pattern does leave the index full of dead entries").isGreaterThan(RELOADS * 36 / 2);
+        // Sixty reloads delete 2160 rows; pgstattuple counted about 1100 of them still on the
+        // heap (the statistics view says about 2000). The bar is a quarter of the deletions:
+        // enough to say the index is mostly dead entries, not a number to be exact about.
+        assertThat(dead).as("the pattern does leave the index full of dead entries").isGreaterThan(RELOADS * 36 / 4);
         // Not pinned below top-k: the raw count has been measured on this machine only (6 or 7 of
         // 8, five times), and a first version that pinned it went red on CI for a reason that
         // was not the graph. The line printed above is the measurement; the assertions are
@@ -134,30 +135,15 @@ class HnswDeadEntriesTest {
     }
 
     /**
-     * The cumulative statistics are flushed by each backend asynchronously, so a count read
-     * right after a vacuum on another pooled connection can be stale: a run of this class saw
-     * 180 dead tuples reported after the vacuum, five reloads' worth, with no other session
-     * active. Force this backend's flush, then give the others up to a few seconds to settle.
+     * Counted on the heap by {@code pgstattuple}, not read from {@code pg_stat_user_tables}.
+     * The statistics view is what each backend flushes asynchronously: a run read 180 dead
+     * tuples right after a vacuum on another pooled connection, and CI read 36 -- the last
+     * import's updates, flushed by the importing backend after the vacuum had reported the
+     * table clean. Neither was a dead tuple on the heap; both were accounting.
      */
     private int deadTuples() {
-        int last = -1;
-        for (int attempt = 0; attempt < 30; attempt++) {
-            jdbc.queryForObject("SELECT pg_stat_force_next_flush()", Object.class);
-            int now = jdbc.queryForObject(
-                    "SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = 'vector_store'", Integer.class);
-            if (now == last) {
-                return now;
-            }
-            last = now;
-            try {
-                Thread.sleep(100);
-            }
-            catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return now;
-            }
-        }
-        return last;
+        jdbc.execute("CREATE EXTENSION IF NOT EXISTS pgstattuple");
+        return jdbc.queryForObject("SELECT dead_tuple_count FROM pgstattuple('vector_store')", Integer.class);
     }
 
     private String indexSize() {

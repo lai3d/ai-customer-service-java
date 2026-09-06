@@ -145,7 +145,7 @@ be read sequentially and hide it):
 | --- | --- | --- | --- | --- | --- |
 | this importer: upsert, then retire the old version | 30 | 36 | 725 | 200 kB | 8 of 8 |
 | delete everything, reinsert (the report's pattern) | 30 | 36 | 864 | 224 kB | 8 of 8 |
-| delete everything, reinsert, raw scan (`hnsw.iterative_scan = off`), five runs | 60 | 36 | ~2000 | ~450 kB | **6 or 7 of 8** |
+| delete everything, reinsert, raw scan (`hnsw.iterative_scan = off`), seven runs | 60 | 36 | ~1100 on the heap, ~2000 by the statistics view | ~450 kB | **6 or 7 of 8** |
 | the same, through the application's connections (`strict_order`) | 60 | 36 | 2124 | 472 kB | 8 of 8 |
 | either, after `VACUUM` | | 36 | 0 | unchanged | 8 of 8 |
 
