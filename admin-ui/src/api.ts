@@ -136,4 +136,7 @@ export const api = {
 
   staff: () => call<StaffAccount[]>('GET', '/staff'),
   createStaff: (username: string, password: string, role: Role) => call<StaffAccount>('POST', '/staff', { username, password, role }),
+  setStaffEnabled: (username: string, enabled: boolean) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/enabled`, { enabled }),
+  setStaffRole: (username: string, role: Role) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/role`, { role }),
+  resetStaffPassword: (username: string, password: string) => call<void>('POST', `/staff/${encodeURIComponent(username)}/password`, { password }),
 };

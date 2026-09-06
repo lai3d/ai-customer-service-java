@@ -4,6 +4,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -20,6 +22,12 @@ import java.util.regex.Pattern;
  * <p>Usernames are normalised to lower case so {@code Alice} and {@code alice} are one
  * account; the primary key makes a second creation a {@link DuplicateStaffAccountException}
  * rather than a race two admins could win together.
+ *
+ * <p>Changing an account is one transaction shape: lock every enabled admin's row
+ * ({@code FOR UPDATE}), decide from what is locked, write. That is what keeps two admins
+ * demoting each other at the same moment from leaving nobody who can undo it: the second
+ * waits for the first, then sees one admin left and is refused
+ * ({@link StaffRuleException}). Your own access is never yours to remove.
  */
 public class StaffAccounts {
 
@@ -35,10 +43,12 @@ public class StaffAccounts {
 
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transaction;
 
-    public StaffAccounts(JdbcTemplate jdbc, PasswordEncoder passwordEncoder) {
+    public StaffAccounts(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
         this.passwordEncoder = passwordEncoder;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
     /** What the login needs and nothing else needs. */
@@ -84,6 +94,79 @@ public class StaffAccounts {
             throw new DuplicateStaffAccountException(name);
         }
         return account;
+    }
+
+    /**
+     * Enables or disables an account. Disabling is refused for the actor's own account and
+     * for the last enabled admin; enabling has no rule. The caller ends the account's
+     * sessions: a disabled account must not keep a signed-in browser.
+     */
+    public StaffAccount setEnabled(String username, boolean enabled, String actor) {
+        String name = normalise(username);
+        return transaction.execute(status -> {
+            StaffAccount current = lockedAccount(name);
+            if (!enabled) {
+                if (name.equals(normalise(actor))) {
+                    throw new StaffRuleException(name, "You cannot disable your own account");
+                }
+                refuseIfLastAdmin(current, "disable");
+            }
+            jdbc.update("UPDATE staff_account SET enabled = ? WHERE username = ?", enabled, name);
+            return new StaffAccount(name, current.role(), enabled, current.createdAt(), current.createdBy());
+        });
+    }
+
+    /**
+     * Changes an account's role. Refused for the actor's own account and when it would
+     * demote the last enabled admin. The caller ends the account's sessions, because a
+     * session carries the authorities it was signed in with.
+     */
+    public StaffAccount setRole(String username, StaffRole role, String actor) {
+        String name = normalise(username);
+        if (role == null) {
+            throw new IllegalArgumentException("role is required: one of admin, support");
+        }
+        return transaction.execute(status -> {
+            StaffAccount current = lockedAccount(name);
+            if (name.equals(normalise(actor))) {
+                throw new StaffRuleException(name, "You cannot change your own role");
+            }
+            if (role != StaffRole.ADMIN) {
+                refuseIfLastAdmin(current, "demote");
+            }
+            jdbc.update("UPDATE staff_account SET role = ? WHERE username = ?", role.value(), name);
+            return new StaffAccount(name, role, current.enabled(), current.createdAt(), current.createdBy());
+        });
+    }
+
+    /** Replaces the password; the old one stops working at once. The caller ends the account's other sessions. */
+    public void resetPassword(String username, String rawPassword) {
+        String name = normalise(username);
+        if (rawPassword == null || rawPassword.length() < MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("password must be at least " + MIN_PASSWORD_LENGTH + " characters");
+        }
+        String hash = passwordEncoder.encode(rawPassword);
+        transaction.executeWithoutResult(status -> {
+            lockedAccount(name);
+            jdbc.update("UPDATE staff_account SET password_hash = ? WHERE username = ?", hash, name);
+        });
+    }
+
+    /** Locks the enabled admins' rows and the target's, so two changes to who is an admin take turns. */
+    private StaffAccount lockedAccount(String name) {
+        jdbc.queryForList("SELECT username FROM staff_account WHERE (role = 'admin' AND enabled) OR username = ? "
+                + "ORDER BY username FOR UPDATE", String.class, name);
+        return jdbc.query("SELECT username, role, enabled, created_at, created_by FROM staff_account WHERE username = ?",
+                        ACCOUNT, name).stream().findFirst()
+                .orElseThrow(() -> new StaffAccountNotFoundException(name));
+    }
+
+    private void refuseIfLastAdmin(StaffAccount account, String verb) {
+        if (account.role() == StaffRole.ADMIN && account.enabled()
+                && jdbc.queryForObject("SELECT count(*) FROM staff_account WHERE role = 'admin' AND enabled", Integer.class) == 1) {
+            throw new StaffRuleException(account.username(),
+                    "Cannot " + verb + " '" + account.username() + "': it is the only enabled admin");
+        }
     }
 
     public Optional<StaffAccount> find(String username) {
