@@ -253,6 +253,8 @@ Kubernetes manifests, the switching procedure and what running the split found.
 | Vector store | pgvector |
 | Memory | Spring AI JDBC chat memory repository |
 | Observability | Micrometer → Prometheus (histograms, exemplars); Micrometer Tracing → OTLP → Tempo; Alloy → Loki; Grafana provisioned with dashboards, alerts and the links between the three |
+| Staff login | Spring Security 6.5 (JSON login on `/admin/api/**` only, bcrypt), Spring Session JDBC (sessions in Postgres) |
+| Operations UI | `admin-ui/`: Vite 6, React 19, TypeScript 5, react-router 7; vitest; its own nginx image on 8084 proxying `/admin/api` ([its README](admin-ui/README.md)) |
 | Build | Maven (wrapper included) |
 | Tests | JUnit 5 + Testcontainers |
 
@@ -402,7 +404,7 @@ against evidence, and says what the evidence was.
 
 ## Roadmap
 
-The [operations admin](docs/operations-admin.md) is built: staff login and account management (Spring Security, bcrypt accounts, `admin` / `support` roles, sessions in Postgres, a change to an account ending its sessions); the ticket loop; the turn record written at the service boundary; conversations as the record shows them; answer feedback; knowledge editing with versioned publication, an atomic switch, rollback and retention, the bundled corpus adopted as the first version and left untouched; and an overview with a definition next to every number. Opening a conversation or being refused is recorded. It works in both topologies over the internal seams. The front end is a separate deployable, `admin-ui/`, its own nginx image on 8084 proxying the API, as the .NET sibling does. The record of what was built, where it departs from the proposal and what building it found is at the top of that document, in two rounds; the proposal follows it.
+The [operations admin](docs/operations-admin.md) is built: staff login and account management (Spring Security, JSON login on `/admin/api/**`, bcrypt accounts, `admin` / `support` roles, sessions in Postgres with an idle timeout, an absolute lifetime and a per-account limit); the ticket loop; the turn record written at the service boundary, each retrieval row naming the knowledge version it was found in, records and memory deleted after 90 days; conversations as the record shows them; answer feedback; knowledge editing with versioned publication, an atomic switch, rollback and retention, the bundled corpus adopted as the first version and left untouched; and an overview with a definition next to every number. Opening a conversation or being refused is recorded. It works in both topologies over the internal seams. The front end is a separate deployable, [`admin-ui/`](admin-ui/README.md) (Vite + React + TypeScript), its own nginx image on 8084 proxying the API, as the .NET sibling does. The record of what was built, where it departs from the proposal and what building it found is at the top of that document, in four rounds; the proposal follows it.
 
 
 Phase 1 is built one item at a time, each landing as a reviewable change.
