@@ -28,7 +28,7 @@ class ConversationLeaseTest {
     @BeforeAll
     static void start() {
         postgres = MigratedPostgres.start();
-        lease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150)),
+        lease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150), Duration.ofDays(90)),
                 new SimpleMeterRegistry());
     }
 
@@ -51,7 +51,7 @@ class ConversationLeaseTest {
     void refusesOverlap() {
         // Its own registry: the shared lease's counter also moves under the race test below.
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
-        ConversationLease metered = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150)), meters);
+        ConversationLease metered = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofSeconds(150), Duration.ofDays(90)), meters);
         String conversation = conversation();
         metered.acquire(conversation, "turn-1");
         assertThat(meters.get("chat.lease.conflicts").counter().count())
@@ -92,7 +92,7 @@ class ConversationLeaseTest {
     @Test
     @DisplayName("an expired lease can be taken over, so a dead replica holds nothing forever")
     void expiredLeaseIsTakenOver() throws InterruptedException {
-        ConversationLease shortLease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofMillis(200)),
+        ConversationLease shortLease = new ConversationLease(postgres.jdbc, new ChatProperties(Duration.ofMillis(200), Duration.ofDays(90)),
                 new SimpleMeterRegistry());
         String conversation = conversation();
         shortLease.acquire(conversation, "turn-from-a-dead-replica");

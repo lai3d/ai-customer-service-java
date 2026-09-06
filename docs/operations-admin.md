@@ -181,7 +181,7 @@ them from the chat process against the other processes' rows.
 | --- | --- | --- |
 | Persist a stable turn id with outcome, both chat paths; distinguish completed, failed, interrupted and incompletely recorded | Done as written, with `unknown` as the name for "incompletely recorded": a row still `running` past the turn lease, marked by the sweeper at startup and every minute | Nothing knows how such a turn ended, and a name that says so is better than a guess |
 | Store customer-visible messages and the knowledge versions referenced, with snapshots | Question and answer are snapshots on the turn; retrieval rows carry entry, language, score and, since the fourth round, the `corpus_version` the passage was found in (`V12`; null on rows written before) | A turn's evidence is what was found *in which version*; with publications and rollbacks the second half is what lets a flagged answer be read against the text that produced it |
-| Retention policies for memory and records, decided before implementation | Not decided. `conversation_turn` is customer text and is subject to whatever retention memory gets; the record says so in its migration | A retention decision is the owner's; the tables are built so it can be one statement |
+| Retention policies for memory and records, decided before implementation | Decided in the fourth round and built: conversation records and chat memory are kept for 90 days, then deleted (`CONVERSATION_RETENTION`, the owner's default, configurable); one policy for both, not the separate ones the proposal asked for, and deletion rather than the redaction it mentioned | A retention decision is the owner's, and was taken after the tables existed rather than before; the two tables are the same customer text twice, so two policies would mean a transcript outliving its record or the reverse. Nothing is redacted because nothing is kept: a record with the text removed is what the `admin_audit` and `ticket_event` rows already are |
 | Bind feedback to a turn and optionally to a knowledge revision and conclusion | Done, with the revision link arriving one PR after the flag, once revisions existed | Order of construction |
 | Publication as a job with `202`, the page polling | Done; the version row is the job, there is no separate job table | One row already had every state a job needs |
 | Pin each retrieval to a version and record it with the turn; requests started before a switch keep reading the previous version | Retrieval filters by the active version at query time, and a switch is one row; a request that started before the switch reads the version it started on because its search already ran. Deleting a retired version's documents waits for retention, which never touches the active or the newest three | Same guarantee, no reservation bookkeeping |
@@ -231,7 +231,7 @@ them from the chat process against the other processes' rows.
 
 ### What is not built
 
-- Retention for `conversation_turn` and chat memory: a decision, then one statement.
+- Retention for `conversation_turn` and chat memory: a decision, then one statement. (Decided and built in the fourth round, below.)
 - The corpus version on a turn's retrieval rows.
 - Disabling an account, changing a role, resetting a password. (Built in the fourth round, below.)
 - The Go side's `docs/operations.md` records the deliberate differences between the two
@@ -256,6 +256,7 @@ keep their documents in `vector_store`; retention removes them after the newest 
 | Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
 | Two bounds on a staff session besides the idle timeout: an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h), applied by a filter in the admin chain that invalidates the row and answers `401`; and a per-account limit on concurrent sessions (`ADMIN_SESSION_LIMIT`, 3), applied at sign-in by ending the least recently used, never the one signing in; both read from `spring_session`, so every replica applies them alike; zero, negative or a limit below one refuses to start | `admin/StaffSessionPolicy`, `admin/StaffSessionLifetimeFilter`, `admin/AdminProperties` | [#44](https://github.com/lai3d/ai-customer-service-java/pull/44) |
 | Staff changing their own password, any role: `POST /admin/api/me/password` with the current and the new password, and an Account page every role can reach; a wrong current password is a `422` recorded as a refusal, a new password equal to the current one is refused too, and the length rule is creation's; success ends the account's other sessions, keeps the one it was done from, and is recorded as `password_changed` (`V13`) | `admin/StaffAccounts`, `admin/AdminStaffController`, `admin-ui/src/pages/Account.tsx` | [#45](https://github.com/lai3d/ai-customer-service-java/pull/45) |
+| Retention of conversation text: `app.chat.record-retention` (`CONVERSATION_RETENTION`, 90 days by default, the owner's decision); an hourly sweep on the chat side deletes, in batches of 500 with a transaction each, turns started before the cutoff with their retrieval, tool-call and feedback rows, and chat memory messages older than it by their own timestamp; a turn still `running` is never deleted; zero or a negative refuses to start; counts logged and on `chat_retention_deleted_total{table}`, registered at zero | `chat/ConversationRetentionSweeper` | [#PRNUM](https://github.com/lai3d/ai-customer-service-java/pull/PRNUM) |
 
 ### The rules, and why they are rules
 
@@ -288,6 +289,25 @@ keep their documents in `vector_store`; retention removes them after the newest 
   and the owner signing in is the one act that must always succeed. The sessions ended are
   the ones nobody has used for longest. A wrong password ends nothing. `AdminLoginTest`
   ages a busy session by its creation time and signs in four times from four cookie jars.
+
+### Retention, as built
+
+The owner's default is **90 days, then deletion**, for conversation records and chat memory
+alike; `CONVERSATION_RETENTION` changes it, and a value of zero or less refuses to start,
+since a retention of nothing would delete each conversation as it was recorded. What goes:
+`conversation_turn` rows started before the cutoff, with their `turn_retrieval`,
+`turn_tool_call` and `answer_feedback` rows, and `spring_ai_chat_memory` rows whose own
+timestamp is before it, so a long conversation loses its oldest messages first. What stays:
+a turn still `running` (a process mid-turn, or a dead one the turn sweeper has not reached),
+`support_ticket` and `ticket_event` (a ticket outlives the conversation that raised it, and
+its own text is what staff wrote), `admin_audit`, `conversation_budget` (its own 30-day
+sweep) and `conversation_lease`. A flag on a deleted turn goes with the turn: it is a
+pointer into customer text, and once the text is gone the flag has nothing to say about it.
+The sweep runs hourly on every chat replica, in batches of 500 turns, each batch its own
+transaction and selected `FOR UPDATE SKIP LOCKED`, so two replicas share the work instead of
+waiting on each other and a first run against a year of conversations holds no long
+transaction. `ConversationRetentionSweeperTest` runs it against a real database and runs it
+twice.
 
 ### What is still not built
 

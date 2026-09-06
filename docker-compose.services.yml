@@ -252,6 +252,8 @@ services:
       ADMIN_SESSION_TIMEOUT:
       ADMIN_SESSION_MAX_LIFETIME:
       ADMIN_SESSION_LIMIT:
+      # Retention of conversation text lives with the record, on the chat role.
+      CONVERSATION_RETENTION:
     ports:
       - "${APP_PORT:-8080}:8080"
 

@@ -32,6 +32,14 @@ class ChatPropertiesTest {
         assertThat(lease).isGreaterThan(readTimeout);
     }
 
+    @Test
+    @DisplayName("conversation text is kept for 90 days by default, the owner's decision")
+    void retentionDefaultsToNinetyDays() throws IOException {
+        String yml = Files.readString(Path.of("src/main/resources/application.yml"));
+
+        assertThat(defaultOf(yml, "CONVERSATION_RETENTION")).isEqualTo(Duration.ofDays(90));
+    }
+
     private static Duration defaultOf(String yml, String variable) {
         Matcher matcher = Pattern.compile("\\$\\{" + variable + ":([^}]+)}").matcher(yml);
         assertThat(matcher.find()).as("a default for " + variable).isTrue();

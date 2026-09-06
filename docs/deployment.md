@@ -41,6 +41,7 @@ the measured numbers below are from that run, not estimates.
 | `ADMIN_SESSION_TIMEOUT` | no | `30m` | Idle time before a staff session ends. Sessions are rows in `spring_session`, shared by every replica. |
 | `ADMIN_SESSION_MAX_LIFETIME` | no | `12h` | How long a staff session may live from its sign-in, however busy it is; older ones are ended on their next request. Must be positive. |
 | `ADMIN_SESSION_LIMIT` | no | `3` | How many sessions one account may hold at once. Signing in past it ends the account's least recently used sessions, never the one signing in. At least 1. |
+| `CONVERSATION_RETENTION` | no | `90d` | How long conversation records (`conversation_turn` and its rows) and chat memory are kept; older rows are deleted hourly, in batches, by the chat role. Zero or less refuses to start. See [Operations admin](operations-admin.md). |
 | `ADMIN_UI_PORT`, `ADMIN_UI_IMAGE` | no | `8084`, `ai-customer-service-java-admin-ui:local` | Compose only: the operations UI's host port and image. The UI container reads one variable of its own, `ADMIN_API_UPSTREAM`, which the Compose files set to the app or the chat role. |
 
 `.env.example` documents the first five. Copy it to `.env` (git-ignored) and fill it in,
@@ -318,8 +319,8 @@ The operations admin lives in the `chat` process: `/admin/api/**` is served
 there (the UI container proxies to it), staff sessions are rows every `chat` replica reads, ticket changes reach the
 `ticket` process over `/internal/v1/ticket-workflow`, and knowledge edits and publications
 reach the `knowledge` process over `/internal/v1/knowledge-admin`, both with the same token.
-A publication embeds on the knowledge role, which is where the model is. `ADMIN_SEED_*` and
-the three `ADMIN_SESSION_*` settings are read by `chat` only.
+A publication embeds on the knowledge role, which is where the model is. `ADMIN_SEED_*`, the
+three `ADMIN_SESSION_*` settings and `CONVERSATION_RETENTION` are read by `chat` only.
 
 What to expect: `chat`'s `/actuator/health/readiness` is `DOWN` until `knowledge` reports its
 corpus present, because readiness crosses the seam; a `/internal/**` call without the token is

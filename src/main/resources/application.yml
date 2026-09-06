@@ -254,6 +254,13 @@ app:
     # expires so a crashed replica cannot hold a conversation forever. Must exceed
     # spring.http.client.read-timeout, or a slow but healthy turn loses its own conversation.
     turn-lease: ${TURN_LEASE:150s}
+    # How long customer conversation text is kept: the turn record (conversation_turn and its
+    # retrieval, tool-call and feedback rows) and the chat memory (spring_ai_chat_memory).
+    # Both are deleted, not anonymised, once older than this, hourly and in batches, by
+    # ConversationRetentionSweeper; a turn still running is never touched. The owner's default
+    # is 90 days. Must be positive; zero would delete every conversation as it was recorded,
+    # so the process refuses to start on it. See docs/operations-admin.md.
+    record-retention: ${CONVERSATION_RETENTION:90d}
 
   # What this process is: all (the default, every role in one JVM), or one of chat, knowledge,
   # ticket. A single role switches off what it does not run (TargetEnvironmentPostProcessor)
