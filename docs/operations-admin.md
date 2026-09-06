@@ -252,6 +252,7 @@ keep their documents in `vector_store`; retention removes them after the newest 
 
 | Piece | Where | PR |
 | --- | --- | --- |
+| The knowledge version on every retrieval row: `turn_retrieval.corpus_version`, carried from the passage metadata through the `retrieval` event, shown on the conversation page; null on rows written before `V12` | `chat/TurnEvent`, `chat/TurnRecorder`, `chat/TurnRecords`, `V12` | [#43](https://github.com/lai3d/ai-customer-service-java/pull/43) |
 | Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
 
 ### The rules, and why they are rules
