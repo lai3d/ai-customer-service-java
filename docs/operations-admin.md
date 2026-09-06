@@ -1,6 +1,6 @@
 # Operations admin
 
-Status: built and merged, in three rounds. The first slice -- staff login and the ticket loop
+Status: built and merged, in four rounds. The first slice -- staff login and the ticket loop
 -- landed as PRs #22, #24 and #26 on 2026-09-05; the rest of the proposal's first release --
 the turn record, conversations, answer feedback, knowledge editing and publication, and the
 overview -- as PRs #28, #30, #31, #33, #34 and #35 on 2026-09-06, with #32 fixing the test
@@ -126,7 +126,7 @@ proposal's stage 2, not this slice.
 ### What is not built
 
 - Disabling an account, changing a role, resetting a password. `enabled` is stored and
-  honoured at login; nothing sets it yet.
+  honoured at login; nothing sets it yet. (Built in the fourth round, below.)
 - A conversation list, answer feedback, knowledge editing and publication, the operational
   overview: stages 2, 3 and 5 of the proposal below, each its own PR series. Knowledge editing
   in particular changes `faq.json`, the one fixture that keeps the Java and Go retrieval
@@ -233,7 +233,7 @@ them from the chat process against the other processes' rows.
 
 - Retention for `conversation_turn` and chat memory: a decision, then one statement.
 - The corpus version on a turn's retrieval rows.
-- Disabling an account, changing a role, resetting a password.
+- Disabling an account, changing a role, resetting a password. (Built in the fourth round, below.)
 - The Go side's `docs/operations.md` records the deliberate differences between the two
   implementations; that document, not this one, is where the comparison lives.
 
@@ -245,6 +245,39 @@ behind the same bearer token and reachable only from `chat` pods under the roles
 NetworkPolicy. Publishing embeds every managed entry in every language on the knowledge
 role; for the bundled corpus that is 36 documents and about a second. Retained versions
 keep their documents in `vector_store`; retention removes them after the newest three.
+
+## The record, fourth round (2026-09-06)
+
+### What was built
+
+| Piece | Where | PR |
+| --- | --- | --- |
+| Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
+
+### The rules, and why they are rules
+
+- **Your own access is not yours to remove.** Disabling your own account or changing your
+  own role is refused (`422`, recorded as a refusal). An admin who could demote themselves by
+  a mis-click would need another admin to undo it; the same admin can still reset their own
+  password, and keeps the session they did it from.
+- **The last enabled admin stays an enabled admin.** Disabling or demoting the only one is
+  refused. Enforced in one transaction that locks every enabled admin's row (`FOR UPDATE`)
+  before deciding, so two admins demoting each other at the same moment take turns and the
+  second is refused; `StaffAccountsTest` races them.
+- **A session carries what it was signed in with**, its authorities included, so a role change
+  and a disablement delete the account's `spring_session` rows through Spring Session's
+  principal index, and a password reset deletes every session but the caller's own. The
+  browser that was signed in gets `401` on its next call and signs in again, or cannot.
+- **A disabled account signing in reads exactly like a wrong password**, as before; the
+  disablement is visible to admins on the Staff page and in the audit, not to the person
+  trying the door.
+
+### What is still not built
+
+- Staff changing their own password. Every account operation is an admin's; a support
+  member asks an admin. The API shape allows it later without a new table.
+- An absolute session lifetime and a concurrent-session limit; the idle timeout is the
+  only bound.
 
 ## The record, third round (2026-09-06): the front end deployed separately
 

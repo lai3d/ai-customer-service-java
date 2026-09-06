@@ -35,7 +35,7 @@ class StaffAccountsTest {
     @BeforeEach
     void clean() {
         db.jdbc.update("DELETE FROM staff_account");
-        accounts = new StaffAccounts(db.jdbc, encoder);
+        accounts = new StaffAccounts(db.jdbc, encoder, db.transactionManager);
     }
 
     @Test
@@ -115,7 +115,7 @@ class StaffAccountsTest {
     @DisplayName("two replicas seeding the same empty table produce one admin and no failed start")
     void seedRaceIsBenign() throws Exception {
         StaffSeeder first = new StaffSeeder(accounts, new AdminProperties(new AdminProperties.Seed("root", "seed-password-1")));
-        StaffSeeder second = new StaffSeeder(new StaffAccounts(db.jdbc, encoder),
+        StaffSeeder second = new StaffSeeder(new StaffAccounts(db.jdbc, encoder, db.transactionManager),
                 new AdminProperties(new AdminProperties.Seed("root", "seed-password-1")));
 
         var a = Thread.ofVirtual().start(first::seed);
@@ -124,5 +124,60 @@ class StaffAccountsTest {
         b.join();
 
         assertThat(db.count("staff_account")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("two admins demoting each other at the same moment leave one admin, not none")
+    void demotionsTakeTurns() throws Exception {
+        accounts.create("root", "first-admin-password", StaffRole.ADMIN, "seed");
+        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, "root");
+        java.util.concurrent.CyclicBarrier together = new java.util.concurrent.CyclicBarrier(2);
+        java.util.List<java.util.concurrent.Callable<String>> attempts = java.util.List.of(
+                () -> { together.await(); return demote("kim", "root"); },
+                () -> { together.await(); return demote("root", "kim"); });
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            java.util.List<String> outcomes = new java.util.ArrayList<>();
+            for (var future : pool.invokeAll(attempts)) {
+                outcomes.add(future.get());
+            }
+            assertThat(outcomes).as("one demotion went through, the other was refused")
+                    .containsExactlyInAnyOrder("ok", "refused");
+        }
+        assertThat(db.jdbc.queryForObject("SELECT count(*) FROM staff_account WHERE role = 'admin' AND enabled", Integer.class))
+                .isEqualTo(1);
+    }
+
+    private String demote(String username, String actor) {
+        try {
+            accounts.setRole(username, StaffRole.SUPPORT, actor);
+            return "ok";
+        }
+        catch (StaffRuleException e) {
+            return "refused";
+        }
+    }
+
+    @Test
+    @DisplayName("the rules: not yourself, not the last enabled admin, not an account that does not exist")
+    void rules() {
+        accounts.create("root", "first-admin-password", StaffRole.ADMIN, "seed");
+        accounts.create("sam", "support-password-1", StaffRole.SUPPORT, "root");
+
+        assertThatThrownBy(() -> accounts.setEnabled("root", false, "root")).isInstanceOf(StaffRuleException.class);
+        assertThatThrownBy(() -> accounts.setRole("root", StaffRole.SUPPORT, "root")).isInstanceOf(StaffRuleException.class);
+        assertThatThrownBy(() -> accounts.setEnabled("nobody", false, "root")).isInstanceOf(StaffAccountNotFoundException.class);
+        assertThatThrownBy(() -> accounts.resetPassword("sam", "short")).isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(accounts.setRole("sam", StaffRole.ADMIN, "root").role()).isEqualTo(StaffRole.ADMIN);
+        assertThat(accounts.setRole("root", StaffRole.SUPPORT, "sam").role()).as("two admins: root may be demoted").isEqualTo(StaffRole.SUPPORT);
+        assertThatThrownBy(() -> accounts.setEnabled("sam", false, "root")).as("sam is the last admin now")
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("only enabled admin");
+        assertThatThrownBy(() -> accounts.setRole("sam", StaffRole.SUPPORT, "root")).isInstanceOf(StaffRuleException.class);
+        assertThat(accounts.setEnabled("root", false, "sam").enabled()).isFalse();
+        assertThat(accounts.credential("root").orElseThrow().enabled()).isFalse();
+
+        accounts.resetPassword("sam", "a-brand-new-password");
+        assertThat(encoder.matches("a-brand-new-password", db.jdbc.queryForObject(
+                "SELECT password_hash FROM staff_account WHERE username = 'sam'", String.class))).isTrue();
     }
 }

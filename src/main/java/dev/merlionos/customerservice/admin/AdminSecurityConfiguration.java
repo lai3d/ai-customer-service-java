@@ -118,8 +118,9 @@ public class AdminSecurityConfiguration {
     }
 
     @Bean
-    StaffAccounts staffAccounts(JdbcTemplate jdbcTemplate, PasswordEncoder passwordEncoder) {
-        return new StaffAccounts(jdbcTemplate, passwordEncoder);
+    StaffAccounts staffAccounts(JdbcTemplate jdbcTemplate, PasswordEncoder passwordEncoder,
+                                PlatformTransactionManager transactionManager) {
+        return new StaffAccounts(jdbcTemplate, passwordEncoder, transactionManager);
     }
 
     @Bean

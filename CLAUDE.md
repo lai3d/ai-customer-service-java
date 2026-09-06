@@ -353,7 +353,11 @@ travel in a readable `XSRF-TOKEN` cookie (`GET /admin/api/csrf` issues one) and 
 `X-XSRF-TOKEN`. `knowledge` and `ticket` processes exclude the security and session
 auto-configurations outright (`TargetEnvironmentPostProcessor`); left on, Boot's default
 chain would put a generated password in front of `/internal/**`. The first admin is seeded
-by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table.
+by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table. Admins disable,
+re-role and reset accounts (`POST /admin/api/staff/{username}/...`); each change deletes the
+account's `spring_session` rows, since a session carries the authorities it was signed in
+with, and the rules (never your own access, never the last enabled admin) are decided under
+a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`.
 
 **The UI is a separate deployable**: `admin-ui/` (Vite + React + TypeScript, its own nginx
 image on 8084) proxies `/admin/api` to the app, so the browser sees one origin, the session

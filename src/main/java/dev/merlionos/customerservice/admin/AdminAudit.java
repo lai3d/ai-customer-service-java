@@ -14,7 +14,9 @@ import java.util.List;
 public class AdminAudit {
 
     public enum Action {
-        VIEWED_CONVERSATION("viewed_conversation"), REFUSED("refused"), PUBLISHED("published"), ROLLED_BACK("rolled_back");
+        VIEWED_CONVERSATION("viewed_conversation"), REFUSED("refused"), PUBLISHED("published"), ROLLED_BACK("rolled_back"),
+        ACCOUNT_DISABLED("account_disabled"), ACCOUNT_ENABLED("account_enabled"), ROLE_CHANGED("role_changed"),
+        PASSWORD_RESET("password_reset");
 
         final String value;
 
