@@ -22,7 +22,7 @@ class ArchitectureTest {
     /** Everything a {@code chat} process runs and nothing else does. */
     private static final String[] CHAT_SIDE = {
             ROOT + ".admin..", ROOT + ".chat..", ROOT + ".clients..", ROOT + ".config..", ROOT + ".cost..",
-            ROOT + ".orders..", ROOT + ".provider..", ROOT + ".tools.."};
+            ROOT + ".orders..", ROOT + ".provider..", ROOT + ".tenancy..", ROOT + ".tools.."};
 
     /** The two roles that can run without the chat side, and their contracts. */
     private static final String TICKET_IMPL = ROOT + ".ticket";

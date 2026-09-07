@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.MigratedPostgres;
 import dev.merlionos.customerservice.chat.ConversationRetentionSweeper.Table;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -63,7 +64,7 @@ class ConversationRetentionSweeperTest {
     /** A finished turn with a retrieval row and a tool call, started at {@code startedAt}. */
     private String turn(String conversation, Instant startedAt, boolean finished) {
         String turn = UUID.randomUUID().toString();
-        recorder.start(turn, conversation, TurnRecorder.Path.STREAM, "运费多少钱");
+        recorder.start(turn, Tenant.DEFAULT, conversation, TurnRecorder.Path.STREAM, "运费多少钱");
         recorder.retrieved(turn, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.87, "v1")));
         recorder.toolCalled(turn, "lookup_order", "found");
         if (finished) {
@@ -74,8 +75,8 @@ class ConversationRetentionSweeperTest {
     }
 
     private void feedback(String turn, String conversation) {
-        db.jdbc.update("INSERT INTO answer_feedback (turn_id, conversation_id, issue, reported_by, reported_at) "
-                + "VALUES (?, ?, 'incorrect', 'agent', ?)", turn, conversation, Timestamp.from(Instant.now()));
+        db.jdbc.update("INSERT INTO answer_feedback (turn_id, tenant_id, conversation_id, issue, reported_by, reported_at) "
+                + "VALUES (?, 'default', ?, 'incorrect', 'agent', ?)", turn, conversation, Timestamp.from(Instant.now()));
     }
 
     private void message(String conversation, Instant at) {
@@ -181,8 +182,8 @@ class ConversationRetentionSweeperTest {
         String conversation = UUID.randomUUID().toString();
         int turns = ConversationRetentionSweeper.BATCH * 2 + 7;
         Timestamp startedAt = Timestamp.from(OLD);
-        db.jdbc.batchUpdate("INSERT INTO conversation_turn (turn_id, conversation_id, path, started_at, outcome, question) "
-                        + "VALUES (?, ?, 'stream', ?, 'completed', 'q')",
+        db.jdbc.batchUpdate("INSERT INTO conversation_turn (turn_id, tenant_id, conversation_id, path, started_at, outcome, question) "
+                        + "VALUES (?, 'default', ?, 'stream', ?, 'completed', 'q')",
                 IntStream.range(0, turns).mapToObj(i -> UUID.randomUUID().toString()).toList(), 100,
                 (ps, id) -> {
                     ps.setString(1, id);

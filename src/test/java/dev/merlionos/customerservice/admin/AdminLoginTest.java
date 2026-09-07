@@ -235,7 +235,9 @@ class AdminLoginTest {
         assertThat(browser.get("/").statusCode()).isEqualTo(200);
         assertThat(browser.get("/actuator/health/liveness").statusCode()).isEqualTo(200);
         HttpResponse<String> chat = browser.postJson("/api/v1/chat", "{}", false);
-        assertThat(chat.statusCode()).isEqualTo(400);
+        // The tenant API-key filter answers, not Spring Security: a 401 with no session.
+        assertThat(chat.statusCode()).isEqualTo(401);
+        assertThat(chat.headers().firstValue("WWW-Authenticate")).contains("Bearer");
         assertThat(browser.cookie("SESSION")).isEmpty();
         assertThat(browser.cookie("XSRF-TOKEN")).isEmpty();
         assertThat(Map.of()).isEmpty();

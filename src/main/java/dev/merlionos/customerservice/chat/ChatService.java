@@ -70,7 +70,7 @@ public class ChatService {
      * Blocking single-shot completion. Useful for clients that cannot consume SSE, and for
      * tests that would otherwise have to parse an event stream.
      */
-    public String ask(String conversationId, String message) {
+    public String ask(String tenantId, String conversationId, String message) {
         budget.checkRemaining(conversationId);
 
         // No client stream is listening, but the record is: the channel is opened so the
@@ -79,21 +79,21 @@ public class ChatService {
         String turnId = UUID.randomUUID().toString();
         lease.acquire(conversationId, turnId);
         try {
-            return askHoldingLease(conversationId, turnId, message);
+            return askHoldingLease(tenantId, conversationId, turnId, message);
         }
         finally {
             lease.release(conversationId, turnId);
         }
     }
 
-    private String askHoldingLease(String conversationId, String turnId, String message) {
+    private String askHoldingLease(String tenantId, String conversationId, String turnId, String message) {
         // The first row, before the model. If this throws, the model is never called.
-        recorder.start(turnId, conversationId, TurnRecorder.Path.BLOCKING, message);
+        recorder.start(turnId, tenantId, conversationId, TurnRecorder.Path.BLOCKING, message);
         TurnEventBus.Channel channel = turnEventBus.open(turnId);
         channel.events().subscribe(event -> recordEvent(turnId, event));
         String traceId = currentTraceId();
         try {
-            String answer = callHoldingLease(conversationId, turnId, message);
+            String answer = callHoldingLease(tenantId, conversationId, turnId, message);
             return answer;
         }
         catch (RuntimeException e) {
@@ -105,7 +105,7 @@ public class ChatService {
         }
     }
 
-    private String callHoldingLease(String conversationId, String turnId, String message) {
+    private String callHoldingLease(String tenantId, String conversationId, String turnId, String message) {
         // Deliberately not `.content()`. That discards the response metadata, and with it the
         // token usage -- so this path would spend money that the budget and the cost meters
         // never saw. Found by a test asserting the second request over budget was refused; it
@@ -115,18 +115,18 @@ public class ChatService {
                 .advisors(advisor -> advisor
                         .param(ChatMemory.CONVERSATION_ID, conversationId)
                         .param(TurnEventBus.TURN_ID_KEY, turnId))
-                .toolContext(toolContext(conversationId, turnId))
+                .toolContext(toolContext(tenantId, conversationId, turnId))
                 .call()
                 .chatResponse();
 
         String answer = response == null || response.getResult() == null
                 ? ""
                 : response.getResult().getOutput().getText();
-        recordUsage(conversationId, turnId, response, answer);
+        recordUsage(tenantId, conversationId, turnId, response, answer);
         return answer;
     }
 
-    private void recordUsage(String conversationId, String turnId, ChatResponse response, String answer) {
+    private void recordUsage(String tenantId, String conversationId, String turnId, ChatResponse response, String answer) {
         if (response == null || response.getMetadata() == null) {
             recorder.finish(turnId, TurnRecorder.Outcome.COMPLETED, answer, null, null, null, currentTraceId(), null);
             return;
@@ -135,7 +135,7 @@ public class ChatService {
         String model = reported == null || reported.isBlank() ? "unknown" : reported;
         TurnUsage usage = new TurnUsage();
         usage.record(response.getMetadata().getUsage());
-        budget.record(conversationId, model, usage.inputTokens(), usage.outputTokens());
+        budget.record(tenantId, conversationId, model, usage.inputTokens(), usage.outputTokens());
         recorder.finish(turnId, TurnRecorder.Outcome.COMPLETED, answer, model,
                 usage.isEmpty() ? null : usage.inputTokens(), usage.isEmpty() ? null : usage.outputTokens(),
                 currentTraceId(), null);
@@ -160,7 +160,7 @@ public class ChatService {
      * terminates -- closing it from the merged stream's own completion would deadlock, since
      * the merge cannot complete until the tool flux does.
      */
-    public Flux<TurnEvent> stream(String conversationId, String message) {
+    public Flux<TurnEvent> stream(String tenantId, String conversationId, String message) {
         // Checked before the Flux is built, so an exhausted budget is an HTTP status rather
         // than an error event buried in a stream that has already been committed as 200.
         budget.checkRemaining(conversationId);
@@ -181,7 +181,7 @@ public class ChatService {
         // The first row, before the model and before the response is committed: a turn that
         // cannot be recorded is refused here as a status, not started and lost.
         try {
-            recorder.start(turnId, conversationId, TurnRecorder.Path.STREAM, message);
+            recorder.start(turnId, tenantId, conversationId, TurnRecorder.Path.STREAM, message);
         }
         catch (RuntimeException e) {
             lease.release(conversationId, turnId);
@@ -193,7 +193,7 @@ public class ChatService {
             // The channel is per turn. Closing by conversation id used to complete whichever
             // turn registered last and orphan the other one's stream forever.
             TurnEventBus.Channel channel = turnEventBus.open(turnId);
-            Flux<TurnEvent> modelEvents = modelEvents(conversationId, channel.turnId(), traceId, message, recording)
+            Flux<TurnEvent> modelEvents = modelEvents(tenantId, conversationId, channel.turnId(), traceId, message, recording)
                     .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
             // Finished on the signal itself, not in doFinally: doFinally runs after the terminal
@@ -246,7 +246,7 @@ public class ChatService {
         }
     }
 
-    private Flux<TurnEvent> modelEvents(String conversationId, String turnId, String traceId,
+    private Flux<TurnEvent> modelEvents(String tenantId, String conversationId, String turnId, String traceId,
                                         String message, Recording recording) {
         long started = System.currentTimeMillis();
         TurnUsage usage = recording.usage;
@@ -257,7 +257,7 @@ public class ChatService {
                 .advisors(advisor -> advisor
                         .param(ChatMemory.CONVERSATION_ID, conversationId)
                         .param(TurnEventBus.TURN_ID_KEY, turnId))
-                .toolContext(toolContext(conversationId, turnId))
+                .toolContext(toolContext(tenantId, conversationId, turnId))
                 .stream()
                 .chatClientResponse()
                 // Retrieval is reported by RetrievalReportingAdvisor, which publishes to the
@@ -275,7 +275,7 @@ public class ChatService {
         AtomicBoolean recorded = new AtomicBoolean();
         Runnable recordOnce = () -> {
             if (recorded.compareAndSet(false, true)) {
-                budget.record(conversationId, model.get(), usage.inputTokens(), usage.outputTokens());
+                budget.record(tenantId, conversationId, model.get(), usage.inputTokens(), usage.outputTokens());
             }
         };
 
@@ -394,8 +394,9 @@ public class ChatService {
      * Every path that reaches the model therefore has to supply this, which is what
      * {@code ChatServiceToolContextTest} checks.
      */
-    private static Map<String, Object> toolContext(String conversationId, String turnId) {
-        return Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
+    private static Map<String, Object> toolContext(String tenantId, String conversationId, String turnId) {
+        return Map.of(SupportTicketTools.TENANT_ID_KEY, tenantId,
+                SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
                 TurnEventBus.TURN_ID_KEY, turnId);
     }
 }

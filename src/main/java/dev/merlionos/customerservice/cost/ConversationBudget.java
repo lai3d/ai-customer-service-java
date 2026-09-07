@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.cost;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
+import dev.merlionos.customerservice.tenancy.TenancyProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +49,13 @@ public class ConversationBudget {
     private static final Logger log = LoggerFactory.getLogger(ConversationBudget.class);
 
     private final CostProperties properties;
+    private final TenancyProperties tenancy;
     private final MeterRegistry meterRegistry;
     private final JdbcTemplate jdbc;
 
-    ConversationBudget(CostProperties properties, MeterRegistry meterRegistry, JdbcTemplate jdbc) {
+    ConversationBudget(CostProperties properties, TenancyProperties tenancy, MeterRegistry meterRegistry, JdbcTemplate jdbc) {
         this.properties = properties;
+        this.tenancy = tenancy;
         this.meterRegistry = meterRegistry;
         this.jdbc = jdbc;
     }
@@ -84,6 +88,15 @@ public class ConversationBudget {
      * problem. See {@code TurnUsage}.
      */
     public void record(String conversationId, String model, long input, long output) {
+        record(Tenant.DEFAULT, conversationId, model, input, output);
+    }
+
+    /**
+     * The meters carry the tenant, so spend can be read per customer. Cardinality is bounded
+     * by the number of tenants, and above {@code app.tenancy.metrics-label-limit} distinct ones
+     * a tenant is recorded as {@code other} rather than allowed to grow the series set.
+     */
+    public void record(String tenantId, String conversationId, String model, long input, long output) {
         if (input == 0 && output == 0) {
             return;
         }
@@ -99,14 +112,15 @@ public class ConversationBudget {
                 RETURNING tokens_spent
                 """, Long.class, conversationId, input + output, Timestamp.from(Instant.now()));
 
-        meterRegistry.counter("chat.tokens", "model", model, "type", "input").increment(input);
-        meterRegistry.counter("chat.tokens", "model", model, "type", "output").increment(output);
+        String tenantLabel = tenantLabel(tenantId);
+        meterRegistry.counter("chat.tokens", "model", model, "type", "input", "tenant", tenantLabel).increment(input);
+        meterRegistry.counter("chat.tokens", "model", model, "type", "output", "tenant", tenantLabel).increment(output);
 
         CostProperties.ModelPrice price = properties.prices().get(model);
         if (price != null) {
             double usd = input * price.inputPerMillionUsd() / 1_000_000
                     + output * price.outputPerMillionUsd() / 1_000_000;
-            meterRegistry.counter("chat.cost.usd", "model", model).increment(usd);
+            meterRegistry.counter("chat.cost.usd", "model", model, "tenant", tenantLabel).increment(usd);
         }
         else {
             // A model with no price is the quiet version of a billing bug: tokens keep being
@@ -123,6 +137,19 @@ public class ConversationBudget {
             log.info("Conversation {} reached its token budget ({} of {})",
                     conversationId, total, properties.conversationTokenBudget());
         }
+    }
+
+    private final java.util.Set<String> labelledTenants = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private String tenantLabel(String tenantId) {
+        if (labelledTenants.contains(tenantId)) {
+            return tenantId;
+        }
+        if (labelledTenants.size() < tenancy.metricsLabelLimitOrDefault()) {
+            labelledTenants.add(tenantId);
+            return tenantId;
+        }
+        return "other";
     }
 
     /** Sweeps rows older than the retention. Returns how many went, for tests and logs. */

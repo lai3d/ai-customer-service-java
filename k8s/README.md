@@ -52,7 +52,8 @@ kubectl -n ai-customer-service create secret generic ai-customer-service-secrets
   --from-literal=POSTGRES_USER='csagent' \
   --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
   --from-literal=ADMIN_SEED_USERNAME='root' \
-  --from-literal=ADMIN_SEED_PASSWORD="$ADMIN_SEED_PASSWORD"   # the operations admin's first account; safe to keep
+  --from-literal=ADMIN_SEED_PASSWORD="$ADMIN_SEED_PASSWORD"   # the operations admin's first account; safe to keep \
+  --from-literal=DEFAULT_TENANT_API_KEY="cs_$(openssl rand -hex 4)$(openssl rand -hex 16)"   # the default tenant's first API key
 
 kubectl apply -k k8s/overlays/mine     # your copy of overlays/example
 ```

@@ -51,11 +51,11 @@ public class TurnRecorder {
     }
 
     /** The first row, before the model is called. Throws on failure, deliberately. */
-    public void start(String turnId, String conversationId, Path path, String question) {
+    public void start(String turnId, String tenantId, String conversationId, Path path, String question) {
         jdbc.update("""
-                INSERT INTO conversation_turn (turn_id, conversation_id, path, started_at, outcome, question)
-                VALUES (?, ?, ?, ?, 'running', ?)
-                """, turnId, conversationId, value(path), Timestamp.from(Instant.now()), question);
+                INSERT INTO conversation_turn (turn_id, tenant_id, conversation_id, path, started_at, outcome, question)
+                VALUES (?, ?, ?, ?, ?, 'running', ?)
+                """, turnId, tenantId, conversationId, value(path), Timestamp.from(Instant.now()), question);
     }
 
     public void retrieved(String turnId, List<TurnEvent.Passage> passages) {

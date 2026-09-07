@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnRecorder;
@@ -71,19 +72,19 @@ class AdminConversationApiTest {
 
         good = UUID.randomUUID().toString();
         String turn1 = UUID.randomUUID().toString();
-        recorder.start(turn1, good, TurnRecorder.Path.STREAM, "运费多少钱");
+        recorder.start(turn1, Tenant.DEFAULT, good, TurnRecorder.Path.STREAM, "运费多少钱");
         recorder.retrieved(turn1, List.of(new TurnEvent.Passage("shipping-cost", "zh", 0.8731, "2026-09-01-bilingual")));
         recorder.finish(turn1, TurnRecorder.Outcome.COMPLETED, "满 **50** 美元免运费。", "claude-opus-5", 1204, 87, "trace-1", null);
         String turn2 = UUID.randomUUID().toString();
-        recorder.start(turn2, good, TurnRecorder.Path.BLOCKING, "My parcel arrived crushed");
+        recorder.start(turn2, Tenant.DEFAULT, good, TurnRecorder.Path.BLOCKING, "My parcel arrived crushed");
         recorder.toolCalled(turn2, "create_support_ticket", "created");
-        ticketNumber = tickets.create(new TicketRequest(UUID.randomUUID().toString(), good,
+        ticketNumber = tickets.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), good,
                 "Parcel arrived crushed", "returns", null)).ticket().ticketNumber();
         recorder.finish(turn2, TurnRecorder.Outcome.COMPLETED, "I have raised a ticket.", "claude-opus-5", 900, 40, "trace-2", null);
 
         bad = UUID.randomUUID().toString();
         String turn3 = UUID.randomUUID().toString();
-        recorder.start(turn3, bad, TurnRecorder.Path.STREAM, "hello?");
+        recorder.start(turn3, Tenant.DEFAULT, bad, TurnRecorder.Path.STREAM, "hello?");
         recorder.finish(turn3, TurnRecorder.Outcome.FAILED, null, null, null, null, null,
                 new IllegalStateException("provider down"));
     }

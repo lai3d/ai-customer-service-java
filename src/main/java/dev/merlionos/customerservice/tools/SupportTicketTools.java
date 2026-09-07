@@ -30,6 +30,9 @@ public class SupportTicketTools {
     /** Key under which {@code ChatService} puts the conversation id into the tool context. */
     public static final String CONVERSATION_ID_KEY = "conversationId";
 
+    /** Key under which {@code ChatService} puts the tenant id into the tool context. */
+    public static final String TENANT_ID_KEY = "tenantId";
+
     private static final String TOOL_NAME = "create_support_ticket";
 
     private final TicketOperations tickets;
@@ -70,11 +73,12 @@ public class SupportTicketTools {
             ToolContext toolContext) {
 
         String conversationId = conversationIdFrom(toolContext);
+        String tenantId = required(toolContext, TENANT_ID_KEY);
         // One id per invocation, generated here and not by the model: it is what lets a retry
         // over the seam be recognised as the same write, and a model could reuse or invent one.
         String operationId = UUID.randomUUID().toString();
         TicketResult result = tickets.create(
-                new TicketRequest(operationId, conversationId, summary, category, orderNumber));
+                new TicketRequest(tenantId, operationId, conversationId, summary, category, orderNumber));
         report(toolContext, outcomeOf(result));
         return result;
     }

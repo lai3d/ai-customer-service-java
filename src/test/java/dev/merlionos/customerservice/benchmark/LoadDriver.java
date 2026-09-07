@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.benchmark;
 
+import dev.merlionos.customerservice.tenancy.TestTenant;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -58,6 +59,7 @@ final class LoadDriver {
                         HttpRequest request = HttpRequest.newBuilder()
                                 .uri(URI.create("http://localhost:" + port + "/api/v1/chat"))
                                 .header("Content-Type", "application/json")
+                                .header("Authorization", TestTenant.BEARER)
                                 .timeout(Duration.ofMinutes(5))
                                 .POST(HttpRequest.BodyPublishers.ofString(body))
                                 .build();

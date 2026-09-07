@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
 import dev.merlionos.customerservice.ticket.api.TicketRequest;
@@ -62,7 +63,7 @@ class AdminTicketApiTest {
         accounts.create("alice", PASSWORD, StaffRole.SUPPORT, "root");
         accounts.create("bob", PASSWORD, StaffRole.SUPPORT, "root");
         conversation = UUID.randomUUID().toString();
-        number = tickets.create(new TicketRequest(UUID.randomUUID().toString(), conversation,
+        number = tickets.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), conversation,
                 "Parcel arrived crushed " + conversation.substring(0, 8), "returns", "ORD-10042")).ticket().ticketNumber();
         Instant t0 = Instant.now().minusSeconds(60);
         jdbc.update("INSERT INTO spring_ai_chat_memory (conversation_id, content, type, \"timestamp\") VALUES (?, ?, ?, ?)",

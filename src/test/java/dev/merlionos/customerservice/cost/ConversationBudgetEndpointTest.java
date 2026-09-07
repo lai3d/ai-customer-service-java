@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.cost;
 
+import dev.merlionos.customerservice.tenancy.TestTenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.ChatRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +49,7 @@ class ConversationBudgetEndpointTest {
 
     @BeforeEach
     void stubModel(org.junit.jupiter.api.TestInfo testInfo) {
+        TestTenant.authenticate(rest);
         // Ids stay inside the 36-character limit the chat memory schema imposes.
         conversation = java.util.UUID.randomUUID().toString();
 

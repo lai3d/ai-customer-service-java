@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.TurnRecorder;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
@@ -162,7 +163,7 @@ class AdminKnowledgeApiTest {
                 "{\"question\":\"How much is shipping?\",\"answer\":\"Free over 50 dollars; 5 dollars below.\",\"note\":\"threshold\"}");
         long revisionId = Long.parseLong(draft.body().replaceAll(".*\"id\":(\\d+).*", "$1"));
         String turn = UUID.randomUUID().toString();
-        recorder.start(turn, UUID.randomUUID().toString(), TurnRecorder.Path.STREAM, "shipping?");
+        recorder.start(turn, Tenant.DEFAULT, UUID.randomUUID().toString(), TurnRecorder.Path.STREAM, "shipping?");
         recorder.finish(turn, TurnRecorder.Outcome.COMPLETED, "free", null, null, null, null, null);
         long flag = Long.parseLong(alice.postJson("/admin/api/feedback", "{\"turnId\":\"" + turn + "\",\"issue\":\"incomplete\",\"note\":null}")
                 .body().replaceAll(".*?\"id\":(\\d+).*", "$1"));

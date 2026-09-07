@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.ticket;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.MigratedPostgres;
 import dev.merlionos.customerservice.ticket.api.OperationConflictException;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
@@ -53,7 +54,7 @@ class JdbcTicketOperationsTest {
     }
 
     private static TicketRequest request(String conversationId, String summary, String category) {
-        return new TicketRequest(UUID.randomUUID().toString(), conversationId, summary, category, null);
+        return new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), conversationId, summary, category, null);
     }
 
     private int rows(String conversationId) {
@@ -66,7 +67,7 @@ class JdbcTicketOperationsTest {
     void createsARow() {
         String conversation = conversation();
 
-        TicketResult result = replicaA.create(new TicketRequest(UUID.randomUUID().toString(), conversation,
+        TicketResult result = replicaA.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), conversation,
                 "Customer wants a refund decision on a damaged lamp", "returns", "ORD-10045"));
 
         assertThat(result.created()).isTrue();
@@ -179,7 +180,7 @@ class JdbcTicketOperationsTest {
     @DisplayName("the same operation asked twice is answered from its record, and writes once")
     void replaysARecordedOperation() {
         String conversation = conversation();
-        TicketRequest request = new TicketRequest(UUID.randomUUID().toString(), conversation,
+        TicketRequest request = new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), conversation,
                 "Parcel arrived crushed", "returns", "ORD-10042");
 
         TicketResult first = replicaA.create(request);
@@ -217,9 +218,9 @@ class JdbcTicketOperationsTest {
     void rejectsAReusedIdWithDifferentInput() {
         String conversation = conversation();
         String operation = UUID.randomUUID().toString();
-        replicaA.create(new TicketRequest(operation, conversation, "First wording", "other", null));
+        replicaA.create(new TicketRequest(Tenant.DEFAULT, operation, conversation, "First wording", "other", null));
 
-        assertThatThrownBy(() -> replicaB.create(new TicketRequest(operation, conversation, "Second wording", "other", null)))
+        assertThatThrownBy(() -> replicaB.create(new TicketRequest(Tenant.DEFAULT, operation, conversation, "Second wording", "other", null)))
                 .isInstanceOf(OperationConflictException.class)
                 .hasMessageContaining(operation);
         assertThat(rows(conversation)).isEqualTo(1);

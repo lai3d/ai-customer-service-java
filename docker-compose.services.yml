@@ -249,6 +249,7 @@ services:
       # The operations admin lives in the chat role (docs/operations-admin.md).
       ADMIN_SEED_USERNAME:
       ADMIN_SEED_PASSWORD:
+      DEFAULT_TENANT_API_KEY:
       ADMIN_SESSION_TIMEOUT:
       ADMIN_SESSION_MAX_LIFETIME:
       ADMIN_SESSION_LIMIT:

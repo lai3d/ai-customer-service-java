@@ -252,11 +252,13 @@ check "the observability overlay builds" command kubectl kustomize "$ROOT/k8s/ob
 say "deploy"
 kubectl apply -f "$ROOT/k8s/base/namespace.yaml"
 
+TENANT_KEY=${DEFAULT_TENANT_API_KEY:-cs_$(openssl rand -hex 4)$(openssl rand -hex 16)}
 kubectl -n "$NS" create secret generic ai-customer-service-secrets \
   --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-placeholder-no-model-call-is-made-during-startup}" \
   --from-literal=POSTGRES_USER=csagent \
   --from-literal=POSTGRES_PASSWORD=csagent \
   --from-literal=INTERNAL_TOKEN="${INTERNAL_TOKEN:-$(openssl rand -hex 16)}" \
+  --from-literal=DEFAULT_TENANT_API_KEY="$TENANT_KEY" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # The overlay, which is what the README tells people to apply. The Secret template is not
@@ -433,8 +435,12 @@ check "Prometheus endpoint serves metrics" \
 # `|| true`: when the deployment is broken there is nothing to connect to, curl exits 7,
 # and under `set -e` that killed the script before it printed the summary -- so a failing
 # run reported less than a passing one, which is backwards.
-status=$(curl -s -o /dev/null -w '%{http_code}' localhost:18080/api/v1/chat \
+anonymous=$(curl -s -o /dev/null -w '%{http_code}' localhost:18080/api/v1/chat \
            -H 'Content-Type: application/json' \
+           -d '{"message":"How long do I have to return an item?"}' || echo 000)
+[[ $anonymous == 401 ]] && ok "without a tenant API key a turn is 401" || bad "an anonymous turn returned $anonymous, want 401"
+status=$(curl -s -o /dev/null -w '%{http_code}' localhost:18080/api/v1/chat \
+           -H 'Content-Type: application/json' -H "Authorization: Bearer $TENANT_KEY" \
            -d '{"message":"How long do I have to return an item?"}' || echo 000)
 if [[ -n ${ANTHROPIC_API_KEY:-} ]]; then
   [[ $status == 200 ]] && ok "a real turn answered (200)" || bad "a real turn returned $status, want 200"

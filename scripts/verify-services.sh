@@ -30,6 +30,8 @@ if [[ ${COLLECTOR:-0} == 1 ]]; then
   export OTLP_METRICS_ENDPOINT=http://otel-collector:4318/v1/metrics
 fi
 export INTERNAL_TOKEN=${INTERNAL_TOKEN:-$(openssl rand -hex 16)}
+export DEFAULT_TENANT_API_KEY=${DEFAULT_TENANT_API_KEY:-cs_$(openssl rand -hex 4)$(openssl rand -hex 16)}
+BEARER="Authorization: Bearer $DEFAULT_TENANT_API_KEY"
 export ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-placeholder-no-model-call-is-made-during-startup}
 PASS=0; FAIL=0
 
@@ -108,7 +110,10 @@ contains "replaying a refused operation stays REFUSED"                    "$repl
 expect   "and the replays wrote nothing" "$(sql "select count(*) from support_ticket where conversation_id='smoke-conversation'")" 3
 
 say "a turn crosses the seam before it reaches the provider"
-turn=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' \
+anonymous=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' \
+         -d '{"message":"How long do I have to return an item?"}')
+[[ $anonymous == 401 ]] && ok "without a tenant API key a turn is 401" || bad "an anonymous turn returned $anonymous, want 401"
+turn=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' -H "$BEARER" \
          -d '{"message":"How long do I have to return an item?"}')
 if [[ $ANTHROPIC_API_KEY == placeholder* ]]; then
   [[ $turn == 502 ]] && ok "a bad key surfaces as 502 after retrieval, not a 503 from knowledge" \
@@ -133,7 +138,7 @@ done
 # event would have carried the id. Prometheus scrapes every 15 s, so wait for one -- and take
 # the newest by timestamp, since exemplars are returned per series, not in time order.
 turn_at=$(date +%s)
-curl -s -o /dev/null "localhost:${APP_PORT:-8080}/api/v1/chat" -H 'Content-Type: application/json' -d '{"message":"运费多少钱"}'
+curl -s -o /dev/null "localhost:${APP_PORT:-8080}/api/v1/chat" -H 'Content-Type: application/json' -H "$BEARER" -d '{"message":"运费多少钱"}'
 trace_id=""
 for _ in $(seq 1 20); do
   trace_id=$(curl -s "localhost:${PROMETHEUS_PORT:-9090}/api/v1/query_exemplars" \
@@ -198,7 +203,7 @@ say "with knowledge stopped"
 "${COMPOSE[@]}" stop knowledge >/dev/null
 sleep 2
 readiness=$(status localhost:${APP_PORT:-8080}/actuator/health/readiness)
-turn=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' \
+turn=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' -H "$BEARER" \
          -d '{"message":"How long do I have to return an item?"}')
 [[ $readiness == 503 ]] && ok "chat readiness is 503" || bad "chat readiness returned $readiness, want 503"
 [[ $turn == 503 ]]      && ok "a turn is 503, not an ungrounded answer" || bad "a turn returned $turn, want 503"

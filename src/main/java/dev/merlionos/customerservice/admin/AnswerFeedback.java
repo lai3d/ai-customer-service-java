@@ -75,15 +75,18 @@ public class AnswerFeedback {
         if (!ISSUES.contains(kind)) {
             throw new Rule("issue must be one of " + ISSUES);
         }
-        String conversation = jdbc.query("SELECT conversation_id FROM conversation_turn WHERE turn_id = ?",
-                (rs, i) -> rs.getString(1), turnId).stream().findFirst()
+        // The flag belongs to the turn's tenant, read from the record rather than asked of the caller.
+        String[] turn = jdbc.query("SELECT conversation_id, tenant_id FROM conversation_turn WHERE turn_id = ?",
+                (rs, i) -> new String[] {rs.getString(1), rs.getString(2)}, turnId).stream().findFirst()
                 .orElseThrow(() -> new Rule("no recorded turn " + turnId + " to flag"));
+        String conversation = turn[0];
+        String tenant = turn[1];
         String text = note == null || note.isBlank() ? null : note.strip();
         try {
             Long id = jdbc.queryForObject("""
-                    INSERT INTO answer_feedback (turn_id, conversation_id, issue, note, reported_by, reported_at)
-                    VALUES (?, ?, ?, ?, ?, ?) RETURNING id
-                    """, Long.class, turnId, conversation, kind, text, reporter, Timestamp.from(Instant.now()));
+                    INSERT INTO answer_feedback (turn_id, tenant_id, conversation_id, issue, note, reported_by, reported_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+                    """, Long.class, turnId, tenant, conversation, kind, text, reporter, Timestamp.from(Instant.now()));
             return find(id).orElseThrow();
         }
         catch (DataIntegrityViolationException e) {

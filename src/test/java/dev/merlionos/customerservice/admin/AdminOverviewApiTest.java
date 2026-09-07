@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.TurnRecorder;
 import dev.merlionos.customerservice.ticket.api.TicketActor;
@@ -75,15 +76,15 @@ class AdminOverviewApiTest {
     void numbersAndDefinitions() throws Exception {
         String conversation = UUID.randomUUID().toString();
         String t1 = UUID.randomUUID().toString();
-        recorder.start(t1, conversation, TurnRecorder.Path.STREAM, "q1");
+        recorder.start(t1, Tenant.DEFAULT, conversation, TurnRecorder.Path.STREAM, "q1");
         recorder.finish(t1, TurnRecorder.Outcome.COMPLETED, "a1", "claude-opus-5", 100, 20, null, null);
         String t2 = UUID.randomUUID().toString();
-        recorder.start(t2, conversation, TurnRecorder.Path.STREAM, "q2");
+        recorder.start(t2, Tenant.DEFAULT, conversation, TurnRecorder.Path.STREAM, "q2");
         recorder.finish(t2, TurnRecorder.Outcome.FAILED, null, null, null, null, null, new IllegalStateException("down"));
         String t3 = UUID.randomUUID().toString();
-        recorder.start(t3, UUID.randomUUID().toString(), TurnRecorder.Path.BLOCKING, "q3");
+        recorder.start(t3, Tenant.DEFAULT, UUID.randomUUID().toString(), TurnRecorder.Path.BLOCKING, "q3");
         recorder.finish(t3, TurnRecorder.Outcome.INTERRUPTED, null, null, null, null, null, null);
-        String number = tickets.create(new TicketRequest(UUID.randomUUID().toString(), conversation, "crushed", "returns", null))
+        String number = tickets.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), conversation, "crushed", "returns", null))
                 .ticket().ticketNumber();
         workflow.claim(number, TicketActor.staff("alice"), 0);
         workflow.resolve(number, "sent a replacement", TicketActor.staff("alice"), 1);

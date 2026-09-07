@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.MigratedPostgres;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -41,7 +42,7 @@ class TurnRecorderTest {
     @DisplayName("a turn starts running with its question, gathers retrieval and tool calls, and ends once")
     void aWholeTurn() {
         String turn = UUID.randomUUID().toString();
-        recorder.start(turn, "conv-1", TurnRecorder.Path.STREAM, "运费多少钱");
+        recorder.start(turn, Tenant.DEFAULT, "conv-1", TurnRecorder.Path.STREAM, "运费多少钱");
         assertThat(row(turn)).containsEntry("outcome", "running").containsEntry("path", "stream")
                 .containsEntry("question", "运费多少钱").containsEntry("ended_at", null);
 
@@ -66,7 +67,7 @@ class TurnRecorderTest {
     @DisplayName("a failure is recorded as its class and message, cut to a bounded length")
     void failureIsDescribed() {
         String turn = UUID.randomUUID().toString();
-        recorder.start(turn, "conv-2", TurnRecorder.Path.BLOCKING, "hello");
+        recorder.start(turn, Tenant.DEFAULT, "conv-2", TurnRecorder.Path.BLOCKING, "hello");
         recorder.finish(turn, TurnRecorder.Outcome.FAILED, null, null, null, null, null,
                 new IllegalStateException("x".repeat(1000)));
 
@@ -82,8 +83,8 @@ class TurnRecorderTest {
     @DisplayName("a second start with the same turn id is an error, not a silent overwrite")
     void startIsNotIdempotent() {
         String turn = UUID.randomUUID().toString();
-        recorder.start(turn, "conv-3", TurnRecorder.Path.BLOCKING, "one");
-        assertThatThrownBy(() -> recorder.start(turn, "conv-3", TurnRecorder.Path.BLOCKING, "two"))
+        recorder.start(turn, Tenant.DEFAULT, "conv-3", TurnRecorder.Path.BLOCKING, "one");
+        assertThatThrownBy(() -> recorder.start(turn, Tenant.DEFAULT, "conv-3", TurnRecorder.Path.BLOCKING, "two"))
                 .isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 
@@ -93,9 +94,9 @@ class TurnRecorderTest {
         String stale = UUID.randomUUID().toString();
         String fresh = UUID.randomUUID().toString();
         String done = UUID.randomUUID().toString();
-        recorder.start(stale, "conv-4", TurnRecorder.Path.STREAM, "q");
-        recorder.start(fresh, "conv-4", TurnRecorder.Path.STREAM, "q");
-        recorder.start(done, "conv-4", TurnRecorder.Path.STREAM, "q");
+        recorder.start(stale, Tenant.DEFAULT, "conv-4", TurnRecorder.Path.STREAM, "q");
+        recorder.start(fresh, Tenant.DEFAULT, "conv-4", TurnRecorder.Path.STREAM, "q");
+        recorder.start(done, Tenant.DEFAULT, "conv-4", TurnRecorder.Path.STREAM, "q");
         recorder.finish(done, TurnRecorder.Outcome.COMPLETED, "a", null, null, null, null, null);
         db.jdbc.update("UPDATE conversation_turn SET started_at = ? WHERE turn_id IN (?, ?)",
                 Timestamp.from(Instant.now().minus(Duration.ofMinutes(10))), stale, done);

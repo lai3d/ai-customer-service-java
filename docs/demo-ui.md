@@ -10,6 +10,11 @@ conversation on the left, and on the right, for every turn, the passages retriev
 their scores, the tools the model called, the tokens spent, and a link to that turn's trace in
 Grafana, from which its log lines are one click away.
 
+The page asks for one thing a widget would be given: the tenant API key
+([ADR 002](adr/002-tenancy.md)), in the box at the top, kept in the browser's local storage
+and sent as `Authorization: Bearer`. Without it the first answer is a `401` explained in the
+conversation, not a blank bubble; for a laptop the key is `DEFAULT_TENANT_API_KEY` in `.env`.
+
 That required real work in the backend, not just a page. The stream now carries typed events —
 `retrieval`, `tool`, `message`, `usage`, `error` — instead of bare tokens:
 

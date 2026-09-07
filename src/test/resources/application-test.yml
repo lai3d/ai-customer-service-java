@@ -15,6 +15,9 @@ spring:
       minimum-idle: 1
 
 app:
+  tenancy:
+    # The default tenant's key in every test context; TestTenants.AUTHORIZATION carries it.
+    default-api-key: cs_testtest-the-default-tenant-key-for-tests
   rag:
     # Off by default so unrelated tests do not pay for embedding the corpus. Tests that need
     # the corpus set app.rag.import-mode=startup; readiness is DOWN in every other context.
