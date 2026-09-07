@@ -4,6 +4,7 @@ import { api, type IssuedKey, type KeyKind, type Tenant, type TenantDetail } fro
 import { Empty, ErrorNote, Pill } from '../components/ui';
 import { OrderConnectorSection } from '../components/OrderConnector';
 import { TelegramSection } from '../components/Telegram';
+import { Onboarding } from '../components/Onboarding';
 import { when } from '../format';
 
 /**
@@ -109,7 +110,8 @@ function TenantDetailPage({ id }: { id: string }) {
         </div>
         {status && <p className="note">{status}</p>}
       </section>
-      <section>
+      <Onboarding tenantId={id} />
+      <section id="keys">
         <h3>API keys</h3>
         <p className="hint">A key is the tenant's identity on <span className="mono">/api/v1/**</span>. A <b>secret</b> key is for a server the tenant controls (<span className="mono">Authorization: Bearer</span>); a <b>widget</b> key is pasted into the tenant's web page and works only from browsers on the origins it was issued for. Either is shown once, when issued; the server keeps only its hash. Revoking takes effect on the next request.</p>
         {issued && (
