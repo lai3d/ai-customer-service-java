@@ -38,11 +38,21 @@ public class TurnRecords {
      * @param outcome        conversations with at least one turn that ended this way, or null
      * @param from           turns started at or after; @param to turns started before
      */
-    /** @param tenantId only this tenant's conversations, or null for every tenant's */
-    public record Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size, String tenantId) {
+    /**
+     * @param tenantId only this tenant's conversations, or null for every tenant's
+     * @param kind     {@code customer} (the default, also for null) or {@code evaluation}: an
+     *                 evaluation run's conversations are not a customer's and stay out of the
+     *                 list unless asked for by name
+     */
+    public record Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size, String tenantId,
+                         String kind) {
 
         public Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size) {
-            this(conversationId, outcome, from, to, page, size, null);
+            this(conversationId, outcome, from, to, page, size, null, null);
+        }
+
+        public Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size, String tenantId) {
+            this(conversationId, outcome, from, to, page, size, tenantId, null);
         }
         public Filter {
             page = Math.max(page, 0);
@@ -93,6 +103,15 @@ public class TurnRecords {
         if (filter.tenantId() != null) {
             where.add("t.tenant_id = ?");
             args.add(filter.tenantId());
+        }
+        if ("evaluation".equals(filter.kind())) {
+            where.add("c.kind = 'evaluation'");
+        }
+        else if (filter.kind() == null || "customer".equals(filter.kind())) {
+            where.add("c.kind IS DISTINCT FROM 'evaluation'");
+        }
+        else {
+            throw new IllegalArgumentException("kind must be customer or evaluation");
         }
         if (filter.from() != null) {
             where.add("started_at >= ?");

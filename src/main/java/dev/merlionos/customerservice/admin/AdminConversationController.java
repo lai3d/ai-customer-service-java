@@ -52,10 +52,11 @@ class AdminConversationController {
                           @RequestParam(required = false) String to,
                           @RequestParam(defaultValue = "0") int page,
                           @RequestParam(defaultValue = "0") int size,
-                          @RequestParam(required = false) String tenant, Authentication authentication) {
+                          @RequestParam(required = false) String tenant, @RequestParam(required = false) String kind,
+                          Authentication authentication) {
         return records.conversations(new TurnRecords.Filter(conversationId, outcome,
                 blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size,
-                StaffScope.of(authentication).listTenant(tenant)));
+                StaffScope.of(authentication).listTenant(tenant), blank(kind) ? null : kind));
     }
 
     /**
