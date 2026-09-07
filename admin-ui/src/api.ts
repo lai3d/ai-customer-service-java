@@ -86,6 +86,8 @@ export interface KnowledgeRevision {
 }
 /** sourceKind and source are set for entries an import wrote (url or pdf), null for typed ones and the bundled corpus. */
 export interface KnowledgeEntry { entryId: string; category: string; retired: boolean; createdAt: string; createdBy: string; revisions: KnowledgeRevision[]; sourceKind: 'url' | 'pdf' | null; source: string | null }
+/** sources: every distinct import source among the tenant's entries, whatever the page. */
+export interface EntryPage { entries: KnowledgeEntry[]; total: number; page: number; size: number; sources: string[] }
 /** One import of a tenant's document, polled like a publication: running, then done with the entries written, or failed with the reason. */
 export interface KnowledgeImport { id: number; tenantId: string; sourceKind: 'url' | 'pdf'; source: string; state: 'running' | 'done' | 'failed'; entries: number | null; error: string | null; requestedBy: string; requestedAt: string; finishedAt: string | null }
 export interface KnowledgeVersion {
@@ -171,7 +173,9 @@ export const api = {
     call<Feedback>('POST', `/feedback/${id}/handle`, { state, conclusion, expectedVersion, revisionId: revisionId ?? null }),
 
   // Every knowledge call names the tenant whose knowledge it is about (ADR 002 step 3).
-  entries: (tenant: string) => call<KnowledgeEntry[]>('GET', `/knowledge/entries${query({ tenant })}`),
+  /** One page of a tenant's entries, narrowed on the server: one document is hundreds of chunks. */
+  entries: (tenant: string, f: { text?: string; source?: string; page?: number; size?: number } = {}) =>
+    call<EntryPage>('GET', `/knowledge/entries${query({ tenant, ...f })}`),
   createEntry: (tenant: string, id: string, category: string) => call<KnowledgeEntry>('POST', `/knowledge/entries/${encodeURIComponent(id)}${query({ tenant })}`, { category }),
   saveDraft: (tenant: string, id: string, language: string, question: string, answer: string, note: string) =>
     call<KnowledgeRevision>('PUT', `/knowledge/entries/${encodeURIComponent(id)}/drafts/${encodeURIComponent(language)}${query({ tenant })}`, { question, answer, note }),

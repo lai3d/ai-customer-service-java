@@ -25,6 +25,9 @@ public interface KnowledgeAdmin {
 
     List<KnowledgeEntry> entries(String tenantId);
 
+    /** One page of the tenant's entries, narrowed by the filter; see {@link EntryFilter}. */
+    EntryPage entries(String tenantId, EntryFilter filter);
+
     Optional<KnowledgeEntry> entry(String tenantId, String entryId);
 
     /** Creates an entry with no text yet; drafts follow per language. */

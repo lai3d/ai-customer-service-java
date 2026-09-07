@@ -21,6 +21,7 @@ import dev.merlionos.customerservice.rag.api.SearchQuery;
 import dev.merlionos.customerservice.ticket.api.TicketActor;
 import dev.merlionos.customerservice.ticket.api.TicketConflictException;
 import dev.merlionos.customerservice.ticket.api.TicketEvent;
+import dev.merlionos.customerservice.rag.api.EntryFilter;
 import dev.merlionos.customerservice.ticket.api.TicketFilter;
 import dev.merlionos.customerservice.ticket.api.TicketNotFoundException;
 import dev.merlionos.customerservice.ticket.api.TicketRecord;
@@ -352,6 +353,10 @@ class TopologyParityTest {
         KnowledgeAdmin local = knowledge.getBean(KnowledgeAdmin.class);
         String before = remote.activeVersion(DEFAULT_TENANT).orElseThrow();
         assertThat(before).isEqualTo(local.activeVersion(DEFAULT_TENANT).orElseThrow());
+        assertThat(remote.entries(DEFAULT_TENANT, new EntryFilter("shipping", null, 0, 3)).total())
+                .as("the page crosses the seam narrowed the same way")
+                .isEqualTo(local.entries(DEFAULT_TENANT, new EntryFilter("shipping", null, 0, 3)).total()).isGreaterThanOrEqualTo(5);
+        assertThat(remote.entries(DEFAULT_TENANT, new EntryFilter("shipping", null, 0, 3)).entries()).hasSize(3);
         assertThat(remote.entries(DEFAULT_TENANT)).hasSize(local.entries(DEFAULT_TENANT).size()).hasSize(18);
 
         remote.createEntry(DEFAULT_TENANT, "seam-entry", "orders", "alice");

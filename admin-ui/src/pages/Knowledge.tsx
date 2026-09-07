@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { TenantPicker } from '../components/TenantPicker';
-import { api, type KnowledgeEntry, type KnowledgeImport, type KnowledgeRevision, type Passage, type Versions } from '../api';
-import { filterEntries, pageOf, sourcesOf } from '../knowledgeFilter';
+import { api, type EntryPage, type KnowledgeEntry, type KnowledgeImport, type KnowledgeRevision, type Passage, type Versions } from '../api';
 import { useAuth } from '../auth';
-import { Empty, ErrorNote, Pill } from '../components/ui';
+import { Empty, ErrorNote, Pager, Pill } from '../components/ui';
 import { when } from '../format';
 
 function LanguageForm({ tenant, entry, language, draft, published, onSaved }: {
@@ -42,7 +41,7 @@ export function KnowledgePage() {
   const tenant = me?.tenant ? me.tenant.id : (params.get('tenant') || 'default');
   const chooseTenant = (id: string) => { const p = new URLSearchParams(params); if (id === 'default') p.delete('tenant'); else p.set('tenant', id); setParams(p); setCurrent(null); setPreview(null); setStatus(''); };
   const admin = me!.role === 'admin';
-  const [entries, setEntries] = useState<KnowledgeEntry[] | null>(null);
+  const [entries, setEntries] = useState<EntryPage | null>(null);
   const [filterText, setFilterText] = useState('');
   const [filterSource, setFilterSource] = useState('');
   const [entryPage, setEntryPage] = useState(0);
@@ -64,8 +63,9 @@ export function KnowledgePage() {
   const [previewVersion, setPreviewVersion] = useState('');
   const [preview, setPreview] = useState<Passage[] | null>(null);
 
-  const load = useCallback(() => Promise.all([api.entries(tenant), api.versions(tenant), admin ? api.imports(tenant) : Promise.resolve(null)])
-    .then(([e, v, i]) => { setEntries(e); setVersions(v); setImports(i); setError(null); }, setError), [tenant, admin]);
+  const load = useCallback(() => Promise.all([api.entries(tenant, { text: filterText || undefined, source: filterSource || undefined, page: entryPage, size: 25 }),
+    api.versions(tenant), admin ? api.imports(tenant) : Promise.resolve(null)])
+    .then(([e, v, i]) => { setEntries(e); setVersions(v); setImports(i); setError(null); }, setError), [tenant, admin, filterText, filterSource, entryPage]);
   useEffect(() => { void load(); }, [load]);
   // An import runs on the knowledge role; poll its row until it is done or failed, then reload the entries it wrote.
   useEffect(() => {
@@ -83,7 +83,7 @@ export function KnowledgePage() {
     } catch (err) { setError(err); } finally { setImporting(false); }
   };
 
-  const entry = entries?.find(e => e.entryId === current) ?? null;
+  const entry = entries?.entries.find(e => e.entryId === current) ?? null;
   const languages = entry ? Array.from(new Set([...entry.revisions.map(r => r.language), ...extraLanguages])) : [];
 
   const create = async () => {
@@ -138,23 +138,23 @@ export function KnowledgePage() {
         )}
         {status && <p className="note">{status}</p>}
         <ErrorNote error={error} />
-        {entries && entries.length > 0 && (
+        {entries && (entries.total > 0 || filterText || filterSource) && (
           <div className="row">
             <label>Find <input value={filterText} onChange={e => { setFilterText(e.target.value); setEntryPage(0); }} placeholder="id, category or source" /></label>
             <label>Source
               <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setEntryPage(0); }}>
                 <option value="">any</option>
                 <option value="typed">typed here or bundled</option>
-                {sourcesOf(entries).map(src => <option key={src} value={src}>{src}</option>)}
+                {entries.sources.map(src => <option key={src} value={src}>{src}</option>)}
               </select>
             </label>
           </div>
         )}
-        {entries && (() => { const shown = pageOf(filterEntries(entries, filterText, filterSource), entryPage); return (<>
+        {entries && (<>
           <table>
             <thead><tr><th>Entry</th><th>Category</th><th>Source</th><th>Languages</th><th></th></tr></thead>
             <tbody>
-              {shown.items.map(e => (
+              {entries.entries.map(e => (
                 <tr key={e.entryId}>
                   <td className="mono">{e.entryId}{e.retired ? ' (retired)' : ''}</td>
                   <td>{e.category}</td>
@@ -165,14 +165,8 @@ export function KnowledgePage() {
               ))}
             </tbody>
           </table>
-          {shown.pages > 1 && (
-            <p className="row">
-              <button type="button" disabled={shown.page === 0} onClick={() => setEntryPage(shown.page - 1)}>‹</button>
-              <span className="hint">page {shown.page + 1} of {shown.pages}</span>
-              <button type="button" disabled={shown.page >= shown.pages - 1} onClick={() => setEntryPage(shown.page + 1)}>›</button>
-            </p>
-          )}
-        </>); })()}
+          <Pager page={entries.page} size={entries.size} total={entries.total} onPage={setEntryPage} />
+        </>)}
         {entry && (
           <div>
             <h3>{entry.entryId} · {entry.category}{entry.retired ? ' · retired' : ''}</h3>

@@ -3,6 +3,8 @@ package dev.merlionos.customerservice.rag;
 import dev.merlionos.customerservice.rag.api.DraftText;
 import dev.merlionos.customerservice.rag.api.ImportRequest;
 import dev.merlionos.customerservice.rag.api.KnowledgeImport;
+import dev.merlionos.customerservice.rag.api.EntryFilter;
+import dev.merlionos.customerservice.rag.api.EntryPage;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeCommand;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -49,6 +52,13 @@ class KnowledgeAdminController {
     @GetMapping("/{tenant}/entries")
     List<KnowledgeEntry> entries(@PathVariable String tenant) {
         return admin.entries(tenant);
+    }
+
+    @GetMapping("/{tenant}/entries/page")
+    EntryPage entriesPage(@PathVariable String tenant, @RequestParam(required = false) String text,
+                          @RequestParam(required = false) String source, @RequestParam(defaultValue = "0") int page,
+                          @RequestParam(defaultValue = "0") int size) {
+        return admin.entries(tenant, new EntryFilter(text, source, page, size));
     }
 
     @GetMapping("/{tenant}/entries/{id}")

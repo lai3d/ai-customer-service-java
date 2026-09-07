@@ -148,7 +148,7 @@ class AdminTenantScopeTest {
         // Knowledge: the session's tenant wins over the parameter
         assertThat(carol.get("/admin/api/knowledge/versions").body()).contains("\"tenant\":\"acme\"");
         assertThat(carol.get("/admin/api/knowledge/versions?tenant=default").statusCode()).isEqualTo(403);
-        assertThat(carol.get("/admin/api/knowledge/entries").body()).as("acme has no knowledge yet").isEqualTo("[]");
+        assertThat(carol.get("/admin/api/knowledge/entries").body()).as("acme has no knowledge yet").contains("\"total\":0");
 
         // Tenants are platform's
         assertThat(carol.get("/admin/api/tenants").statusCode()).isEqualTo(403);
