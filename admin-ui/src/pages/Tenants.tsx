@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { api, type IssuedKey, type KeyKind, type Tenant, type TenantDetail } from '../api';
 import { Empty, ErrorNote, Pill } from '../components/ui';
 import { OrderConnectorSection } from '../components/OrderConnector';
+import { TelegramSection } from '../components/Telegram';
 import { when } from '../format';
 
 /**
@@ -167,6 +168,7 @@ function TenantDetailPage({ id }: { id: string }) {
         <ErrorNote error={error} />
       </section>
       <OrderConnectorSection tenantId={id} />
+      <TelegramSection tenantId={id} />
     </>
   );
 }
