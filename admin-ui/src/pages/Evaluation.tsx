@@ -13,7 +13,10 @@ import { joinList, percent, splitList } from '../lists';
  * run is a paid model call, so a run is started on purpose, by an admin, and polled like a
  * publication or an import. The deflection rate is the other number a customer pays for.
  */
-const EMPTY: CaseInput = { question: '', language: 'en', expectedEntryIds: [], mustContain: [], anyOf: [], mustNotContain: [], expectTool: null, expectRefusal: false, enabled: true, note: null };
+const EMPTY: CaseInput = { question: '', language: 'en', expectedEntryIds: [], mustContain: [], anyOf: [], mustNotContain: [], expectTool: null, forbidTool: null, expectRefusal: false, enabled: true, note: null };
+
+// The tools the chat side has (tools/ and AccountTools); a case names one to expect or to forbid.
+const TOOLS = ['', 'lookup_order_status', 'create_support_ticket', 'lookup_my_subscription'];
 
 function CaseForm({ initial, onSave, onCancel }: { initial: CaseInput; onSave: (input: CaseInput) => Promise<void>; onCancel: () => void }) {
   const [question, setQuestion] = useState(initial.question);
@@ -23,6 +26,7 @@ function CaseForm({ initial, onSave, onCancel }: { initial: CaseInput; onSave: (
   const [any, setAny] = useState(joinList(initial.anyOf));
   const [mustNot, setMustNot] = useState(joinList(initial.mustNotContain));
   const [tool, setTool] = useState(initial.expectTool ?? '');
+  const [forbid, setForbid] = useState(initial.forbidTool ?? '');
   const [refusal, setRefusal] = useState(initial.expectRefusal);
   const [enabled, setEnabled] = useState(initial.enabled);
   const [note, setNote] = useState(initial.note ?? '');
@@ -31,7 +35,7 @@ function CaseForm({ initial, onSave, onCancel }: { initial: CaseInput; onSave: (
     e.preventDefault();
     try {
       await onSave({ question: question.trim(), language: language.trim(), expectedEntryIds: splitList(expected), mustContain: splitList(must), anyOf: splitList(any),
-        mustNotContain: splitList(mustNot), expectTool: tool.trim() || null, expectRefusal: refusal, enabled, note: note.trim() || null });
+        mustNotContain: splitList(mustNot), expectTool: tool.trim() || null, forbidTool: forbid.trim() || null, expectRefusal: refusal, enabled, note: note.trim() || null });
       setError(null);
     } catch (err) { setError(err); }
   };
@@ -44,10 +48,13 @@ function CaseForm({ initial, onSave, onCancel }: { initial: CaseInput; onSave: (
       <label>Any of <input value={any} onChange={e => setAny(e.target.value)} placeholder="at least one of these" size={30} /></label>
       <label>Must not contain <input value={mustNot} onChange={e => setMustNot(e.target.value)} placeholder="none of these" size={30} /></label>
       <label>Expect tool
-        <select value={tool} onChange={e => setTool(e.target.value)}>
-          <option value="">none</option>
-          <option value="lookup_order_status">lookup_order_status</option>
-          <option value="create_support_ticket">create_support_ticket</option>
+        <select value={tool} onChange={e => setTool(e.target.value)} title="a tool that must have run">
+          {TOOLS.map(t => <option key={t} value={t}>{t || 'none'}</option>)}
+        </select>
+      </label>
+      <label>Forbid tool
+        <select value={forbid} onChange={e => setForbid(e.target.value)} title="a tool that must not have run: what an injection case asserts, beside a fact the answer must still contain (docs/evaluation.md, 'Writing a case that measures what it says')">
+          {TOOLS.map(t => <option key={t} value={t}>{t || 'none'}</option>)}
         </select>
       </label>
       <label><input type="checkbox" checked={refusal} onChange={e => setRefusal(e.target.checked)} /> expect a refusal (outside the knowledge)</label>
@@ -67,6 +74,7 @@ function expectations(c: GoldenCase): string {
   if (c.anyOf.length) parts.push(`one of ${c.anyOf.join(' | ')}`);
   if (c.mustNotContain.length) parts.push(`never ${c.mustNotContain.join(' | ')}`);
   if (c.expectTool) parts.push(`calls ${c.expectTool}`);
+  if (c.forbidTool) parts.push(`never calls ${c.forbidTool}`);
   if (c.expectRefusal) parts.push('refuses');
   return parts.join('; ') || 'nothing checked';
 }
