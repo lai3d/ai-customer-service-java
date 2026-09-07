@@ -128,6 +128,15 @@
             <artifactId>spring-ai-rag</artifactId>
         </dependency>
 
+        <!-- A tenant's own documents: web pages and PDFs into draft knowledge entries (ADR 002) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-jsoup-document-reader</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-pdf-document-reader</artifactId>
+        </dependency>
         <!-- QuestionAnswerAdvisor lives here, not in spring-ai-client-chat -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

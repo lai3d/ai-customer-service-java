@@ -13,6 +13,11 @@ server:
   shutdown: graceful
 
 spring:
+  servlet:
+    multipart:
+      # A PDF for the knowledge import (app.knowledge-import.max-document-size); nothing else is uploaded.
+      max-file-size: 10MB
+      max-request-size: 11MB
   application:
     name: ai-customer-service-java
 
@@ -308,6 +313,19 @@ app:
     # the request, and traces get retained and read widely. Off unless you are debugging
     # retrieval and understand where those spans end up.
     include-query-content: ${TRACE_INCLUDE_QUERY_CONTENT:false}
+
+  knowledge-import:
+    # A tenant's own web pages and PDFs into draft entries (docs/adr/002-tenancy.md). A URL is
+    # fetched by the knowledge role from inside the deployment's network, so by default it may
+    # reach only public addresses: loopback, link-local (the cloud metadata address), the
+    # private ranges and the rest are refused, on every redirect hop. Turn this on for a
+    # laptop or a test that serves pages locally, never for a deployment that faces tenants.
+    allow-private-networks: ${KNOWLEDGE_IMPORT_ALLOW_PRIVATE_NETWORKS:false}
+    max-document-size: 10MB
+    fetch-timeout: 10s
+    # About the size of one entry: a chunk is embedded as one passage, and every passage a
+    # question retrieves is re-sent on every turn it informs (see app.rag.top-k).
+    chunk-tokens: 400
 
   rag:
     corpus-location: classpath:/faq/faq.json

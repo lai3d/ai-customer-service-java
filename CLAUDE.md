@@ -431,7 +431,24 @@ nothing active and retrieves nothing until it publishes; readiness is the defaul
 tenant's corpus. `KnowledgeAdmin` takes the tenant first on every method, the internal
 knowledge-admin seam has it as a path segment, and the admin's `/admin/api/knowledge/**`
 takes it as `?tenant=` (`default` when absent), which every member of staff may set today.
-Not yet per tenant: staff (every admin is a platform admin); that is the next PR of the ADR.
+**A tenant's own documents** come in through `KnowledgeImporter` on the knowledge role:
+`POST /admin/api/knowledge/imports/url` and `/imports/pdf` (admins, `?tenant=`), over the
+seam as `/internal/v1/knowledge-admin/{tenant}/imports/...`. The fetch and the parse run
+off the request thread and the row in `knowledge_import` is polled, like a publication,
+because a fetch can take seconds and the seam's client gives an internal call five. A page
+or PDF is read by Spring AI's jsoup and PDF readers, split into chunks of
+`app.knowledge-import.chunk-tokens`, and each chunk becomes a draft under an entry named
+`<kind>-<8 hex of the source>-<n>`, so importing the same source again replaces its
+drafts and retires the entries beyond the new count instead of adding beside them. Nothing
+is published by an import. **A URL is fetched by the knowledge role from inside the
+deployment's network**, which is the shape of a server-side request forgery; `SourceGuard`
+allows http and https only, no credentials, and every address the host resolves to must
+be public, checked again on every redirect hop (`SourceGuardTest` lists what is refused).
+`app.knowledge-import.allow-private-networks` switches that off for a laptop and for the
+tests, which serve their pages locally; never facing tenants. Known limit: the address is
+resolved by the guard and again by the client, so DNS rebinding between the two is not caught.
+Not yet per tenant: staff (every admin is a platform admin); that is the next PR of the ADR,
+owned by the operations-admin session.
 
 ## Scope
 

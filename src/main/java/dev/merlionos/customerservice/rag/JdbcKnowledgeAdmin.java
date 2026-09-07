@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.rag;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
+import dev.merlionos.customerservice.rag.api.KnowledgeImport;
 import dev.merlionos.customerservice.rag.api.KnowledgeRevision;
 import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
@@ -67,14 +68,16 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final ActiveVersionVectorStore vectorStore;
+    private final KnowledgeImporter importer;
     private final Counter succeeded;
     private final Counter failed;
 
     public JdbcKnowledgeAdmin(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-                              ActiveVersionVectorStore vectorStore, MeterRegistry meterRegistry) {
+                              ActiveVersionVectorStore vectorStore, KnowledgeImporter importer, MeterRegistry meterRegistry) {
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.vectorStore = vectorStore;
+        this.importer = importer;
         this.succeeded = publications(meterRegistry, "succeeded");
         this.failed = publications(meterRegistry, "failed");
     }
@@ -95,7 +98,8 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
             String id = rs.getString("entry_id");
             return new KnowledgeEntry(id, rs.getString("category"), rs.getBoolean("retired"),
                     rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"),
-                    current.stream().filter(r -> r.entryId().equals(id)).toList());
+                    current.stream().filter(r -> r.entryId().equals(id)).toList(),
+                    rs.getString("source_kind"), rs.getString("source"));
         }, tenantId);
     }
 
@@ -313,6 +317,28 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
                 .similarityThreshold(query.similarityThreshold()).build();
         return vectorStore.similaritySearch(request, target).stream()
                 .map(d -> new Passage(d.getId(), d.getText(), d.getScore(), d.getMetadata())).toList();
+    }
+
+    // --- a tenant's own documents -----------------------------------------------------------
+
+    @Override
+    public KnowledgeImport importUrl(String tenantId, String url, String actor) {
+        return importer.importUrl(tenantId, url, actor);
+    }
+
+    @Override
+    public KnowledgeImport importPdf(String tenantId, String fileName, byte[] content, String actor) {
+        return importer.importPdf(tenantId, fileName, content, actor);
+    }
+
+    @Override
+    public List<KnowledgeImport> imports(String tenantId) {
+        return importer.imports(tenantId);
+    }
+
+    @Override
+    public Optional<KnowledgeImport> importOf(String tenantId, long id) {
+        return importer.importOf(tenantId, id);
     }
 
     static Document document(KnowledgeRevision revision, String category, String version) {

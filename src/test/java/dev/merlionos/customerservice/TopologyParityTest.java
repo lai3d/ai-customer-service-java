@@ -92,7 +92,7 @@ class TopologyParityTest {
         postgres = PostgresTestcontainer.freshDatabase();
 
         // Neither of these gets the test profile, so neither has an LLM key of any kind.
-        knowledge = role("knowledge", "--app.rag.import-mode=startup");
+        knowledge = role("knowledge", "--app.rag.import-mode=startup", "--app.knowledge-import.allow-private-networks=true");
         ticket = role("ticket");
 
         chatModel = Mockito.mock(AnthropicChatModel.class);
@@ -340,7 +340,7 @@ class TopologyParityTest {
     @Test
     @Order(9)
     @DisplayName("the knowledge-admin seam: a draft and a publication from the chat process are the knowledge process's rows and its active version")
-    void knowledgeAdminParity() {
+    void knowledgeAdminParity() throws Exception {
         KnowledgeAdmin remote = chat.getBean(KnowledgeAdmin.class);
         assertThat(remote).isInstanceOf(HttpKnowledgeAdmin.class);
         KnowledgeAdmin local = knowledge.getBean(KnowledgeAdmin.class);
@@ -383,6 +383,44 @@ class TopologyParityTest {
                 .collectList().block();
         assertThat(defaultTurn.stream().filter(TurnEvent.Retrieval.class::isInstance).map(TurnEvent.Retrieval.class::cast)
                 .findFirst().orElseThrow().passages()).allSatisfy(p -> assertThat(p.corpusVersion()).isEqualTo(before));
+
+        // An import asked for on the chat side runs on the knowledge side and is polled over the seam.
+        com.sun.net.httpserver.HttpServer pages = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        pages.createContext("/help", exchange -> {
+            byte[] body = "<html><head><title>Acme Help</title></head><body><p>Acme repairs any saddle within ten working days.</p></body></html>"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/html");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        pages.start();
+        try {
+            String url = "http://127.0.0.1:" + pages.getAddress().getPort() + "/help";
+            assertThatThrownBy(() -> remote.importUrl("acme", "ftp://example.com/", "root")).isInstanceOf(KnowledgeRuleException.class);
+            dev.merlionos.customerservice.rag.api.KnowledgeImport started = remote.importUrl("acme", url, "root");
+            assertThat(started.state()).isEqualTo("running");
+            dev.merlionos.customerservice.rag.api.KnowledgeImport finished = started;
+            for (int i = 0; i < 120 && !finished.finished(); i++) {
+                Thread.sleep(250);
+                finished = remote.importOf("acme", started.id()).orElseThrow();
+            }
+            assertThat(finished.state()).as(finished.error()).isEqualTo("done");
+            assertThat(local.imports("acme")).hasSize(1);
+            assertThat(local.entries("acme")).filteredOn(e -> "url".equals(e.sourceKind())).hasSize(1)
+                    .allSatisfy(e -> assertThat(e.revisions().getFirst().answer()).contains("ten working days"));
+            byte[] pdf = dev.merlionos.customerservice.rag.TestPdf.of(List.of("Saddles are guaranteed for two years."));
+            dev.merlionos.customerservice.rag.api.KnowledgeImport booklet = remote.importPdf("acme", "guarantee.pdf", pdf, "root");
+            for (int i = 0; i < 120 && !booklet.finished(); i++) {
+                Thread.sleep(250);
+                booklet = remote.importOf("acme", booklet.id()).orElseThrow();
+            }
+            assertThat(booklet.state()).as(booklet.error()).isEqualTo("done");
+            assertThat(remote.entries("acme")).filteredOn(e -> "pdf".equals(e.sourceKind())).hasSize(1);
+        }
+        finally {
+            pages.stop(0);
+        }
     }
 
     @Test

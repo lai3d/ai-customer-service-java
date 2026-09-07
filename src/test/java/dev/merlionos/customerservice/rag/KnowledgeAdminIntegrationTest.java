@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.rag;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.chat.TurnEvent;
+import dev.merlionos.customerservice.rag.api.KnowledgeImport;
 import dev.merlionos.customerservice.rag.api.TenantFilter;
 import dev.merlionos.customerservice.tenancy.Tenants;
 import org.springframework.ai.anthropic.AnthropicChatModel;
@@ -303,5 +304,117 @@ class KnowledgeAdminIntegrationTest {
         List<TurnEvent> events = chatService.stream(tenant, java.util.UUID.randomUUID().toString(), question).collectList().block();
         return events.stream().filter(TurnEvent.Retrieval.class::isInstance).map(TurnEvent.Retrieval.class::cast)
                 .findFirst().orElseThrow();
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("a tenant's web page and PDF become draft entries, re-importing replaces them, and a publication makes them retrievable")
+    void importsBecomeDrafts() throws Exception {
+        tenants.create("importer", "Importer");
+        String html = """
+                <html><head><title>Acme Help Centre</title></head><body>
+                <h1>Returns</h1><p>You can return any item within 30 days of delivery for a full refund. Items must be unused.</p>
+                <h1>Shipping</h1><p>Orders over 50 dollars ship free. Below that, standard shipping is 5 dollars and takes 3 to 5 days.</p>
+                <h1>Payment</h1><p>We take Visa, Mastercard and PayPal. Declined cards are usually a billing address mismatch.</p>
+                </body></html>""";
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/help", exchange -> {
+            byte[] body = html.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/moved", exchange -> {
+            exchange.getResponseHeaders().add("Location", "/help");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/image", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "image/png");
+            exchange.sendResponseHeaders(200, 4);
+            exchange.getResponseBody().write(new byte[4]);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String base = "http://127.0.0.1:" + server.getAddress().getPort();
+
+            // A URL the knowledge role may not read is refused now, not recorded as a failed import.
+            assertThatThrownBy(() -> admin.importUrl("importer", "ftp://example.com/help", "root")).isInstanceOf(KnowledgeRuleException.class);
+            assertThat(admin.imports("importer")).isEmpty();
+
+            KnowledgeImport page = await(admin.importUrl("importer", base + "/moved", "root"));
+            assertThat(page.state()).as(page.error()).isEqualTo("done");
+            assertThat(page.source()).as("the URL as asked, redirect and all").isEqualTo(base + "/moved");
+            assertThat(page.entries()).isGreaterThanOrEqualTo(1);
+            List<KnowledgeEntry> entries = admin.entries("importer");
+            assertThat(entries).hasSize(page.entries()).allSatisfy(entry -> {
+                assertThat(entry.sourceKind()).isEqualTo("url");
+                assertThat(entry.source()).isEqualTo(base + "/moved");
+                assertThat(entry.category()).isEqualTo(KnowledgeImporter.IMPORTED_CATEGORY);
+                assertThat(entry.revisions()).hasSize(1).allSatisfy(r -> {
+                    assertThat(r.state()).isEqualTo("draft");
+                    assertThat(r.question()).startsWith("Acme Help Centre");
+                    assertThat(r.language()).isEqualTo("en");
+                    assertThat(r.createdBy()).isEqualTo("root");
+                });
+            });
+            assertThat(entries.getFirst().entryId()).startsWith("url-").endsWith("-1");
+            assertThat(String.join(" ", entries.stream().map(e -> e.revisions().getFirst().answer()).toList()))
+                    .contains("30 days").contains("PayPal");
+            assertThat(search.search(new SearchQuery("importer", "how do I return an item", 3, 0)))
+                    .as("drafts are not live").isEmpty();
+
+            // The same page again is the same entries, not more of them.
+            KnowledgeImport again = await(admin.importUrl("importer", base + "/moved", "root"));
+            assertThat(again.state()).isEqualTo("done");
+            assertThat(admin.entries("importer")).hasSize(page.entries())
+                    .allSatisfy(e -> assertThat(e.revisions()).as("one draft, replaced").hasSize(1));
+            assertThat(admin.imports("importer")).hasSize(2);
+
+            KnowledgeImport notHtml = await(admin.importUrl("importer", base + "/image", "root"));
+            assertThat(notHtml.state()).isEqualTo("failed");
+            assertThat(notHtml.error()).contains("not an HTML page");
+
+            // A PDF, a page per paragraph.
+            byte[] pdf = TestPdf.of(List.of(
+                    "Warranty. Every lamp is covered for two years against defects in materials and workmanship.",
+                    "Repairs. Send the lamp back with the order number and we repair or replace it within ten working days."));
+            assertThatThrownBy(() -> admin.importPdf("importer", "notes.pdf", "hello".getBytes(), "root")).isInstanceOf(KnowledgeRuleException.class);
+            KnowledgeImport booklet = await(admin.importPdf("importer", "warranty.pdf", pdf, "root"));
+            assertThat(booklet.state()).as(booklet.error()).isEqualTo("done");
+            assertThat(booklet.entries()).isGreaterThanOrEqualTo(1);
+            List<KnowledgeEntry> fromPdf = admin.entries("importer").stream().filter(e -> "pdf".equals(e.sourceKind())).toList();
+            assertThat(fromPdf).hasSize(booklet.entries()).allSatisfy(e -> {
+                assertThat(e.source()).isEqualTo("warranty.pdf");
+                assertThat(e.revisions().getFirst().question()).startsWith("warranty");
+            });
+            assertThat(String.join(" ", fromPdf.stream().map(e -> e.revisions().getFirst().answer()).toList()))
+                    .contains("two years").contains("ten working days");
+
+            // Published, the imported text is what the tenant's customers retrieve.
+            KnowledgeVersion version = admin.publish("importer", "help centre and warranty", "root", null);
+            assertThat(version.state()).isEqualTo("active");
+            List<Passage> found = search.search(new SearchQuery("importer", "how long is the warranty on a lamp", 3, 0));
+            assertThat(found).isNotEmpty();
+            assertThat(found.getFirst().text()).contains("two years");
+            assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "how long is the warranty on a lamp", 3, 0)))
+                    .allSatisfy(p -> assertThat(p.text()).doesNotContain("two years"));
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    private KnowledgeImport await(KnowledgeImport started) throws InterruptedException {
+        for (int i = 0; i < 120; i++) {
+            KnowledgeImport current = admin.importOf(started.tenantId(), started.id()).orElseThrow();
+            if (current.finished()) {
+                return current;
+            }
+            Thread.sleep(250);
+        }
+        throw new AssertionError("import " + started.id() + " still running after 30 s");
     }
 }

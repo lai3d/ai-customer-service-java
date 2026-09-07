@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.admin;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
+import dev.merlionos.customerservice.rag.api.KnowledgeImport;
 import dev.merlionos.customerservice.rag.api.KnowledgeRevision;
 import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
@@ -27,6 +28,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
 
 import java.util.List;
 import java.util.Map;
@@ -175,6 +179,46 @@ class AdminKnowledgeController {
         KnowledgeVersion version = knowledge.rollback(id, request.version(), request.expectedActive(), auth.getName());
         audit.record(auth.getName(), AdminAudit.Action.ROLLED_BACK, version.version(), id + " from " + request.expectedActive());
         return version;
+    }
+
+    record UrlImport(String url) {
+    }
+
+    /**
+     * A tenant's own document into draft entries (ADR 002). Started, not finished, like a
+     * publication: the response is the import row in {@code running}, to poll at
+     * {@code /imports/{id}} until {@code done} (drafts written, count in {@code entries}) or
+     * {@code failed} (nothing written, the reason on the row). A URL the knowledge role may
+     * not read -- inside the deployment, or not http -- is refused here and now.
+     */
+    @PostMapping("/imports/url")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<KnowledgeImport> importUrl(@RequestParam(required = false) String tenant, @RequestBody UrlImport request,
+                                              Authentication auth) {
+        String id = tenantOf(tenant);
+        KnowledgeImport started = knowledge.importUrl(id, request.url(), auth.getName());
+        audit.record(auth.getName(), AdminAudit.Action.IMPORTED, id, "url " + started.source());
+        return ResponseEntity.accepted().body(started);
+    }
+
+    @PostMapping(path = "/imports/pdf", consumes = "multipart/form-data")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<KnowledgeImport> importPdf(@RequestParam(required = false) String tenant, @RequestParam("file") MultipartFile file,
+                                              Authentication auth) throws IOException {
+        String id = tenantOf(tenant);
+        KnowledgeImport started = knowledge.importPdf(id, file.getOriginalFilename(), file.getBytes(), auth.getName());
+        audit.record(auth.getName(), AdminAudit.Action.IMPORTED, id, "pdf " + started.source());
+        return ResponseEntity.accepted().body(started);
+    }
+
+    @GetMapping("/imports")
+    List<KnowledgeImport> imports(@RequestParam(required = false) String tenant) {
+        return knowledge.imports(tenantOf(tenant));
+    }
+
+    @GetMapping("/imports/{id}")
+    KnowledgeImport importOf(@PathVariable long id, @RequestParam(required = false) String tenant) {
+        return knowledge.importOf(tenantOf(tenant), id).orElseThrow(() -> new NotFound("No import " + id));
     }
 
     record Preview(String text, String version, Integer topK) {

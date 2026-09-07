@@ -29,12 +29,18 @@ public class KnowledgeRoleConfiguration {
 
     /** Editing and publishing, over the same store retrieval reads through. */
     @Bean
+    KnowledgeImporter knowledgeImporter(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager,
+                                        KnowledgeImportProperties properties, MeterRegistry meterRegistry) {
+        return new KnowledgeImporter(jdbcTemplate, transactionManager, properties, meterRegistry);
+    }
+
+    @Bean
     KnowledgeAdmin knowledgeAdmin(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager,
-                                  VectorStore vectorStore, MeterRegistry meterRegistry) {
+                                  VectorStore vectorStore, KnowledgeImporter importer, MeterRegistry meterRegistry) {
         if (!(vectorStore instanceof ActiveVersionVectorStore versioned)) {
             throw new IllegalStateException("The knowledge role's vector store should be wrapped for versions; got "
                     + vectorStore.getClass().getName());
         }
-        return new JdbcKnowledgeAdmin(jdbcTemplate, transactionManager, versioned, meterRegistry);
+        return new JdbcKnowledgeAdmin(jdbcTemplate, transactionManager, versioned, importer, meterRegistry);
     }
 }

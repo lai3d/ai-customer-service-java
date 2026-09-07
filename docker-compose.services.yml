@@ -199,6 +199,7 @@ services:
     environment:
       <<: *common-env
       APP_TARGET: knowledge
+      KNOWLEDGE_IMPORT_ALLOW_PRIVATE_NETWORKS:
       # Serving replicas never import; the importer above did. The role's own default is
       # `off`, spelled out here so the file says what happens.
       APP_RAG_IMPORT_MODE: "off"
@@ -250,6 +251,7 @@ services:
       ADMIN_SEED_USERNAME:
       ADMIN_SEED_PASSWORD:
       DEFAULT_TENANT_API_KEY:
+      KNOWLEDGE_IMPORT_ALLOW_PRIVATE_NETWORKS:
       ADMIN_SESSION_TIMEOUT:
       ADMIN_SESSION_MAX_LIFETIME:
       ADMIN_SESSION_LIMIT:
