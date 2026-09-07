@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { OrderConnectorSection } from '../components/OrderConnector';
 import { ErrorNote } from '../components/ui';
 
 // The one page every role has for its own account: changing the password. The current
@@ -26,6 +27,7 @@ export function Account() {
     } catch (err) { setError(err); } finally { setBusy(false); }
   };
   return (
+    <>
     <section>
       <h2>Account</h2>
       <p className="hint">Signed in as <span className="mono">{me!.username}</span> ({me!.role}{me!.tenant ? `, tenant ${me!.tenant.name}` : ', platform'}). A new password is at least 12 characters and must differ from the current one. Changing it signs out every other session of this account; this one stays.</p>
@@ -38,5 +40,7 @@ export function Account() {
       {status && <p className="note">{status}</p>}
       <ErrorNote error={error} />
     </section>
+    {me!.role === 'admin' && me!.tenant && <OrderConnectorSection tenantId={me!.tenant.id} />}
+    </>
   );
 }
