@@ -62,7 +62,7 @@ export interface KnowledgeVersion {
   version: string; state: 'building' | 'ready' | 'active' | 'failed' | 'retired'; documentCount: number | null;
   createdAt: string; createdBy: string; activatedAt: string | null; note: string | null; error: string | null;
 }
-export interface Versions { active: string | null; versions: KnowledgeVersion[] }
+export interface Versions { tenant: string; active: string | null; versions: KnowledgeVersion[] }
 export interface Passage { id: string; text: string; score: number | null; metadata: Record<string, unknown> }
 
 export class ApiError extends Error {
@@ -129,16 +129,17 @@ export const api = {
   handleFeedback: (id: number, state: 'handled' | 'dismissed', conclusion: string, expectedVersion: number, revisionId?: number) =>
     call<Feedback>('POST', `/feedback/${id}/handle`, { state, conclusion, expectedVersion, revisionId: revisionId ?? null }),
 
-  entries: () => call<KnowledgeEntry[]>('GET', '/knowledge/entries'),
-  createEntry: (id: string, category: string) => call<KnowledgeEntry>('POST', `/knowledge/entries/${encodeURIComponent(id)}`, { category }),
-  saveDraft: (id: string, language: string, question: string, answer: string, note: string) =>
-    call<KnowledgeRevision>('PUT', `/knowledge/entries/${encodeURIComponent(id)}/drafts/${encodeURIComponent(language)}`, { question, answer, note }),
-  discardDraft: (id: string, language: string) => call<void>('DELETE', `/knowledge/entries/${encodeURIComponent(id)}/drafts/${encodeURIComponent(language)}`),
-  retire: (id: string, retired: boolean) => call<KnowledgeEntry>('POST', `/knowledge/entries/${encodeURIComponent(id)}/retire`, { retired }),
-  versions: () => call<Versions>('GET', '/knowledge/versions'),
-  publish: (note: string, expectedActive: string | null) => call<{ started: boolean }>('POST', '/knowledge/publish', { note, expectedActive }),
-  rollback: (version: string, expectedActive: string | null) => call<KnowledgeVersion>('POST', '/knowledge/rollback', { version, expectedActive }),
-  preview: (text: string, version: string | null, topK = 5) => call<Passage[]>('POST', '/knowledge/preview', { text, version, topK }),
+  // Every knowledge call names the tenant whose knowledge it is about (ADR 002 step 3).
+  entries: (tenant: string) => call<KnowledgeEntry[]>('GET', `/knowledge/entries${query({ tenant })}`),
+  createEntry: (tenant: string, id: string, category: string) => call<KnowledgeEntry>('POST', `/knowledge/entries/${encodeURIComponent(id)}${query({ tenant })}`, { category }),
+  saveDraft: (tenant: string, id: string, language: string, question: string, answer: string, note: string) =>
+    call<KnowledgeRevision>('PUT', `/knowledge/entries/${encodeURIComponent(id)}/drafts/${encodeURIComponent(language)}${query({ tenant })}`, { question, answer, note }),
+  discardDraft: (tenant: string, id: string, language: string) => call<void>('DELETE', `/knowledge/entries/${encodeURIComponent(id)}/drafts/${encodeURIComponent(language)}${query({ tenant })}`),
+  retire: (tenant: string, id: string, retired: boolean) => call<KnowledgeEntry>('POST', `/knowledge/entries/${encodeURIComponent(id)}/retire${query({ tenant })}`, { retired }),
+  versions: (tenant: string) => call<Versions>('GET', `/knowledge/versions${query({ tenant })}`),
+  publish: (tenant: string, note: string, expectedActive: string | null) => call<{ started: boolean }>('POST', `/knowledge/publish${query({ tenant })}`, { note, expectedActive }),
+  rollback: (tenant: string, version: string, expectedActive: string | null) => call<KnowledgeVersion>('POST', `/knowledge/rollback${query({ tenant })}`, { version, expectedActive }),
+  preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
 
   staff: () => call<StaffAccount[]>('GET', '/staff'),
   createStaff: (username: string, password: string, role: Role) => call<StaffAccount>('POST', '/staff', { username, password, role }),

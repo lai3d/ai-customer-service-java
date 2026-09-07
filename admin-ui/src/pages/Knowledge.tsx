@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router';
+import { TenantPicker } from '../components/TenantPicker';
 import { api, type KnowledgeEntry, type KnowledgeRevision, type Passage, type Versions } from '../api';
 import { useAuth } from '../auth';
 import { Empty, ErrorNote, Pill } from '../components/ui';
 import { when } from '../format';
 
-function LanguageForm({ entry, language, draft, published, onSaved }: {
+function LanguageForm({ tenant, entry, language, draft, published, onSaved }: {
+  tenant: string;
   entry: KnowledgeEntry; language: string; draft: KnowledgeRevision | null; published: KnowledgeRevision | null; onSaved: () => void;
 }) {
   const current = draft ?? published;
@@ -14,7 +17,7 @@ function LanguageForm({ entry, language, draft, published, onSaved }: {
   const [error, setError] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { await api.saveDraft(entry.entryId, language, question, answer, note); setError(null); onSaved(); } catch (err) { setError(err); }
+    try { await api.saveDraft(tenant, entry.entryId, language, question, answer, note); setError(null); onSaved(); } catch (err) { setError(err); }
   };
   return (
     <form className="turn" onSubmit={submit}>
@@ -25,7 +28,7 @@ function LanguageForm({ entry, language, draft, published, onSaved }: {
       <label>Note <input value={note} onChange={e => setNote(e.target.value)} placeholder="why this change (optional)" size={40} /></label>
       <div className="row">
         <button className="primary">Save draft</button>
-        {draft && <button type="button" onClick={() => api.discardDraft(entry.entryId, language).then(onSaved, setError)}>Discard draft</button>}
+        {draft && <button type="button" onClick={() => api.discardDraft(tenant, entry.entryId, language).then(onSaved, setError)}>Discard draft</button>}
       </div>
       <ErrorNote error={error} />
     </form>
@@ -33,6 +36,9 @@ function LanguageForm({ entry, language, draft, published, onSaved }: {
 }
 
 export function KnowledgePage() {
+  const [params, setParams] = useSearchParams();
+  const tenant = params.get('tenant') || 'default';
+  const chooseTenant = (id: string) => { const p = new URLSearchParams(params); if (id === 'default') p.delete('tenant'); else p.set('tenant', id); setParams(p); setCurrent(null); setPreview(null); setStatus(''); };
   const { me } = useAuth();
   const admin = me!.role === 'admin';
   const [entries, setEntries] = useState<KnowledgeEntry[] | null>(null);
@@ -50,27 +56,27 @@ export function KnowledgePage() {
   const [previewVersion, setPreviewVersion] = useState('');
   const [preview, setPreview] = useState<Passage[] | null>(null);
 
-  const load = useCallback(() => Promise.all([api.entries(), api.versions()]).then(([e, v]) => { setEntries(e); setVersions(v); setError(null); }, setError), []);
+  const load = useCallback(() => Promise.all([api.entries(tenant), api.versions(tenant)]).then(([e, v]) => { setEntries(e); setVersions(v); setError(null); }, setError), [tenant]);
   useEffect(() => { void load(); }, [load]);
 
   const entry = entries?.find(e => e.entryId === current) ?? null;
   const languages = entry ? Array.from(new Set([...entry.revisions.map(r => r.language), ...extraLanguages])) : [];
 
   const create = async () => {
-    try { const e = await api.createEntry(newId.trim(), newCategory.trim()); setNewId(''); setNewCategory(''); setCurrent(e.entryId); setExtraLanguages([]); await load(); } catch (err) { setError(err); }
+    try { const e = await api.createEntry(tenant, newId.trim(), newCategory.trim()); setNewId(''); setNewCategory(''); setCurrent(e.entryId); setExtraLanguages([]); await load(); } catch (err) { setError(err); }
   };
   const retire = async () => {
     if (!entry) return;
-    try { await api.retire(entry.entryId, !entry.retired); await load(); } catch (err) { setError(err); }
+    try { await api.retire(tenant, entry.entryId, !entry.retired); await load(); } catch (err) { setError(err); }
   };
   const publish = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await api.publish(publishNote, versions?.active ?? null);
+      await api.publish(tenant, publishNote, versions?.active ?? null);
       setPublishing(false); setPublishNote(''); setStatus('Publishing… embedding the documents.');
       const started = Date.now();
       const poll = async () => {
-        const v = await api.versions();
+        const v = await api.versions(tenant);
         setVersions(v);
         if (v.versions.some(x => x.state === 'building') && Date.now() - started < 120000) { setTimeout(() => void poll(), 1500); return; }
         await load();
@@ -80,17 +86,18 @@ export function KnowledgePage() {
     } catch (err) { setError(err); if ((err as { status?: number }).status === 409) await load(); }
   };
   const activate = async (version: string) => {
-    try { await api.rollback(version, versions?.active ?? null); setStatus(`Activated ${version}.`); await load(); } catch (err) { setError(err); if ((err as { status?: number }).status === 409) await load(); }
+    try { await api.rollback(tenant, version, versions?.active ?? null); setStatus(`Activated ${version}.`); await load(); } catch (err) { setError(err); if ((err as { status?: number }).status === 409) await load(); }
   };
   const runPreview = async (e: FormEvent) => {
     e.preventDefault();
-    try { setPreview(await api.preview(previewText, previewVersion || null)); setError(null); } catch (err) { setError(err); }
+    try { setPreview(await api.preview(tenant, previewText, previewVersion || null)); setError(null); } catch (err) { setError(err); }
   };
 
   return (
     <>
       <section>
         <h2>Knowledge</h2>
+        <TenantPicker value={tenant} onChange={chooseTenant} />
         <p className="hint">{versions ? (versions.active ? `Active version: ${versions.active}. Drafts change nothing until published.` : 'No active version.') : ''}</p>
         <div className="row">
           <label>New entry id <input value={newId} onChange={e => setNewId(e.target.value)} placeholder="e.g. gift-wrap" /></label>
@@ -128,7 +135,7 @@ export function KnowledgePage() {
             {languages.map(language => {
               const draft = entry.revisions.find(r => r.language === language && r.state === 'draft') ?? null;
               const published = entry.revisions.find(r => r.language === language && r.state === 'published') ?? null;
-              return <LanguageForm key={`${entry.entryId}:${language}:${draft?.id ?? 0}:${published?.id ?? 0}`} entry={entry} language={language} draft={draft} published={published} onSaved={() => void load()} />;
+              return <LanguageForm tenant={tenant} key={`${entry.entryId}:${language}:${draft?.id ?? 0}:${published?.id ?? 0}`} entry={entry} language={language} draft={draft} published={published} onSaved={() => void load()} />;
             })}
             <div className="row">
               <label>Add a language <input value={newLanguage} onChange={e => setNewLanguage(e.target.value)} placeholder="en, zh, …" size={6} /></label>
