@@ -41,7 +41,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
   };
   const startEdit = () => { setKind(connector?.kind ?? 'shopify'); setDomain(connector?.shopDomain ?? ''); setBaseUrl(connector?.baseUrl ?? ''); setAdminPath(connector?.adminPath ?? ''); setVersion(connector?.apiVersion ?? ''); setToken(''); setEditing(true); setStatus(''); };
   return (
-    <section>
+    <section id="orders">
       <h3>Order system</h3>
       <p className="hint">Where the assistant looks up a customer's real orders. A <b>Shopify</b> store is read with a custom app's Admin API token that has only <span className="mono">read_orders</span>; an <b>Xboard</b> panel is read with the customer's own token, forwarded by the widget, so the tenant's token is optional. Without a connector, the assistant offers a ticket instead of guessing.</p>
       {connector === undefined && <p className="hint">Loading…</p>}
@@ -92,7 +92,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
       <ErrorNote error={error} />
       <details>
         <summary className="hint">How the store owner gets a token</summary>
-        <p className="hint">Xboard: the panel's origin is enough for a customer's own questions; the admin token and the admin path (the secret segment its admin API lives under) add tickets raised in the panel and its knowledge articles as an import source. Also: the widget on the panel's own pages forwards the signed-in customer's token (<span className="mono">data-customer-token</span> or <span className="mono">data-customer-token-key</span> on the script tag), so the assistant reads that customer's account and no one else's. Shopify:</p>
+        <p className="hint">Xboard: the panel's origin is enough for a customer's own questions; the admin token and the admin path (the secret segment its admin API lives under) add tickets raised in the panel, its knowledge articles as an import source, and the Telegram user's identity resolved through the panel. Also: the widget on the panel's own pages forwards the signed-in customer's token (<span className="mono">data-customer-token</span> or <span className="mono">data-customer-token-key</span> on the script tag), so the assistant reads that customer's account and no one else's. Shopify:</p>
         <ol className="hint">
           <li>In the store's admin: Settings → Apps and sales channels → Develop apps → Create an app.</li>
           <li>Configure Admin API scopes: <span className="mono">read_orders</span> (and <span className="mono">read_fulfillments</span> where it is separate). Nothing else; the connector only reads.</li>

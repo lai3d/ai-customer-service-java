@@ -38,7 +38,7 @@ export function TelegramSection({ tenantId }: { tenantId: string }) {
   };
   const startEdit = () => { setMode(view?.bot.mode ?? 'polling'); setToken(''); setEditing(true); setStatus(''); };
   return (
-    <section>
+    <section id="telegram">
       <h3>Telegram</h3>
       <p className="hint">One bot per tenant, from BotFather, answering on the same chat service as the widget. The token is checked against Telegram before it is stored and shown masked from then on. <b>Polling</b> suits a laptop or a single chat process; <b>webhooks</b> need the deployment's public address and suit replicas.</p>
       {view === undefined && <p className="hint">Loading…</p>}

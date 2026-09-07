@@ -79,3 +79,8 @@ details summary { cursor: pointer }
 form.login { width: min(360px, calc(100vw - 32px)); margin: 15vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px; display: flex; flex-direction: column; gap: 12px }
 form.login h1 { font-size: 16px; margin: 0 }
 tr.miss td:first-child, tr.miss td:nth-child(6) { color: var(--warn) }
+.checklist { list-style: none; padding: 0; margin: 8px 0 }
+.checklist li { padding: 3px 0 }
+.checklist .mark { display: inline-block; width: 1.4em; font-weight: 600 }
+.checklist li.done .mark { color: var(--accent) }
+.checklist li.todo .mark { color: var(--muted) }
