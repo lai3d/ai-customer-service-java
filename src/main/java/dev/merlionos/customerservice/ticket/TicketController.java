@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The ticket seam over HTTP, served only by a {@code ticket} process. The body of a request is
@@ -40,8 +41,17 @@ class TicketController {
     }
 
     @PostMapping("/tickets")
-    TicketResult create(@RequestBody TicketRequest request) {
-        return tickets.create(request);
+    ResponseEntity<?> create(@RequestBody TicketRequest request) {
+        // The three identities are the contract; without one the insert would fail on a
+        // NOT NULL and surface as a 500 that says nothing. Found by the Compose smoke script
+        // once tenantId joined the record.
+        for (var required : List.of(Map.entry("tenantId", request.tenantId()),
+                Map.entry("operationId", request.operationId()), Map.entry("conversationId", request.conversationId()))) {
+            if (required.getValue() == null || required.getValue().isBlank()) {
+                return ResponseEntity.badRequest().body(required.getKey() + " is required");
+            }
+        }
+        return ResponseEntity.ok(tickets.create(request));
     }
 
     @GetMapping("/ticket-operations/{operationId}")

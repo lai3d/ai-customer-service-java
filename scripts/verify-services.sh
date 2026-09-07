@@ -89,7 +89,7 @@ say "twelve concurrent ticket writes from outside the JVM"
 inside sh -c "for i in \$(seq 1 12); do
   curl -s -o /dev/null -X POST http://ticket:8080/internal/v1/tickets \
     -H 'Content-Type: application/json' -H 'Authorization: Bearer $INTERNAL_TOKEN' \
-    -d \"{\\\"operationId\\\":\\\"smoke-op-\$i\\\",\\\"conversationId\\\":\\\"smoke-conversation\\\",\\\"summary\\\":\\\"Distinct problem \$i\\\",\\\"category\\\":\\\"other\\\"}\" &
+    -d \"{\\\"tenantId\\\":\\\"default\\\",\\\"operationId\\\":\\\"smoke-op-\$i\\\",\\\"conversationId\\\":\\\"smoke-conversation\\\",\\\"summary\\\":\\\"Distinct problem \$i\\\",\\\"category\\\":\\\"other\\\"}\" &
 done; wait"
 tickets=$(sql "select count(*) from support_ticket where conversation_id='smoke-conversation'")
 operations=$(sql "select count(*) from ticket_operation where conversation_id='smoke-conversation'")
@@ -101,10 +101,10 @@ created_op=$(sql "select operation_id from ticket_operation where conversation_i
 refused_op=$(sql "select operation_id from ticket_operation where conversation_id='smoke-conversation' and status='REFUSED' limit 1")
 replay_created=$(inside curl -s -X POST http://ticket:8080/internal/v1/tickets \
     -H 'Content-Type: application/json' -H "Authorization: Bearer $INTERNAL_TOKEN" \
-    -d "{\"operationId\":\"$created_op\",\"conversationId\":\"smoke-conversation\",\"summary\":\"Distinct problem ${created_op##*-}\",\"category\":\"other\"}")
+    -d "{\"tenantId\":\"default\",\"operationId\":\"$created_op\",\"conversationId\":\"smoke-conversation\",\"summary\":\"Distinct problem ${created_op##*-}\",\"category\":\"other\"}")
 replay_refused=$(inside curl -s -X POST http://ticket:8080/internal/v1/tickets \
     -H 'Content-Type: application/json' -H "Authorization: Bearer $INTERNAL_TOKEN" \
-    -d "{\"operationId\":\"$refused_op\",\"conversationId\":\"smoke-conversation\",\"summary\":\"Distinct problem ${refused_op##*-}\",\"category\":\"other\"}")
+    -d "{\"tenantId\":\"default\",\"operationId\":\"$refused_op\",\"conversationId\":\"smoke-conversation\",\"summary\":\"Distinct problem ${refused_op##*-}\",\"category\":\"other\"}")
 contains "replaying a created operation answers CREATED from its record" "$replay_created" '"status":"CREATED"'
 contains "replaying a refused operation stays REFUSED"                    "$replay_refused" '"status":"REFUSED"'
 expect   "and the replays wrote nothing" "$(sql "select count(*) from support_ticket where conversation_id='smoke-conversation'")" 3
