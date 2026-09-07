@@ -129,6 +129,25 @@ articles, the next two steps. "Test" reads `guest/comm/config`, which needs no t
 answers with the panel's name. A tenant on Xboard asking about an order number is told the
 orders live in its panel.
 
+**Tickets go into the panel, as the customer.** When a tenant has a panel and the customer
+is signed in, `create_support_ticket` raises the ticket in the panel with the customer's own
+token (`user/ticket/save`, subject from the category and the summary, the conversation named
+in the message), so it sits under the customer's account and the panel's staff answer it
+where they answer everything else; the tool returns the panel's ticket number as
+`PANEL-<id>`. A visitor who is not signed in, or a panel that does not answer, gets a ticket
+of ours, so the request is never lost. Deflection counts either kind of ticket as an
+escalation: a panel ticket leaves no row in `support_ticket`, but the tool call that raised
+it is in `turn_tool_call`, and that is what the query now reads.
+
+**The panel's knowledge articles are an import source.** With the tenant's admin token and
+the panel's admin path (`/api/v2/<adminPath>/`, a secret segment each panel sets; both on
+the connector), `POST /admin/api/knowledge/imports/xboard` reads the article list and each
+shown article's body, and writes one draft entry per article, keyed by the article's id
+(`xboard-<hash of the panel>-<id>`), in the article's own language, HTML stripped; a long
+article is split like a page. Importing again replaces; an article the panel hid since is
+retired. The panel's Clash and Shadowrocket how-tos are what a reseller's customers ask
+about most, and this is how they reach the assistant without being retyped.
+
 The widget on the panel: Xboard's user front end keeps the Sanctum token in the browser
 after sign-in; the panel's theme or a plugin adds the script tag with
 `data-customer-token-key` naming that storage key. Until the tenant's staff have done that,
@@ -154,7 +173,8 @@ panel does not say which.
 - Writes: cancelling, changing an address. The tool reads; the ticket is how a change is asked for.
 - A third connector. Orders are one interface and one routing class; accounts likewise;
   Youzan or WooCommerce is a class next to `shopify/`.
-- Tickets into Xboard and its knowledge articles as an import source: the next two steps of
-  this connector, both with the tenant's admin token.
+- Replying to a panel ticket from here, or reading its replies: the panel's staff do that in
+  the panel.
+- The Telegram channel a reseller's customers mostly use.
 - Rate limiting against Shopify's bucket (2 calls/second on REST). One call per turn is far
   under it; a busy tenant would need a limiter per store.

@@ -33,7 +33,7 @@ class XboardAccountLookupTest {
     }
 
     private static OrderConnector connector() {
-        return new OrderConnector("cloud", OrderConnector.XBOARD, null, "https://panel.example.com", null, "v1", Instant.now(), "root");
+        return new OrderConnector("cloud", OrderConnector.XBOARD, null, "https://panel.example.com", null, "v1", null, Instant.now(), "root");
     }
 
     @Test

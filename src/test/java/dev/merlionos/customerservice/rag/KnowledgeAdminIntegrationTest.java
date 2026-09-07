@@ -407,6 +407,43 @@ class KnowledgeAdminIntegrationTest {
         }
     }
 
+    @Test
+    @Order(8)
+    @DisplayName("a panel's knowledge articles become draft entries, one per shown article, in the article's language, keyed by its id")
+    void panelArticlesBecomeDrafts() throws Exception {
+        tenants.create("cloud", "Northwind Cloud");
+        try (dev.merlionos.customerservice.orders.xboard.FakeXboard panel = new dev.merlionos.customerservice.orders.xboard.FakeXboard()) {
+            assertThatThrownBy(() -> admin.importXboard("cloud", panel.baseUrl(), "", "", "root")).isInstanceOf(KnowledgeRuleException.class);
+            KnowledgeImport wrongToken = await(admin.importXboard("cloud", panel.baseUrl(),
+                    dev.merlionos.customerservice.orders.xboard.FakeXboard.ADMIN_PATH, "9|wrong", "root"));
+            assertThat(wrongToken.state()).isEqualTo("failed");
+            assertThat(wrongToken.error()).contains("refused the admin token");
+
+            KnowledgeImport articles = await(admin.importXboard("cloud", panel.baseUrl(),
+                    dev.merlionos.customerservice.orders.xboard.FakeXboard.ADMIN_PATH,
+                    dev.merlionos.customerservice.orders.xboard.FakeXboard.ADMIN_TOKEN, "root"));
+            assertThat(articles.state()).as(articles.error()).isEqualTo("done");
+            assertThat(articles.entries()).as("two shown articles; the hidden one skipped").isEqualTo(2);
+            List<KnowledgeEntry> entries = admin.entries("cloud");
+            assertThat(entries).hasSize(2).allSatisfy(e -> {
+                assertThat(e.sourceKind()).isEqualTo("xboard");
+                assertThat(e.source()).isEqualTo(panel.baseUrl());
+            });
+            assertThat(entries).extracting(KnowledgeEntry::entryId).allMatch(id -> id.matches("xboard-[0-9a-f]{8}-(7|8)"));
+            KnowledgeEntry clash = entries.stream().filter(e -> e.entryId().endsWith("-7")).findFirst().orElseThrow();
+            assertThat(clash.revisions().getFirst().question()).isEqualTo("How to configure Clash");
+            assertThat(clash.revisions().getFirst().answer()).contains("Clash Verge").doesNotContain("<p>");
+            assertThat(clash.revisions().getFirst().language()).isEqualTo("en");
+            KnowledgeEntry rocket = entries.stream().filter(e -> e.entryId().endsWith("-8")).findFirst().orElseThrow();
+            assertThat(rocket.revisions().getFirst().language()).isEqualTo("zh");
+
+            // Again: the same two entries, replaced, not four.
+            assertThat(await(admin.importXboard("cloud", panel.baseUrl(), dev.merlionos.customerservice.orders.xboard.FakeXboard.ADMIN_PATH,
+                    dev.merlionos.customerservice.orders.xboard.FakeXboard.ADMIN_TOKEN, "root")).entries()).isEqualTo(2);
+            assertThat(admin.entries("cloud")).hasSize(2).allSatisfy(e -> assertThat(e.revisions()).hasSize(1));
+        }
+    }
+
     private KnowledgeImport await(KnowledgeImport started) throws InterruptedException {
         for (int i = 0; i < 120; i++) {
             KnowledgeImport current = admin.importOf(started.tenantId(), started.id()).orElseThrow();

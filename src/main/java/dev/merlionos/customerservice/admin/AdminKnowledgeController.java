@@ -2,6 +2,8 @@ package dev.merlionos.customerservice.admin;
 
 import dev.merlionos.customerservice.rag.api.EntryFilter;
 import dev.merlionos.customerservice.rag.api.EntryPage;
+import dev.merlionos.customerservice.orders.OrderConnector;
+import dev.merlionos.customerservice.orders.OrderConnectors;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
@@ -62,12 +64,14 @@ class AdminKnowledgeController {
     private final AdminAudit audit;
 
     private final Tenants tenants;
+    private final OrderConnectors connectors;
 
-    AdminKnowledgeController(KnowledgeAdmin knowledge, RagProperties rag, AdminAudit audit, Tenants tenants) {
+    AdminKnowledgeController(KnowledgeAdmin knowledge, RagProperties rag, AdminAudit audit, Tenants tenants, OrderConnectors connectors) {
         this.knowledge = knowledge;
         this.rag = rag;
         this.audit = audit;
         this.tenants = tenants;
+        this.connectors = connectors;
     }
 
     /** The tenant a request is about; an unknown one is a 404 before anything is read or written. */
@@ -214,6 +218,24 @@ class AdminKnowledgeController {
         String id = tenantOf(tenant);
         KnowledgeImport started = knowledge.importPdf(id, file.getOriginalFilename(), file.getBytes(), auth.getName());
         audit.record(auth.getName(), AdminAudit.Action.IMPORTED, id, "pdf " + started.source());
+        return ResponseEntity.accepted().body(started);
+    }
+
+    /**
+     * The tenant's panel's knowledge articles, with the admin token and path stored on its
+     * connector; the panel's URL was checked public when the connector was configured.
+     */
+    @PostMapping("/imports/xboard")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<KnowledgeImport> importXboard(@RequestParam(required = false) String tenant, Authentication auth) {
+        String id = tenantOf(tenant);
+        OrderConnector panel = connectors.of(id).filter(c -> OrderConnector.XBOARD.equals(c.kind()))
+                .orElseThrow(() -> new KnowledgeRuleException("this tenant has no Xboard panel connected"));
+        if (panel.accessToken() == null || panel.adminPath() == null) {
+            throw new KnowledgeRuleException("the panel connector needs an admin token and the admin path to read its knowledge articles");
+        }
+        KnowledgeImport started = knowledge.importXboard(id, panel.baseUrl(), panel.adminPath(), panel.accessToken(), auth.getName());
+        audit.record(auth.getName(), AdminAudit.Action.IMPORTED, id, "xboard " + started.source());
         return ResponseEntity.accepted().body(started);
     }
 

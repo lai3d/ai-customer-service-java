@@ -30,6 +30,41 @@ class SupportTicketToolsTest {
     private final TurnEventBus turnEventBus = new TurnEventBus();
     private final SupportTicketTools tools = new SupportTicketTools(operations, meterRegistry, turnEventBus);
 
+    @Test
+    @DisplayName("a tenant with a panel gets the ticket there when the customer is signed in; ours when not, or when the panel is down")
+    void panelRouting() {
+        dev.merlionos.customerservice.orders.PanelTickets panels = org.mockito.Mockito.mock(dev.merlionos.customerservice.orders.PanelTickets.class);
+        dev.merlionos.customerservice.orders.OrderConnector panel = new dev.merlionos.customerservice.orders.OrderConnector("cloud",
+                "xboard", null, "https://panel.example.com", null, "v1", null, java.time.Instant.now(), "root");
+        org.mockito.BDDMockito.given(panels.panelFor("cloud", "tok")).willReturn(java.util.Optional.of(panel));
+        org.mockito.BDDMockito.given(panels.panelFor("cloud", null)).willReturn(java.util.Optional.empty());
+        org.mockito.BDDMockito.given(panels.create(org.mockito.ArgumentMatchers.eq(panel), org.mockito.ArgumentMatchers.eq("tok"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .willReturn(TicketResult.created(new dev.merlionos.customerservice.ticket.api.SupportTicket("PANEL-7", "c", "other", "s", null, java.time.Instant.now(), false)))
+                .willReturn(TicketResult.unavailable());
+        SupportTicketTools routed = new SupportTicketTools(operations, panels, meterRegistry, turnEventBus);
+        java.util.function.Function<String, ToolContext> context = token -> {
+            java.util.Map<String, Object> c = new java.util.HashMap<>(Map.of(SupportTicketTools.TENANT_ID_KEY, "cloud",
+                    SupportTicketTools.CONVERSATION_ID_KEY, "conversation-9", TurnEventBus.TURN_ID_KEY, "turn-9"));
+            if (token != null) {
+                c.put(AccountTools.CUSTOMER_TOKEN_KEY, token);
+            }
+            return new ToolContext(c);
+        };
+
+        TicketResult inPanel = routed.createSupportTicket("Cannot connect", "other", null, context.apply("tok"));
+        assertThat(inPanel.ticket().ticketNumber()).isEqualTo("PANEL-7");
+        assertThat(operations.ticketsFor("conversation-9")).as("nothing of ours").isEmpty();
+
+        TicketResult fallback = routed.createSupportTicket("Cannot connect", "other", null, context.apply("tok"));
+        assertThat(fallback.created()).as("the panel was down the second time; ours instead").isTrue();
+        assertThat(fallback.ticket().ticketNumber()).startsWith("TKT-");
+        assertThat(operations.ticketsFor("conversation-9")).hasSize(1);
+
+        TicketResult anonymous = routed.createSupportTicket("Another thing", "other", null, context.apply(null));
+        assertThat(anonymous.ticket().ticketNumber()).startsWith("TKT-");
+    }
+
     private static ToolContext context(String conversationId) {
         return new ToolContext(Map.of(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT,
                 SupportTicketTools.CONVERSATION_ID_KEY, conversationId,

@@ -6,13 +6,18 @@ package dev.merlionos.customerservice.rag.api;
  * reason every other command on the seam is: the bearer token authenticates the calling
  * process, which checked the role.
  */
-public record ImportRequest(String actor, String url, String fileName, byte[] content) {
+public record ImportRequest(String actor, String url, String fileName, byte[] content, String baseUrl, String adminPath, String adminToken) {
 
     public static ImportRequest url(String actor, String url) {
-        return new ImportRequest(actor, url, null, null);
+        return new ImportRequest(actor, url, null, null, null, null, null);
     }
 
     public static ImportRequest pdf(String actor, String fileName, byte[] content) {
-        return new ImportRequest(actor, null, fileName, content);
+        return new ImportRequest(actor, null, fileName, content, null, null, null);
+    }
+
+    /** An Xboard panel's knowledge articles, read with the tenant's admin token under its admin path. */
+    public static ImportRequest xboard(String actor, String baseUrl, String adminPath, String adminToken) {
+        return new ImportRequest(actor, null, null, null, baseUrl, adminPath, adminToken);
     }
 }

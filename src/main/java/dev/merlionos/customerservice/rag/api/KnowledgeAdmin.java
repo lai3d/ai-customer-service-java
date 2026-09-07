@@ -72,6 +72,9 @@ public interface KnowledgeAdmin {
     /** Starts parsing a PDF into draft entries; returns the running import to poll. */
     KnowledgeImport importPdf(String tenantId, String fileName, byte[] content, String actor);
 
+    /** Starts reading an Xboard panel's knowledge articles into draft entries, one per article. */
+    KnowledgeImport importXboard(String tenantId, String baseUrl, String adminPath, String adminToken, String actor);
+
     List<KnowledgeImport> imports(String tenantId);
 
     Optional<KnowledgeImport> importOf(String tenantId, long id);

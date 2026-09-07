@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.tools;
 
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
+import dev.merlionos.customerservice.orders.PanelTickets;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
 import dev.merlionos.customerservice.ticket.api.TicketRequest;
 import dev.merlionos.customerservice.ticket.api.TicketResult;
@@ -39,7 +40,15 @@ public class SupportTicketTools {
     private final MeterRegistry meterRegistry;
     private final TurnEventBus turnEventBus;
 
+    private final PanelTickets panels;
+
     SupportTicketTools(TicketOperations tickets, MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
+        this(tickets, null, meterRegistry, turnEventBus);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    SupportTicketTools(TicketOperations tickets, PanelTickets panels, MeterRegistry meterRegistry, TurnEventBus turnEventBus) {
+        this.panels = panels;
         this.tickets = tickets;
         this.meterRegistry = meterRegistry;
         this.turnEventBus = turnEventBus;
@@ -77,8 +86,18 @@ public class SupportTicketTools {
         // One id per invocation, generated here and not by the model: it is what lets a retry
         // over the seam be recognised as the same write, and a model could reuse or invent one.
         String operationId = UUID.randomUUID().toString();
-        TicketResult result = tickets.create(
-                new TicketRequest(tenantId, operationId, conversationId, summary, category, orderNumber));
+        // A tenant whose customers live in a panel gets the ticket there, under the customer's
+        // own account, when the customer is signed in; a panel that does not answer, or a
+        // visitor who is not signed in, gets a ticket of ours, so the request is never lost.
+        Object token = toolContext.getContext().get(AccountTools.CUSTOMER_TOKEN_KEY);
+        String customerToken = token == null ? null : String.valueOf(token);
+        TicketResult result = panels == null ? null : panels.panelFor(tenantId, customerToken)
+                .map(panel -> panels.create(panel, customerToken, conversationId, summary, category, orderNumber))
+                .filter(r -> r.status() != TicketResult.Status.UNAVAILABLE)
+                .orElse(null);
+        if (result == null) {
+            result = tickets.create(new TicketRequest(tenantId, operationId, conversationId, summary, category, orderNumber));
+        }
         report(toolContext, outcomeOf(result));
         return result;
     }

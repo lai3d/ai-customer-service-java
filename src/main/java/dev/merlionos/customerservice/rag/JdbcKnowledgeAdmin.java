@@ -373,6 +373,11 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
+    public KnowledgeImport importXboard(String tenantId, String baseUrl, String adminPath, String adminToken, String actor) {
+        return importer.importXboard(tenantId, baseUrl, adminPath, adminToken, actor);
+    }
+
+    @Override
     public List<KnowledgeImport> imports(String tenantId) {
         return importer.imports(tenantId);
     }
