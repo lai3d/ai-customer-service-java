@@ -461,6 +461,24 @@ tests, which serve their pages locally; never facing tenants. Known limit: the a
 resolved by the guard and again by the client, so DNS rebinding between the two is not caught.
 Every part of ADR 002 is built; the record of what departed from its text is in its status line.
 
+### Evaluation and deflection
+
+`evaluation/` (chat side, `docs/evaluation.md`) holds a golden set per tenant (`golden_case`),
+runs it through the real chat path one fresh conversation per case (`Evaluator`, off the
+request thread, polled like a publication), and scores each answer by rule (`Scoring`:
+phrases that must, may and must not appear, entries retrieval must find, a tool that must
+run, a refusal). **The rubric checks facts, not prose**, and every failure has to be read
+before it is believed: the first live run's two failures were a rubric fault (an en dash)
+and an empty answer the model gave once and not again. Evaluation conversations are
+`conversation.kind = 'evaluation'` and count nowhere as customers. The latest run's ratios
+and the deflection rate (`QualityMetrics`, sampled every minute over seven days: customer
+conversations without a ticket, over all with a turn) are gauges per tenant on the Quality
+row of the dashboard; `DashboardMetricsTest` covers them, so a new gauge on a dashboard must
+be registered for the default tenant at startup. The bundled set runs live with
+`./mvnw test -Dexcluded.test.groups= -Dtest=GoldenSetEvaluation` and the provider's key as
+`SPRING_AI_ANTHROPIC_API_KEY` (the test profile pins a placeholder `spring.ai.anthropic.api-key`,
+which the plain `ANTHROPIC_API_KEY` cannot override); it costs about 100,000 tokens.
+
 ## Scope
 
 Customer authentication is the tenant API key above and nothing more; the bearer token on

@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.config;
 
 import dev.merlionos.customerservice.admin.AdminSecurityConfiguration;
 import dev.merlionos.customerservice.chat.ChatService;
+import dev.merlionos.customerservice.evaluation.Evaluator;
 import dev.merlionos.customerservice.clients.ServicesProperties;
 import dev.merlionos.customerservice.cost.ConversationBudget;
 import dev.merlionos.customerservice.orders.OrderLookup;
@@ -29,6 +30,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ComponentScan(basePackageClasses = {
         AdminSecurityConfiguration.class, // admin: the operations admin and its staff login
         ChatService.class,          // chat
+        Evaluator.class,            // evaluation: the golden set, its runs, and the quality gauges
         ServicesProperties.class,   // clients: the HTTP adapters, present only when exactly chat
         ChatRoleConfiguration.class, // config
         ConversationBudget.class,   // cost
