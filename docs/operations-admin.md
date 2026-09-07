@@ -1,13 +1,69 @@
 # Operations admin
 
-Status: built and merged, in four rounds. The first slice -- staff login and the ticket loop
--- landed as PRs #22, #24 and #26 on 2026-09-05; the rest of the proposal's first release --
-the turn record, conversations, answer feedback, knowledge editing and publication, and the
-overview -- as PRs #28, #30, #31, #33, #34 and #35 on 2026-09-06, with #32 fixing the test
-infrastructure in between; and the front end as a separate deployable in the third. This
-document is in four parts: the record of each round, and then the proposal as reviewed in
-PR #16, kept as written, because the departures only mean something against the text they
-depart from.
+## Current state (2026-09-07)
+
+Built and merged, in four rounds, PRs #22 to #78, every piece working in both topologies.
+This section is the short version for someone arriving now; the record of each round (the
+fourth sits before the third in this file, since the third is about the front end alone) and
+then the proposal as reviewed in PR #16, kept as written because the departures only mean
+something against the text they depart from, follow it.
+
+**What it is.** A staff-only admin for one deployment serving many tenants
+([ADR 002](adr/002-tenancy.md)). The service exposes it as JSON under `/admin/api/**`, behind
+Spring Security with bcrypt staff accounts, sessions in Postgres and a CSRF cookie, in the
+chat role of either topology; what a `chat` process cannot do locally it does over the
+internal seams. The front end is [`admin-ui/`](../admin-ui/README.md), a separate deployable
+(Vite, React, TypeScript) on its own nginx image on 8084 that serves the bundle and proxies
+the API, so the browser sees one origin and the app serves nothing under `/admin`.
+
+**Who.** Two roles, `admin` and `support`, and two kinds of staff: platform staff (tenant
+null, admins by the schema) see every tenant and narrow with a picker; a tenant's own staff
+are scoped to their tenant by the session, never by a parameter, and a row outside it is a
+`404`. The first admin is seeded from `ADMIN_SEED_USERNAME` / `ADMIN_SEED_PASSWORD` into an
+empty table; admins create the rest and disable, re-role and reset them (never their own
+access, never the last enabled admin of a scope); anyone changes their own password with the
+current one. A session ends after 30 minutes idle or 12 hours from sign-in, and an account
+holds three at once, the least recently used ended by the fourth.
+
+**The pages**, and where each is recorded below:
+
+| Page | What it does | Record |
+| --- | --- | --- |
+| Overview | turns by outcome, tokens, tickets with minutes to claim and to resolve, flags, the knowledge base, what staff did; every number with its definition; a window and, for platform staff, a tenant or all | round 2 (#35); per tenant, round 4 (#56) |
+| Tickets | the queue and a ticket with its history: claim, assign, release, resolve with a conclusion, close, reopen, note; the conversation behind it; every change versioned, a stale page a `409` | round 1 (#24, #26) |
+| Conversations | the turn record: question and answer, the retrieval rows with the knowledge version each passage was found in, tool calls, cost, trace id, how the turn ended; opening one is recorded; an evaluation's rehearsals hidden unless asked for | round 2 (#28, #30); round 4 (#43, #62) |
+| Feedback | a flag on a turn, handled with a conclusion that may name the revision that fixed it, or dismissed | round 2 (#31) |
+| Knowledge | per tenant: entries with per-language revisions, drafts for everyone, retire, publish and rollback for admins, publication as a job on the version row, a preview against any retained version, imports from a URL, a PDF or the tenant's Xboard panel, the entries filtered and paged on the server | round 2 (#33, #34); round 4 (#54, #60) |
+| Evaluation | the golden set and its runs, each case's checks and answer, the deflection rate over a window | round 4 (#64) |
+| Report | the pilot report for one tenant and one window: deflection, escalations, flags, the latest run, tokens and spend priced per model, cost per conversation; copy as text | round 4 (#75) |
+| Staff | the accounts of a scope: create with a role and, for platform staff, a tenant; disable, re-role, reset a password | round 1 (#22); round 4 (#42, #56) |
+| Tenants | platform staff only: tenants, enabled or not; API keys, secret or widget with its origins, shown once; the going-live checklist read from what exists; the order connector (Shopify or Xboard); the Telegram bot | round 4 (#52, #66, #73, #77) |
+| Account | your own password; for a tenant's admin, its connector and bot as well | round 4 (#45, #66, #73) |
+
+**What is kept, and for how long.** A ticket's history is `ticket_event`, append-only.
+`admin_audit` holds what did not change a ticket: a conversation opened, an action refused
+by rule or by role, an account changed, a publication or rollback, a key issued or revoked.
+Conversation records and chat memory are deleted after `CONVERSATION_RETENTION` (90 days);
+tickets, events and audit rows stay. A publication keeps the newest three versions.
+
+**Tests.** The Maven suite covers the API in both topologies (`AdminLoginTest`,
+`AdminTenantScopeTest`, `TopologyParityTest`, the per-page `Admin*ApiTest` classes,
+`StaffAccountsTest` racing two admins); `npm test` in `admin-ui/` covers the client, the
+formatting and the Markdown subset, and greps for string-to-markup sinks; the browser walk
+(`admin-ui/e2e/`, `scripts/verify-admin-ui.sh`) drives the built UI image against the built
+application image in Chromium, in its own workflow on pull requests that touch what it walks.
+
+**Operating it.** `docker compose up -d` brings the UI up on `http://localhost:8084` beside
+the app; the split stack and the Kubernetes manifests do the same against the chat role. The
+environment that matters: `ADMIN_SEED_USERNAME` / `ADMIN_SEED_PASSWORD` (once),
+`ADMIN_SESSION_TIMEOUT` / `_MAX_LIFETIME` / `_LIMIT`, `CONVERSATION_RETENTION`,
+`DEFAULT_TENANT_API_KEY` (the default tenant's first key, once), `ORDER_CONNECTOR_KEY` (seals
+connector and bot tokens), `ADMIN_UI_PORT` and, for the UI image, `ADMIN_API_UPSTREAM`.
+
+**What is open.** Nothing from the rounds' own lists. What the proposal asked for and was
+built differently or not at all is in each round's departure table, with the reason: local
+accounts rather than an identity provider, two roles rather than three, no live takeover,
+retrieval evidence recorded from the turn record onward and not before it.
 
 ## The record (2026-09-05)
 
