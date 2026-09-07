@@ -161,6 +161,12 @@ public class AdminSecurityConfiguration {
     }
 
     @Bean
+    PilotReport pilotReport(JdbcTemplate jdbcTemplate, dev.merlionos.customerservice.cost.CostProperties cost,
+                            dev.merlionos.customerservice.evaluation.Evaluations evaluations) {
+        return new PilotReport(jdbcTemplate, cost, evaluations);
+    }
+
+    @Bean
     AnswerFeedback answerFeedback(JdbcTemplate jdbcTemplate, PlatformTransactionManager transactionManager) {
         return new AnswerFeedback(jdbcTemplate, transactionManager);
     }
