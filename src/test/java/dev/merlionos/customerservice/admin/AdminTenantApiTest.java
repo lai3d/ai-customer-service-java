@@ -102,6 +102,27 @@ class AdminTenantApiTest {
     }
 
     @Test
+    @DisplayName("an admin issues a widget key bound to origins; a widget key without origins, or a bad one, is refused")
+    void widgetKeys() throws Exception {
+        AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
+        String id = "shop-" + UUID.randomUUID().toString().substring(0, 6);
+        root.postJson("/admin/api/tenants", "{\"id\":\"" + id + "\",\"name\":\"Shop\"}");
+
+        HttpResponse<String> issued = root.postJson("/admin/api/tenants/" + id + "/keys",
+                "{\"label\":\"site\",\"kind\":\"widget\",\"origins\":[\"https://shop.example.com\",\"http://localhost:5173\"]}");
+        assertThat(issued.statusCode()).as(issued.body()).isEqualTo(201);
+        assertThat(issued.body()).contains("\"kind\":\"widget\"", "\"origins\":[\"https://shop.example.com\",\"http://localhost:5173\"]");
+        assertThat(root.get("/admin/api/tenants/" + id).body()).contains("\"kind\":\"widget\"", "https://shop.example.com");
+
+        assertThat(root.postJson("/admin/api/tenants/" + id + "/keys", "{\"kind\":\"widget\"}").statusCode()).isEqualTo(422);
+        assertThat(root.postJson("/admin/api/tenants/" + id + "/keys", "{\"kind\":\"widget\",\"origins\":[\"shop.example.com/help\"]}").statusCode()).isEqualTo(422);
+        assertThat(root.postJson("/admin/api/tenants/" + id + "/keys", "{\"kind\":\"secret\",\"origins\":[\"https://shop.example.com\"]}").statusCode())
+                .as("origins belong to widget keys").isEqualTo(422);
+        assertThat(root.postJson("/admin/api/tenants/" + id + "/keys", "{\"kind\":\"other\"}").statusCode()).isEqualTo(422);
+        assertThat(root.postJson("/admin/api/tenants/" + id + "/keys", "{}").body()).as("the default kind is a secret key").contains("\"kind\":\"secret\"");
+    }
+
+    @Test
     @DisplayName("disabling a tenant closes every key at once; the default tenant cannot be disabled")
     void disabling() throws Exception {
         AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);

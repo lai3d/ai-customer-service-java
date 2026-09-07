@@ -113,6 +113,10 @@ say "a turn crosses the seam before it reaches the provider"
 anonymous=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' \
          -d '{"message":"How long do I have to return an item?"}')
 [[ $anonymous == 401 ]] && ok "without a tenant API key a turn is 401" || bad "an anonymous turn returned $anonymous, want 401"
+widget=$(status "localhost:${APP_PORT:-8080}/widget.js")
+[[ $widget == 200 ]] && ok "the chat widget is served" || bad "/widget.js returned $widget, want 200"
+preflight=$(status -X OPTIONS -H 'Origin: https://shop.example.com' -H 'Access-Control-Request-Method: POST' "localhost:${APP_PORT:-8080}/api/v1/chat/stream")
+[[ $preflight == 204 ]] && ok "a CORS preflight is 204" || bad "a preflight returned $preflight, want 204"
 turn=$(status localhost:${APP_PORT:-8080}/api/v1/chat -H 'Content-Type: application/json' -H "$BEARER" \
          -d '{"message":"How long do I have to return an item?"}')
 if [[ $ANTHROPIC_API_KEY == placeholder* ]]; then

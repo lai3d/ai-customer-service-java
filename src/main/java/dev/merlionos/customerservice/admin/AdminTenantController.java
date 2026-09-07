@@ -100,11 +100,15 @@ class AdminTenantController {
         return tenants.find(tenantId).orElseThrow();
     }
 
-    record NewKey(String label) {
+    /**
+     * @param kind    {@code secret} (the default) for a server, {@code widget} for a browser
+     * @param origins for a widget key, the origins it may be used from, {@code scheme://host[:port]}
+     */
+    record NewKey(String label, String kind, List<String> origins) {
     }
 
     /** The one response that carries a key. */
-    record IssuedKey(String keyId, String key, String label) {
+    record IssuedKey(String keyId, String key, String label, String kind, List<String> origins) {
     }
 
     @PostMapping("/{tenantId}/keys")
@@ -113,10 +117,20 @@ class AdminTenantController {
         tenants.find(tenantId).orElseThrow(() -> new NotFound(tenantId));
         String label = request == null || request.label() == null || request.label().isBlank()
                 ? "issued by " + authentication.getName() : request.label().strip();
-        String key = keys.issue(tenantId, label);
+        String kind = request == null || request.kind() == null || request.kind().isBlank()
+                ? TenantApiKeys.SECRET : request.kind().strip().toLowerCase(java.util.Locale.ROOT);
+        if (!kind.equals(TenantApiKeys.SECRET) && !kind.equals(TenantApiKeys.WIDGET)) {
+            throw new IllegalArgumentException("kind is secret or widget");
+        }
+        List<String> origins = kind.equals(TenantApiKeys.WIDGET) ? TenantApiKeys.checkOrigins(request.origins()) : List.of();
+        if (kind.equals(TenantApiKeys.SECRET) && request != null && request.origins() != null && !request.origins().isEmpty()) {
+            throw new IllegalArgumentException("origins belong to a widget key; a secret key is for a server");
+        }
+        String key = kind.equals(TenantApiKeys.WIDGET) ? keys.issueWidget(tenantId, label, origins) : keys.issue(tenantId, label);
         String keyId = TenantApiKeys.keyId(key);
-        audit.record(authentication.getName(), AdminAudit.Action.KEY_ISSUED, tenantId, keyId + " " + label);
-        return ResponseEntity.status(HttpStatus.CREATED).body(new IssuedKey(keyId, key, label));
+        audit.record(authentication.getName(), AdminAudit.Action.KEY_ISSUED, tenantId,
+                keyId + " " + kind + " " + label + (origins.isEmpty() ? "" : " " + String.join(",", origins)));
+        return ResponseEntity.status(HttpStatus.CREATED).body(new IssuedKey(keyId, key, label, kind, origins));
     }
 
     @PostMapping("/{tenantId}/keys/{keyId}/revoke")

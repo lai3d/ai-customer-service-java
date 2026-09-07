@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind Lamps — a shop page with the chat widget</title>
+<style>
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #1f2937; background: #fafaf9; }
+  header { padding: 18px 32px; background: #fff; border-bottom: 1px solid #e7e5e4; display: flex; gap: 24px; align-items: baseline; }
+  header b { font-size: 20px; }
+  header span { color: #78716c; }
+  main { max-width: 960px; margin: 32px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .card { background: #fff; border: 1px solid #e7e5e4; border-radius: 12px; padding: 16px; }
+  .card .img { height: 140px; border-radius: 8px; background: linear-gradient(135deg, #fde68a, #f59e0b); margin-bottom: 12px; }
+  .card:nth-child(2) .img { background: linear-gradient(135deg, #bfdbfe, #3b82f6); }
+  .card:nth-child(3) .img { background: linear-gradient(135deg, #bbf7d0, #22c55e); }
+  .price { color: #78716c; }
+  .note { grid-column: 1 / -1; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 12px; padding: 14px 16px; font-size: 14px; }
+  code { background: #f5f5f4; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header><b>Northwind Lamps</b><span>Free shipping over $50 · 30-day returns</span></header>
+<main>
+  <div class="card"><div class="img"></div><b>Desk lamp, brass</b><div class="price">$89</div></div>
+  <div class="card"><div class="img"></div><b>Reading lamp, blue</b><div class="price">$64</div></div>
+  <div class="card"><div class="img"></div><b>Floor lamp, oak</b><div class="price">$149</div></div>
+  <div class="note" id="note">
+    This is a stand-in for a customer's own web page; the only thing of ours on it is the chat bubble, added by
+    <code>&lt;script src="/widget.js" data-key="cs_…"&gt;</code>. Open this page with <code>?key=&lt;a widget key for this origin&gt;</code>
+    to see it work; see <code>docs/widget.md</code>.
+  </div>
+</main>
+<script>
+  // The demo page reads the key from the URL because it is our page, not a tenant's; on a
+  // tenant's page the key is written into the script tag once.
+  var key = new URLSearchParams(location.search).get("key");
+  if (key) {
+    var s = document.createElement("script");
+    s.src = "/widget.js";
+    s.dataset.key = key;
+    if (new URLSearchParams(location.search).get("lang")) s.dataset.lang = new URLSearchParams(location.search).get("lang");
+    s.async = true;
+    document.body.appendChild(s);
+    document.getElementById("note").textContent = "The bubble at the bottom right is the widget, talking to this server with a widget key bound to this origin.";
+  }
+</script>
+</body>
+</html>
