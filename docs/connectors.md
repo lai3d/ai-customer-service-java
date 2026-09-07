@@ -144,7 +144,9 @@ the panel's admin path (`/api/v2/<adminPath>/`, a secret segment each panel sets
 the connector), `POST /admin/api/knowledge/imports/xboard` reads the article list and each
 shown article's body, and writes one draft entry per article, keyed by the article's id
 (`xboard-<hash of the panel>-<id>`), in the article's own language, HTML stripped; a long
-article is split like a page. Importing again replaces; an article the panel hid since is
+article is split like a page. The panel's URL was checked public when the connector was
+configured (under `CONNECTOR_ALLOW_PRIVATE_NETWORKS`); the import does not check it again,
+which is what lets a laptop run the whole thing against `scripts/fake-xboard.py`. Importing again replaces; an article the panel hid since is
 retired. The panel's Clash and Shadowrocket how-tos are what a reseller's customers ask
 about most, and this is how they reach the assistant without being retyped.
 

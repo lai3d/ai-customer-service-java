@@ -210,7 +210,21 @@ public class KnowledgeImporter {
     // --- a panel's knowledge articles -------------------------------------------------------
 
     public KnowledgeImport importXboard(String tenantId, String baseUrl, String adminPath, String adminToken, String actor) {
-        URI base = checked(baseUrl);
+        // Not re-checked here: the panel URL was checked public when the connector was
+        // configured, under the connector's own private-networks switch, and over the seam
+        // it comes from that configuration and not from a person. A second guard under the
+        // knowledge role's switch refused a laptop's stand-in panel while the connector
+        // accepted it. URL and PDF imports keep their guard: their URL is typed by an admin.
+        URI base;
+        try {
+            base = URI.create(baseUrl == null ? "" : baseUrl.strip());
+        }
+        catch (IllegalArgumentException e) {
+            throw new KnowledgeRuleException("not a panel URL: " + baseUrl);
+        }
+        if (base.getScheme() == null || base.getHost() == null) {
+            throw new KnowledgeRuleException("not a panel URL: " + baseUrl);
+        }
         if (adminPath == null || adminPath.isBlank() || adminToken == null || adminToken.isBlank()) {
             throw new KnowledgeRuleException("reading a panel's articles needs its admin path and an admin token");
         }
