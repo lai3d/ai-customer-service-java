@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The key table against a real Postgres, no Spring context. */
 class TenantApiKeysTest {
@@ -48,6 +49,35 @@ class TenantApiKeysTest {
         String stored = postgres.jdbc.queryForObject(
                 "SELECT key_hash FROM tenant_api_key WHERE key_id = ?", String.class, TenantApiKeys.keyId(key));
         assertThat(stored).hasSize(64).isNotEqualTo(key).doesNotContain(key.substring(11));
+    }
+
+    @Test
+    @DisplayName("a widget key carries its origins, normalised; a secret key carries none; bad origins are refused")
+    void widgetKeys() {
+        tenants.create("shop", "Shop");
+        String widget = keys.issueWidget("shop", "site", java.util.List.of("HTTPS://Shop.Example.com:443/", "http://localhost:5173"));
+        TenantApiKeys.ApiKey resolved = keys.resolveKey(widget).orElseThrow();
+        assertThat(resolved.isWidget()).isTrue();
+        assertThat(resolved.origins()).containsExactly("https://shop.example.com", "http://localhost:5173");
+        assertThat(resolved.allowsOrigin("https://shop.example.com")).isTrue();
+        assertThat(resolved.allowsOrigin("https://SHOP.example.com:443")).isTrue();
+        assertThat(resolved.allowsOrigin("http://shop.example.com")).as("scheme counts").isFalse();
+        assertThat(resolved.allowsOrigin("https://www.shop.example.com")).as("a subdomain is another origin").isFalse();
+        assertThat(resolved.allowsOrigin(null)).isFalse();
+        assertThat(keys.of("shop")).singleElement().satisfies(issued -> {
+            assertThat(issued.kind()).isEqualTo("widget");
+            assertThat(issued.origins()).hasSize(2);
+        });
+
+        String secret = keys.issue("shop", "server");
+        TenantApiKeys.ApiKey server = keys.resolveKey(secret).orElseThrow();
+        assertThat(server.isWidget()).isFalse();
+        assertThat(server.origins()).isEmpty();
+
+        for (String bad : java.util.List.of("shop.example.com", "https://shop.example.com/help", "ftp://x", "https://u:p@x.com", "https://x.com?q=1")) {
+            assertThatThrownBy(() -> TenantApiKeys.checkOrigins(java.util.List.of(bad))).as(bad).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> TenantApiKeys.checkOrigins(java.util.List.of())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

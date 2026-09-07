@@ -418,7 +418,12 @@ serving as both. The customer-owned tables (`conversation_turn`, `answer_feedbac
 
 The default tenant's first key comes from `DEFAULT_TENANT_API_KEY`, seeded once into an
 empty `tenant_api_key` table (like the first admin); every later key is issued and revoked by
-an admin at `/admin/api/tenants/{id}/keys`, returned once and recorded in `admin_audit`. The
+an admin at `/admin/api/tenants/{id}/keys`, returned once and recorded in `admin_audit`.
+**Two kinds of key.** A `secret` key is for a server. A `widget` key sits in the tenant's
+web page (`static/widget.js`, `docs/widget.md`), so what bounds it is its list of origins:
+`ApiKeyFilter` refuses any other `Origin`, or none, with a `403`, answers CORS only for an
+allowed origin and only for widget keys, and answers the preflight for anyone without a key
+(a preflight carries no `Authorization` and grants nothing). `WidgetKeyTest` pins all four. The
 spend meters carry a `tenant` label up to `app.tenancy.metrics-label-limit` tenants, then
 `other`.
 
