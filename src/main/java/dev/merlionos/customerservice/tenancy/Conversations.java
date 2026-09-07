@@ -27,7 +27,18 @@ public class Conversations {
         this.jdbc = jdbc;
     }
 
-    /** The internal id for this tenant's conversation, created on first use. */
+    /**
+     * The internal id for this tenant's conversation, created on first use.
+     *
+     * <p>Three statements on purpose, and they must stay three. Two first turns racing on one
+     * client id both miss the read, both insert; the loser's {@code ON CONFLICT DO NOTHING}
+     * waits for the winner's transaction and then does nothing, and the loser's <em>second</em>
+     * read, a fresh snapshot taken after the winner committed, sees the winner's row. Folded
+     * into one statement (a CTE that inserts and reads in the same snapshot) the loser reads
+     * nothing and the first turn of a conversation fails; the Go implementation shipped
+     * exactly that and saw it in four runs out of five at twelve-way concurrency (issue #74).
+     * {@code ConversationsTest.firstTurnRace} is the test that fails if this is tidied up.
+     */
     public String resolve(String tenantId, String externalId) {
         String external = externalId == null || externalId.isBlank() ? UUID.randomUUID().toString() : externalId;
         Optional<String> existing = find(tenantId, external);

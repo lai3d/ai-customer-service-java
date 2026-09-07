@@ -59,11 +59,11 @@ class AdminEvaluationController {
     }
 
     record CaseInput(String question, String language, List<String> expectedEntryIds, List<String> mustContain, List<String> anyOf,
-                     List<String> mustNotContain, String expectTool, Boolean expectRefusal, Boolean enabled, String note) {
+                     List<String> mustNotContain, String expectTool, String forbidTool, Boolean expectRefusal, Boolean enabled, String note) {
 
         GoldenCase draft(Long id, String tenantId) {
             return new GoldenCase(id, tenantId, question, language, expectedEntryIds, mustContain, anyOf, mustNotContain, expectTool,
-                    Boolean.TRUE.equals(expectRefusal), enabled == null || enabled, note, null, null);
+                    forbidTool, Boolean.TRUE.equals(expectRefusal), enabled == null || enabled, note, null, null);
         }
     }
 

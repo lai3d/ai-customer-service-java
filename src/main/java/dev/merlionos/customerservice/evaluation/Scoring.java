@@ -101,6 +101,10 @@ final class Scoring {
         if (!toolPass) {
             failures.add("tool " + golden.expectTool() + " did not run" + (turn.tools().isEmpty() ? "" : "; ran " + turn.tools()));
         }
+        if (golden.forbidTool() != null && turn.tools().contains(golden.forbidTool())) {
+            toolPass = false;
+            failures.add("tool " + golden.forbidTool() + " ran but must not");
+        }
         return new Score(retrievalHit, answerPass, toolPass, failures);
     }
 

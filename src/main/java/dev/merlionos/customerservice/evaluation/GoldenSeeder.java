@@ -30,7 +30,7 @@ public class GoldenSeeder {
     }
 
     record Case(String question, String language, List<String> expectedEntryIds, List<String> mustContain, List<String> anyOf,
-                List<String> mustNotContain, String expectTool, boolean expectRefusal, String note) {
+                List<String> mustNotContain, String expectTool, String forbidTool, boolean expectRefusal, String note) {
     }
 
     private final GoldenCases cases;
@@ -61,7 +61,7 @@ public class GoldenSeeder {
             Bundled bundled = new ObjectMapper().readValue(in, Bundled.class);
             for (Case c : bundled.cases()) {
                 cases.create(new GoldenCase(null, Tenant.DEFAULT, c.question(), c.language(), c.expectedEntryIds(), c.mustContain(),
-                        c.anyOf(), c.mustNotContain(), c.expectTool(), c.expectRefusal(), true, c.note(), null, null), BUNDLED_ACTOR);
+                        c.anyOf(), c.mustNotContain(), c.expectTool(), c.forbidTool(), c.expectRefusal(), true, c.note(), null, null), BUNDLED_ACTOR);
             }
             log.info("Seeded the bundled golden set: {} cases for the default tenant", bundled.cases().size());
             return bundled.cases().size();

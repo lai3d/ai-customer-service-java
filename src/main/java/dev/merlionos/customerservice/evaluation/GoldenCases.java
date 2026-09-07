@@ -19,7 +19,7 @@ public class GoldenCases {
     private static final RowMapper<GoldenCase> CASE = (rs, i) -> new GoldenCase(rs.getLong("id"), rs.getString("tenant_id"),
             rs.getString("question"), rs.getString("language"), Json.read(rs.getString("expected_entry_ids")),
             Json.read(rs.getString("must_contain")), Json.read(rs.getString("any_of")), Json.read(rs.getString("must_not_contain")),
-            rs.getString("expect_tool"), rs.getBoolean("expect_refusal"), rs.getBoolean("enabled"), rs.getString("note"),
+            rs.getString("expect_tool"), rs.getString("forbid_tool"), rs.getBoolean("expect_refusal"), rs.getBoolean("enabled"), rs.getString("note"),
             rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"));
 
     private final JdbcTemplate jdbc;
@@ -49,11 +49,11 @@ public class GoldenCases {
         GoldenCase checked = check(draft);
         Long id = jdbc.queryForObject("""
                 INSERT INTO golden_case (tenant_id, question, language, expected_entry_ids, must_contain, any_of, must_not_contain,
-                                         expect_tool, expect_refusal, enabled, note, created_at, created_by)
-                VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, ?) RETURNING id
+                                         expect_tool, forbid_tool, expect_refusal, enabled, note, created_at, created_by)
+                VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, ?, ?) RETURNING id
                 """, Long.class, checked.tenantId(), checked.question(), checked.language(), Json.write(checked.expectedEntryIds()),
                 Json.write(checked.mustContain()), Json.write(checked.anyOf()), Json.write(checked.mustNotContain()),
-                checked.expectTool(), checked.expectRefusal(), checked.enabled(), checked.note(), Timestamp.from(Instant.now()), actor);
+                checked.expectTool(), checked.forbidTool(), checked.expectRefusal(), checked.enabled(), checked.note(), Timestamp.from(Instant.now()), actor);
         return find(id).orElseThrow();
     }
 
@@ -61,16 +61,21 @@ public class GoldenCases {
         GoldenCase checked = check(draft);
         jdbc.update("""
                 UPDATE golden_case SET question = ?, language = ?, expected_entry_ids = ?::jsonb, must_contain = ?::jsonb,
-                       any_of = ?::jsonb, must_not_contain = ?::jsonb, expect_tool = ?, expect_refusal = ?, enabled = ?, note = ?
+                       any_of = ?::jsonb, must_not_contain = ?::jsonb, expect_tool = ?, forbid_tool = ?, expect_refusal = ?, enabled = ?, note = ?
                 WHERE id = ?
                 """, checked.question(), checked.language(), Json.write(checked.expectedEntryIds()), Json.write(checked.mustContain()),
-                Json.write(checked.anyOf()), Json.write(checked.mustNotContain()), checked.expectTool(), checked.expectRefusal(),
+                Json.write(checked.anyOf()), Json.write(checked.mustNotContain()), checked.expectTool(), checked.forbidTool(), checked.expectRefusal(),
                 checked.enabled(), checked.note(), id);
         return find(id).orElseThrow();
     }
 
     public void delete(long id) {
         jdbc.update("DELETE FROM golden_case WHERE id = ?", id);
+    }
+
+    /** Enables exactly these cases of the tenant and disables the rest; for running a subset. */
+    public int enableOnly(String tenantId, List<Long> ids) {
+        return jdbc.update("UPDATE golden_case SET enabled = (id = ANY(?)) WHERE tenant_id = ?", ids.toArray(Long[]::new), tenantId);
     }
 
     static GoldenCase check(GoldenCase draft) {
@@ -86,13 +91,17 @@ public class GoldenCases {
         List<String> any = clean(draft.anyOf());
         List<String> mustNot = clean(draft.mustNotContain());
         String tool = draft.expectTool() == null || draft.expectTool().isBlank() ? null : draft.expectTool().strip();
-        if (expected.isEmpty() && must.isEmpty() && any.isEmpty() && mustNot.isEmpty() && tool == null && !draft.expectRefusal()) {
+        String forbid = draft.forbidTool() == null || draft.forbidTool().isBlank() ? null : draft.forbidTool().strip();
+        if (tool != null && tool.equals(forbid)) {
+            throw new EvaluationRuleException("a tool cannot be both expected and forbidden");
+        }
+        if (expected.isEmpty() && must.isEmpty() && any.isEmpty() && mustNot.isEmpty() && tool == null && forbid == null && !draft.expectRefusal()) {
             throw new EvaluationRuleException("a case needs something to check: entries to retrieve, phrases, a tool, or a refusal");
         }
         if (draft.expectRefusal() && any.isEmpty() && mustNot.isEmpty()) {
             throw new EvaluationRuleException("a refusal case needs phrases that mark a refusal (anyOf) or facts it must not claim (mustNotContain)");
         }
-        return new GoldenCase(draft.id(), draft.tenantId(), draft.question().strip(), language, expected, must, any, mustNot, tool,
+        return new GoldenCase(draft.id(), draft.tenantId(), draft.question().strip(), language, expected, must, any, mustNot, tool, forbid,
                 draft.expectRefusal(), draft.enabled(), draft.note() == null || draft.note().isBlank() ? null : draft.note().strip(),
                 draft.createdAt(), draft.createdBy());
     }

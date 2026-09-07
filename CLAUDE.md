@@ -438,7 +438,10 @@ remote store in a `chat` process carries it as the `tenantId` of `SearchQuery`. 
 that names no tenant is the default tenant's, which is what the bundled corpus, every
 pre-tenancy caller and every direct test of the store are; the customer path always names
 one, and `KnowledgeAdminIntegrationTest.tenantsRetrieveOnlyTheirOwn` fails if it stops
-(it runs a turn through the whole advisor chain for two tenants). A new tenant starts with
+(it runs a turn through the whole advisor chain for two tenants). An injection golden case
+asserts on `forbidTool` and a surviving fact, never on the injected word (`docs/evaluation.md`,
+issue #74); `Conversations.resolve` is three statements on purpose and its javadoc says why.
+A new tenant starts with
 nothing active and retrieves nothing until it publishes; readiness is the default
 tenant's corpus. `KnowledgeAdmin` takes the tenant first on every method, the internal
 knowledge-admin seam has it as a path segment, and the admin's `/admin/api/knowledge/**`
