@@ -51,7 +51,7 @@ class WidgetKeyTest {
 
     @BeforeEach
     void aTenantWithAWidgetKey() {
-        given(chatService.ask(any(), any(), any())).willReturn("Sure.");
+        given(chatService.ask(any(), any(), any(), any())).willReturn("Sure.");
         tenant = "shop-" + UUID.randomUUID().toString().substring(0, 6);
         tenants.create(tenant, "Shop");
         widgetKey = keys.issueWidget(tenant, "site", List.of("https://Shop.example.com:443", "http://localhost:5173"));
@@ -67,7 +67,7 @@ class WidgetKeyTest {
         assertThat(response.getHeaders().getAccessControlExposeHeaders()).contains("X-Conversation-Id");
         assertThat(response.getHeaders().getVary()).contains("Origin");
         assertThat(response.getBody().content()).isEqualTo("Sure.");
-        verify(chatService).ask(org.mockito.ArgumentMatchers.eq(tenant), any(), any());
+        verify(chatService).ask(org.mockito.ArgumentMatchers.eq(tenant), any(), any(), any());
 
         assertThat(post(widgetKey, "http://localhost:5173").getStatusCode()).as("a second listed origin, port and all").isEqualTo(HttpStatus.OK);
     }
@@ -87,7 +87,7 @@ class WidgetKeyTest {
             assertThat(response.getHeaders().getAccessControlAllowOrigin()).isNull();
             assertThat(response.getBody()).contains("widget key");
         }
-        verify(chatService, never()).ask(any(), any(), any());
+        verify(chatService, never()).ask(any(), any(), any(), any());
     }
 
     @Test
@@ -111,9 +111,9 @@ class WidgetKeyTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(response.getHeaders().getAccessControlAllowOrigin()).isEqualTo("https://anyone.example.org");
         assertThat(response.getHeaders().getAccessControlAllowMethods()).contains(HttpMethod.POST);
-        assertThat(response.getHeaders().getAccessControlAllowHeaders()).contains("Authorization");
+        assertThat(response.getHeaders().getAccessControlAllowHeaders()).contains("Authorization", "X-Customer-Token");
         assertThat(response.getHeaders().getAccessControlMaxAge()).isEqualTo(3600);
-        verify(chatService, never()).ask(any(), any(), any());
+        verify(chatService, never()).ask(any(), any(), any(), any());
     }
 
     @Test

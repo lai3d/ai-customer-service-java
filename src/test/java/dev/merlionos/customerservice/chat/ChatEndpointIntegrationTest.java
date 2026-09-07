@@ -58,7 +58,7 @@ class ChatEndpointIntegrationTest {
     @Test
     @DisplayName("a turn on a conversation that already has one in flight is a 409, not a 500")
     void overlappingTurnIsAConflict() {
-        given(chatService.ask(eq(Tenant.DEFAULT), any(), any()))
+        given(chatService.ask(eq(Tenant.DEFAULT), any(), any(), any()))
                 .willThrow(new ConversationBusyException("busy-conversation"));
 
         ResponseEntity<String> response = post("/api/v1/chat",
@@ -73,7 +73,7 @@ class ChatEndpointIntegrationTest {
     @Test
     @DisplayName("a new conversation gets an id assigned and echoed back")
     void assignsConversationIdWhenAbsent() {
-        given(chatService.ask(any(), any(), eq("Where is my order?"))).willReturn("It shipped on Monday.");
+        given(chatService.ask(any(), any(), eq("Where is my order?"), any())).willReturn("It shipped on Monday.");
 
         ResponseEntity<ChatReply> response = post("/api/v1/chat",
                 new ChatRequest(null, "Where is my order?"), TestTenant.API_KEY, ChatReply.class);
@@ -89,7 +89,7 @@ class ChatEndpointIntegrationTest {
     @Test
     @DisplayName("a supplied conversation id is echoed back and maps to one internal id, turn after turn")
     void mapsSuppliedConversationIdToOneInternalId() {
-        given(chatService.ask(any(), any(), any())).willReturn("Sure.");
+        given(chatService.ask(any(), any(), any(), any())).willReturn("Sure.");
         String external = "existing-" + UUID.randomUUID().toString().substring(0, 8);
 
         ResponseEntity<ChatReply> first = post("/api/v1/chat",
@@ -100,7 +100,7 @@ class ChatEndpointIntegrationTest {
         assertThat(first.getBody().conversationId()).isEqualTo(external);
         assertThat(second.getBody().conversationId()).isEqualTo(external);
         ArgumentCaptor<String> internal = ArgumentCaptor.forClass(String.class);
-        verify(chatService, times(2)).ask(eq(Tenant.DEFAULT), internal.capture(), any());
+        verify(chatService, times(2)).ask(eq(Tenant.DEFAULT), internal.capture(), any(), any());
         assertThat(internal.getAllValues()).hasSize(2);
         assertThat(internal.getAllValues().get(0))
                 .as("the id every table keys on is ours, not the client's")
@@ -109,9 +109,24 @@ class ChatEndpointIntegrationTest {
     }
 
     @Test
+    @DisplayName("the customer's panel token travels as a header to the service, and its absence is null")
+    void customerTokenHeader() {
+        given(chatService.ask(any(), any(), any(), any())).willReturn("Sure.");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(TestTenant.API_KEY);
+        headers.set(ChatController.CUSTOMER_TOKEN_HEADER, "  panel-token-xyz ");
+        rest.exchange("/api/v1/chat", HttpMethod.POST, new HttpEntity<>(new ChatRequest(null, "hi"), headers), ChatReply.class);
+        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hi"), eq("panel-token-xyz"));
+
+        post("/api/v1/chat", new ChatRequest(null, "hello"), TestTenant.API_KEY, ChatReply.class);
+        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hello"), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
     @DisplayName("the same client conversation id under two tenants is two conversations")
     void scopesConversationIdToTheTenant() {
-        given(chatService.ask(any(), any(), any())).willReturn("Sure.");
+        given(chatService.ask(any(), any(), any(), any())).willReturn("Sure.");
         String other = "acme-" + UUID.randomUUID().toString().substring(0, 8);
         tenants.create(other, "Acme");
         String otherKey = apiKeys.issue(other, "test");
@@ -122,7 +137,7 @@ class ChatEndpointIntegrationTest {
 
         ArgumentCaptor<String> tenant = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> internal = ArgumentCaptor.forClass(String.class);
-        verify(chatService, times(2)).ask(tenant.capture(), internal.capture(), any());
+        verify(chatService, times(2)).ask(tenant.capture(), internal.capture(), any(), any());
         assertThat(tenant.getAllValues()).containsExactly(Tenant.DEFAULT, other);
         assertThat(internal.getAllValues().get(0))
                 .as("a guessed id from another tenant's client reaches a different conversation")
@@ -145,13 +160,13 @@ class ChatEndpointIntegrationTest {
                     .satisfies(type -> assertThat(type.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).isTrue());
             assertThat(response.getBody()).contains("Authorization: Bearer");
         }
-        verify(chatService, never()).ask(any(), any(), any());
+        verify(chatService, never()).ask(any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("a revoked key and a disabled tenant are both 401")
     void refusesRevokedKeysAndDisabledTenants() {
-        given(chatService.ask(any(), any(), any())).willReturn("Sure.");
+        given(chatService.ask(any(), any(), any(), any())).willReturn("Sure.");
         String tenant = "gone-" + UUID.randomUUID().toString().substring(0, 8);
         tenants.create(tenant, "Gone");
         String revoked = apiKeys.issue(tenant, "revoked");
@@ -171,7 +186,7 @@ class ChatEndpointIntegrationTest {
     @Test
     @DisplayName("the streaming endpoint emits SSE events")
     void streamsAsServerSentEvents() {
-        given(chatService.stream(any(), any(), any())).willReturn(
+        given(chatService.stream(any(), any(), any(), any())).willReturn(
                 Flux.just("It ", "shipped ", "on Monday.").map(TurnEvent.Token::new));
 
         ResponseEntity<String> response = stream(new ChatRequest(null, "Where is my order?"), TestTenant.API_KEY);
@@ -193,13 +208,13 @@ class ChatEndpointIntegrationTest {
     void streamRequiresAnApiKey() {
         assertThat(stream(new ChatRequest(null, "Where is my order?"), null).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
-        verify(chatService, never()).stream(any(), any(), any());
+        verify(chatService, never()).stream(any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("a mid-stream failure arrives as a named error event, not as an answer")
     void reportsMidStreamFailureAsErrorEvent() {
-        given(chatService.stream(any(), any(), any())).willReturn(
+        given(chatService.stream(any(), any(), any(), any())).willReturn(
                 Flux.<TurnEvent>just(new TurnEvent.Token("It "))
                         .concatWith(Flux.error(new IllegalStateException("upstream died"))));
 

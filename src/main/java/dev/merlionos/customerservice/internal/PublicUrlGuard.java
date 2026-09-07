@@ -1,6 +1,5 @@
-package dev.merlionos.customerservice.rag;
+package dev.merlionos.customerservice.internal;
 
-import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -10,7 +9,8 @@ import java.net.UnknownHostException;
 import java.util.Locale;
 
 /**
- * What a URL import may fetch. The URL is typed by a tenant's admin and fetched by the
+ * What the application may fetch on a tenant's behalf: a page for a knowledge import, a
+ * tenant's panel for an account lookup. The URL is typed by a tenant's admin and fetched by the
  * knowledge role from inside the deployment's network, which is the shape of a server-side
  * request forgery: without this, {@code http://169.254.169.254/} or {@code http://postgres:5432/}
  * would be read on the tenant's behalf. So: http or https only, no credentials in the URL,
@@ -23,57 +23,57 @@ import java.util.Locale;
  * whose answer changes between the two (DNS rebinding) is not caught. Pinning the resolved
  * address would need a client that lets the connection address differ from the host header.
  */
-class SourceGuard {
+public class PublicUrlGuard {
 
     private final boolean allowPrivateNetworks;
 
-    SourceGuard(boolean allowPrivateNetworks) {
+    public PublicUrlGuard(boolean allowPrivateNetworks) {
         this.allowPrivateNetworks = allowPrivateNetworks;
     }
 
-    /** The URL as a URI, if an import may fetch it; a {@link KnowledgeRuleException} says why not. */
-    URI check(String url) {
+    /** The URL as a URI, if it may be fetched; an {@link IllegalArgumentException} says why not. */
+    public URI check(String url) {
         URI uri;
         try {
             uri = URI.create(url == null ? "" : url.strip()).normalize();
         }
         catch (IllegalArgumentException e) {
-            throw new KnowledgeRuleException("not a URL: " + url);
+            throw new IllegalArgumentException("not a URL: " + url);
         }
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) {
-            throw new KnowledgeRuleException("only http and https URLs can be imported");
+            throw new IllegalArgumentException("only http and https URLs can be imported");
         }
         if (uri.getRawUserInfo() != null) {
-            throw new KnowledgeRuleException("a URL with credentials in it cannot be imported");
+            throw new IllegalArgumentException("a URL with credentials in it cannot be imported");
         }
         String host = uri.getHost();
         if (host == null || host.isBlank()) {
-            throw new KnowledgeRuleException("the URL names no host");
+            throw new IllegalArgumentException("the URL names no host");
         }
         if (allowPrivateNetworks) {
             return uri;
         }
         String name = host.toLowerCase(Locale.ROOT);
         if (name.equals("localhost") || name.endsWith(".localhost") || name.endsWith(".local") || name.endsWith(".internal")) {
-            throw new KnowledgeRuleException("the URL points inside the deployment, which an import may not read: " + host);
+            throw new IllegalArgumentException("the URL points inside the deployment, which an import may not read: " + host);
         }
         InetAddress[] addresses;
         try {
             addresses = InetAddress.getAllByName(host.startsWith("[") ? host.substring(1, host.length() - 1) : host);
         }
         catch (UnknownHostException e) {
-            throw new KnowledgeRuleException("the host cannot be resolved: " + host);
+            throw new IllegalArgumentException("the host cannot be resolved: " + host);
         }
         for (InetAddress address : addresses) {
             if (!isPublic(address)) {
-                throw new KnowledgeRuleException("the URL points inside the deployment, which an import may not read: " + host);
+                throw new IllegalArgumentException("the URL points inside the deployment, which an import may not read: " + host);
             }
         }
         return uri;
     }
 
-    static boolean isPublic(InetAddress address) {
+    public static boolean isPublic(InetAddress address) {
         if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
                 || address.isSiteLocalAddress() || address.isMulticastAddress()) {
             return false;

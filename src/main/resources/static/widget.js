@@ -6,8 +6,11 @@
  * data-key is a widget key issued in the operations admin, usable only from the origins
  * it lists; data-host defaults to the script's own origin; data-lang is en or zh (default:
  * the browser's); data-title and data-greeting override the text; data-position is
- * "right" or "left". Everything renders inside a shadow root, so the page's styles and the
- * widget's never meet, and every piece of text is a text node, never markup.
+ * "right" or "left". On a page where the customer is signed in to the tenant's panel,
+ * data-customer-token (or data-customer-token-key, a localStorage key holding it) is
+ * forwarded as X-Customer-Token, so the assistant can read that customer's own account.
+ * Everything renders inside a shadow root, so the page's styles and the widget's never
+ * meet, and every piece of text is a text node, never markup.
  *
  * It shows `message` and `error` events and breaks a paragraph at a `tool` event, the seam
  * between a turn's two model calls (see docs/reliability.md); retrieval, tool and usage
@@ -22,6 +25,13 @@
   var host = script.dataset.host || new URL(script.src, location.href).origin;
   var lang = (script.dataset.lang || navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
   var side = script.dataset.position === "left" ? "left" : "right";
+  function customerToken() {
+    if (script.dataset.customerToken) return script.dataset.customerToken;
+    if (script.dataset.customerTokenKey) {
+      try { return localStorage.getItem(script.dataset.customerTokenKey) || ""; } catch (e) { return ""; }
+    }
+    return "";
+  }
   var TEXT = {
     en: { title: "Customer service", greeting: "Hi! Ask me about orders, returns, shipping or payments.",
           placeholder: "Type a message…", send: "Send", open: "Open chat", close: "Close chat", reset: "New conversation",
@@ -161,6 +171,8 @@
     var controller = new AbortController();
     inFlight = controller;
     var headers = { "Content-Type": "application/json", "Accept": "text/event-stream", "Authorization": "Bearer " + key };
+    var token = customerToken();
+    if (token) headers["X-Customer-Token"] = token;
     fetch(host + "/api/v1/chat/stream", {
       method: "POST", headers: headers, signal: controller.signal, mode: "cors",
       body: JSON.stringify({ conversationId: conversationId, message: question })

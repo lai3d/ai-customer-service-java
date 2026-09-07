@@ -25,7 +25,7 @@ class ShopifyOrderLookupTest {
     @BeforeAll
     static void start() throws Exception {
         shopify = new FakeShopify();
-        lookup = new ShopifyOrderLookup(RestClient.builder(), new ConnectorProperties(null, Duration.ofSeconds(3), shopify.baseUrl()));
+        lookup = new ShopifyOrderLookup(RestClient.builder(), new ConnectorProperties(null, Duration.ofSeconds(3), shopify.baseUrl(), null, true));
     }
 
     @AfterAll
@@ -34,7 +34,7 @@ class ShopifyOrderLookupTest {
     }
 
     private static OrderConnector connector(String token) {
-        return new OrderConnector("acme", OrderConnector.SHOPIFY, "northwind-lamps.myshopify.com", token, "2025-07", Instant.now(), "root");
+        return new OrderConnector("acme", OrderConnector.SHOPIFY, "northwind-lamps.myshopify.com", null, token, "2025-07", Instant.now(), "root");
     }
 
     @Test
@@ -83,7 +83,7 @@ class ShopifyOrderLookupTest {
         assertThat(refused.explanation()).contains("401").contains("Do not tell the customer the order does not exist");
 
         ShopifyOrderLookup nowhere = new ShopifyOrderLookup(RestClient.builder(),
-                new ConnectorProperties(null, Duration.ofSeconds(1), "http://127.0.0.1:1"));
+                new ConnectorProperties(null, Duration.ofSeconds(1), "http://127.0.0.1:1", null, true));
         OrderLookupResult down = nowhere.lookup(connector(FakeShopify.TOKEN), "#1001");
         assertThat(down.outcome()).isEqualTo(OrderLookupResult.UNAVAILABLE);
         assertThat(down.explanation()).contains("could not be reached");

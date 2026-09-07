@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice.rag;
 
 import dev.merlionos.customerservice.rag.api.KnowledgeImport;
+import dev.merlionos.customerservice.internal.PublicUrlGuard;
 import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -38,7 +39,7 @@ import java.util.Optional;
 
 /**
  * A tenant's document into draft entries (ADR 002, step 4). A web page is fetched under
- * {@link SourceGuard}, a PDF arrives as bytes; both are read by Spring AI's readers, split
+ * {@link PublicUrlGuard}, a PDF arrives as bytes; both are read by Spring AI's readers, split
  * into chunks of about {@code chunkTokens}, and each chunk becomes a draft under an entry
  * whose id is the source's hash and the chunk's position. Importing the same source again
  * writes over those drafts and retires the entries beyond the new count, so a re-import
@@ -69,7 +70,7 @@ public class KnowledgeImporter {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final KnowledgeImportProperties properties;
-    private final SourceGuard guard;
+    private final PublicUrlGuard guard;
     private final HttpClient http;
     private final Counter done;
     private final Counter failed;
@@ -79,7 +80,7 @@ public class KnowledgeImporter {
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.properties = properties;
-        this.guard = new SourceGuard(properties.allowPrivateNetworksOrDefault());
+        this.guard = new PublicUrlGuard(properties.allowPrivateNetworksOrDefault());
         this.http = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .connectTimeout(properties.fetchTimeoutOrDefault())
@@ -93,7 +94,7 @@ public class KnowledgeImporter {
     // --- starting and reading imports ---------------------------------------------------------
 
     public KnowledgeImport importUrl(String tenantId, String url, String actor) {
-        URI uri = guard.check(url);
+        URI uri = checked(url);
         KnowledgeImport started = start(tenantId, "url", uri.toString(), actor);
         Thread.ofVirtual().name("knowledge-import-" + started.id()).start(() -> run(started, () -> readUrl(uri)));
         return started;
@@ -172,7 +173,7 @@ public class KnowledgeImporter {
                 if (hop >= MAX_REDIRECTS) {
                     throw new KnowledgeRuleException("the page redirected more than " + MAX_REDIRECTS + " times");
                 }
-                uri = guard.check(uri.resolve(location).toString());
+                uri = checked(uri.resolve(location).toString());
                 continue;
             }
             if (status != 200) {
@@ -192,6 +193,15 @@ public class KnowledgeImporter {
             List<Document> read = new JsoupDocumentReader(new ByteArrayResource(html),
                     JsoupDocumentReaderConfig.builder().selector("body").allElements(false).build()).get();
             return chunk(title, read);
+        }
+    }
+
+    private URI checked(String url) {
+        try {
+            return guard.check(url);
+        }
+        catch (IllegalArgumentException e) {
+            throw new KnowledgeRuleException(e.getMessage());
         }
     }
 
@@ -278,7 +288,7 @@ public class KnowledgeImporter {
     }
 
     /** Chinese when a fifth of the letters are CJK; the corpus is bilingual and that is the split it needs. */
-    static String languageOf(String text) {
+    public static String languageOf(String text) {
         long letters = 0;
         long cjk = 0;
         for (int i = 0; i < text.length(); i++) {
@@ -295,7 +305,7 @@ public class KnowledgeImporter {
         return letters > 0 && cjk * 5 >= letters ? "zh" : "en";
     }
 
-    static String hash8(String source) {
+    public static String hash8(String source) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest, 0, 4);

@@ -77,6 +77,20 @@ class ChatServiceToolContextTest {
                 .containsEntry(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT);
     }
 
+    @Test
+    @DisplayName("the customer's panel token rides in the tool context when the request carried one, and is absent when it did not")
+    void customerTokenInContext() {
+        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "How much traffic do I have left?", "panel-token-abc");
+        assertThat(capturedToolContext()).containsEntry(dev.merlionos.customerservice.tools.AccountTools.CUSTOMER_TOKEN_KEY, "panel-token-abc");
+    }
+
+    @Test
+    @DisplayName("without a token the key is absent, not null")
+    void noCustomerToken() {
+        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "Where is my order?");
+        assertThat(capturedToolContext()).doesNotContainKey(dev.merlionos.customerservice.tools.AccountTools.CUSTOMER_TOKEN_KEY);
+    }
+
     private java.util.Map<String, Object> capturedToolContext() {
         ArgumentCaptor<Prompt> prompt = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel).call(prompt.capture());

@@ -30,7 +30,7 @@ import java.util.Optional;
 public class ApiKeyFilter extends OncePerRequestFilter {
 
     public static final String PATH_PREFIX = "/api/v1/";
-    static final String ALLOWED_HEADERS = "Authorization, Content-Type, Accept";
+    static final String ALLOWED_HEADERS = "Authorization, Content-Type, Accept, X-Customer-Token";
     static final String EXPOSED_HEADERS = "X-Conversation-Id";
     static final String PREFLIGHT_MAX_AGE = "3600";
 

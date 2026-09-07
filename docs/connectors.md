@@ -97,6 +97,54 @@ also tries the digits alone. One blocking-path turn on that first walk came back
 empty answer and no error, like evaluation case 30 in [evaluation.md](evaluation.md); not
 reproduced since, recorded here so the next occurrence is not the first.
 
+## Xboard: a subscription panel, read as the customer
+
+The second connector is a different kind of customer: a VPN reseller running
+[Xboard](https://github.com/cedar2025/Xboard) (a V2board-family panel; the API shape is
+shared across that family). Its customers do not ask where a parcel is; they ask whether
+their plan has expired, how much traffic is left, and whether a renewal went through. And
+they are not identified by an order number but by being signed in to the panel.
+
+So the tool is different and so is the credential. `lookup_my_subscription` takes **no
+parameters**: it reads the account of whoever is signed in, with the customer's own panel
+token, which the widget on the panel's page forwards as the `X-Customer-Token` header
+(`data-customer-token`, or `data-customer-token-key` naming the localStorage key that holds
+it). The header is carried into the tool context for that one turn and is never stored or
+logged. `XboardAccountLookup` makes three calls to the panel's user API as that customer,
+`user/getSubscribe`, `user/info` and `user/order/fetch`, with `Authorization: Bearer
+<token>`, and folds them into one account: plan, expiry, allowance, used and remaining in
+gigabytes, days to reset, balance, the newest five orders with payment status, the email
+partly masked. Ownership is proved by construction: the token reads one account, and it is
+the account of whoever signed in. The gap the Shopify connector leaves open (anyone who
+knows a number can ask about it) does not exist here.
+
+Four outcomes, each with a sentence for the model: `found`; `not_signed_in` (no token, or one
+the panel refused with 401/403: ask the customer to sign in to the panel and ask from
+there); `not_connected` (this tenant has no panel); `unavailable` (the panel did not
+answer). Configured with `{"kind":"xboard","baseUrl":"https://panel.example.com"}`: the URL is
+the panel's origin, checked to be public by the same guard the knowledge import uses
+(`CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop), and an admin token is optional, kept for
+what the customer's own token cannot do -- tickets into the panel and its knowledge base
+articles, the next two steps. "Test" reads `guest/comm/config`, which needs no token, and
+answers with the panel's name. A tenant on Xboard asking about an order number is told the
+orders live in its panel.
+
+The widget on the panel: Xboard's user front end keeps the Sanctum token in the browser
+after sign-in; the panel's theme or a plugin adds the script tag with
+`data-customer-token-key` naming that storage key. Until the tenant's staff have done that,
+the assistant answers subscription questions with "sign in to the panel and ask there".
+
+### Verified
+
+2026-09-07, against `scripts/fake-xboard.py` and the real model: the panel configured by URL
+and tested (its name back, no token needed); "我的套餐什么时候到期？流量还剩多少？" answered with
+the plan, the expiry, 98.5 GB of 200 remaining, the reset day and the last order, in Chinese;
+"Did my renewal payment go through?" answered from the newest order's status, with the
+cancelled one before it named as the likely failed attempt; without a token, "sign in to the
+panel and ask again there", with a ticket offered. Two turns, two `lookup_my_subscription`
+calls, `found` both, three panel calls each. The balance is shown without a currency; the
+panel does not say which.
+
 ## Not here, deliberately
 
 - **Proving the customer owns the order.** Anyone who knows a number can ask about it, as
@@ -104,7 +152,9 @@ reproduced since, recorded here so the next occurrence is not the first.
   session, is the next step and a decision for the pilot: some stores want exactly this
   openness, most will not.
 - Writes: cancelling, changing an address. The tool reads; the ticket is how a change is asked for.
-- A second connector. The seam is one interface and one routing class; Youzan or WooCommerce
-  is a class next to `shopify/`.
+- A third connector. Orders are one interface and one routing class; accounts likewise;
+  Youzan or WooCommerce is a class next to `shopify/`.
+- Tickets into Xboard and its knowledge articles as an import source: the next two steps of
+  this connector, both with the tenant's admin token.
 - Rate limiting against Shopify's bucket (2 calls/second on REST). One call per turn is far
   under it; a busy tenant would need a limiter per store.
