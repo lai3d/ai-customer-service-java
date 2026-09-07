@@ -155,7 +155,7 @@ public class AdminOverview {
                        (SELECT count(*) FROM knowledge_version WHERE tenant_id = ? AND state = 'failed') AS failed
                 """, tenantId, tenantId, tenantId, tenantId, tenantId, tenantId);
         return List.of(
-                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads for tenant '" + tenantId + "': " + row.get("active") + "."),
+                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads for tenant '" + tenantId + "': " + (row.get("active") == null ? "none yet" : row.get("active")) + "."),
                 stat("documents", "Documents", number(row, "documents"), "Documents in the active version, every language counted."),
                 stat("entries", "Entries", number(row, "entries"), "Managed entries not retired."),
                 stat("drafts", "Drafts", number(row, "drafts"), "Drafts waiting for a publication; none of them is live."),
