@@ -10,7 +10,9 @@ import { api } from '../api';
  */
 type Step = { key: string; label: string; done: boolean; detail: string; to: string; optional?: boolean };
 
-export function Onboarding({ tenantId }: { tenantId: string }) {
+// `revision` is bumped by the page when something on it changed (a key issued, a connector
+// saved), so the checklist re-reads instead of showing the state at page load.
+export function Onboarding({ tenantId, revision = 0 }: { tenantId: string; revision?: number }) {
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -33,7 +35,7 @@ export function Onboarding({ tenantId }: { tenantId: string }) {
       ]);
       setError(null);
     }, err => setError(err instanceof Error ? err.message : String(err)));
-  }, [tenantId]);
+  }, [tenantId, revision]);
   if (error) return <p className="note error">Could not read the tenant's state: {error}</p>;
   if (!steps) return <p className="hint">Reading the tenant's state…</p>;
   const required = steps.filter(s => !s.optional);

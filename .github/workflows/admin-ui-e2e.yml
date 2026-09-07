@@ -1,0 +1,80 @@
+# The operations UI walked in a browser: the built UI image proxying to the built application
+# image on Postgres, driven by Playwright (admin-ui/e2e/). A separate workflow because it
+# builds the application image, which the unit-and-integration job does not; it runs on pushes
+# to main and on pull requests that touch what it walks.
+name: Admin UI walk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - admin-ui/**
+      - Dockerfile
+      - docker/postgres/**
+      - scripts/verify-admin-ui.sh
+      - src/main/java/dev/merlionos/customerservice/admin/**
+      - src/main/resources/application.yml
+      - src/main/resources/db/migration/**
+      - .github/workflows/admin-ui-e2e.yml
+  workflow_dispatch:
+
+concurrency:
+  group: admin-ui-walk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  walk:
+    name: Browser walk
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # The same cache the Services workflow fills, so a source-only change rebuilds only the
+      # application layer.
+      - name: Build the application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ai-customer-service-java:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the UI image
+        run: docker build -t ai-customer-service-java-admin-ui:local admin-ui
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin-ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: admin-ui
+      - run: npx playwright install --with-deps chromium
+        working-directory: admin-ui
+
+      - name: Bring the stack up and walk it
+        run: scripts/verify-admin-ui.sh
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f admin-ui/e2e/docker-compose.yml logs --no-color --tail=200
+
+      - name: Keep the walk's report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            admin-ui/playwright-report/
+            admin-ui/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: scripts/verify-admin-ui.sh --down

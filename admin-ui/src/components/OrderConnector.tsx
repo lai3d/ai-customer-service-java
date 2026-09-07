@@ -9,7 +9,7 @@ import { when } from '../format';
  * the store its name with the stored token. Shown to platform staff on the tenant's page
  * and to a tenant's own admins on their account page.
  */
-export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
+export function OrderConnectorSection({ tenantId, onChanged }: { tenantId: string; onChanged?: () => void }) {
   const [connector, setConnector] = useState<OrderConnector | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<ConnectorKind>('shopify');
@@ -27,7 +27,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    try { if (kind === 'shopify') await api.saveShopifyConnector(tenantId, domain.trim(), token.trim(), version.trim()); else await api.saveXboardConnector(tenantId, baseUrl.trim(), token.trim(), adminPath.trim()); setEditing(false); setToken(''); setTest(null); setStatus(kind === 'shopify' || token.trim() ? 'Connector saved; the token is stored and shown masked from now on.' : 'Connector saved; the panel is read with each customer\'s own token.'); setError(null); await load(); }
+    try { if (kind === 'shopify') await api.saveShopifyConnector(tenantId, domain.trim(), token.trim(), version.trim()); else await api.saveXboardConnector(tenantId, baseUrl.trim(), token.trim(), adminPath.trim()); setEditing(false); setToken(''); setTest(null); setStatus(kind === 'shopify' || token.trim() ? 'Connector saved; the token is stored and shown masked from now on.' : 'Connector saved; the panel is read with each customer\'s own token.'); setError(null); await load(); onChanged?.(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
   const runTest = async () => {
@@ -36,7 +36,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
   };
   const remove = async () => {
     setBusy(true);
-    try { await api.deleteOrderConnector(tenantId); setTest(null); setStatus('Connector removed; the assistant will offer a ticket instead of an order lookup.'); setError(null); await load(); }
+    try { await api.deleteOrderConnector(tenantId); setTest(null); setStatus('Connector removed; the assistant will offer a ticket instead of an order lookup.'); setError(null); await load(); onChanged?.(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
   const startEdit = () => { setKind(connector?.kind ?? 'shopify'); setDomain(connector?.shopDomain ?? ''); setBaseUrl(connector?.baseUrl ?? ''); setAdminPath(connector?.adminPath ?? ''); setVersion(connector?.apiVersion ?? ''); setToken(''); setEditing(true); setStatus(''); };

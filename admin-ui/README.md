@@ -13,6 +13,7 @@ commands.
 | UI | React 19, TypeScript 5 (strict) | The .NET sibling's choice, kept so the two admins stay comparable; no component library, the pages are tables and forms |
 | Routing | react-router 7 | Client-side routes (`/tickets/:number`, `/conversations/:id`, ...), the nginx image falls back to `index.html` |
 | Tests | vitest 3 | Node environment, no DOM: the API client, formatting, the Markdown subset, and a grep that no source uses a string-to-markup sink |
+| Browser walk | Playwright 1.63, Chromium | `e2e/`: the built image proxying to a real service on a real database, no mocks; run by `scripts/verify-admin-ui.sh` locally and in the Admin UI walk workflow |
 | Serving | nginx 1.27 (alpine), port 8084 | Static files plus a reverse proxy of `/admin/api` to the service, so the browser sees one origin |
 | Image | `node:22-alpine` build stage, `nginx:1.27-alpine` runtime | `Dockerfile` here; CI builds it; `k8s/kind/verify.sh` loads it |
 
@@ -42,6 +43,9 @@ npm test                     # vitest, once
 npm run typecheck            # tsc --noEmit
 npm run build                # typecheck, then dist/
 docker build -t admin-ui .   # the image CI builds; run with -e ADMIN_API_UPSTREAM=host:port
+npx playwright install chromium                    # once; then either of:
+../scripts/verify-admin-ui.sh                      # the built images on their own Compose stack, walked
+E2E_BASE_URL=http://localhost:8084 npm run e2e     # against a stack already running (admin: E2E_ADMIN_USERNAME / _PASSWORD)
 ```
 
 The service must be running for anything but the tests: `docker compose up -d postgres` and
@@ -60,4 +64,7 @@ src/
 ├── pages/            Login, Overview, Tickets, TicketDetail, Conversations, Conversation,
 │                     Feedback, Knowledge, Evaluation, Report, Staff, Tenants, Account
 └── *.test.ts         api, format, markdown, no-markup-sinks
+e2e/
+├── admin.spec.ts     the browser walk, serial: sign in, the corpus, a tenant and its key, its staff, a password, the report
+└── docker-compose.yml   the stack it walks: Postgres, the app image, this image; scripts/verify-admin-ui.sh drives it
 ```

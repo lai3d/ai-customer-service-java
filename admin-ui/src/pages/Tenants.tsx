@@ -71,10 +71,12 @@ function TenantDetailPage({ id }: { id: string }) {
   const [issued, setIssued] = useState<IssuedKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState('');
+  const [revision, setRevision] = useState(0);
+  const changed = () => setRevision(r => r + 1);
   const load = useCallback(() => api.tenant(id).then(d => { setData(d); setError(null); }, setError), [id]);
   useEffect(() => { void load(); }, [load]);
   const run = async (work: () => Promise<unknown>, done: string) => {
-    try { await work(); setStatus(done); setError(null); await load(); } catch (err) { setError(err); }
+    try { await work(); setStatus(done); setError(null); await load(); changed(); } catch (err) { setError(err); }
   };
   const issue = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,7 +84,7 @@ function TenantDetailPage({ id }: { id: string }) {
       const list = origins.split(/[\s,]+/).map(o => o.trim()).filter(Boolean);
       const key = await api.issueTenantKey(id, label.trim(), kind, list);
       setIssued(key); setCopied(false); setLabel(''); setOrigins(''); setStatus(''); setError(null);
-      await load();
+      await load(); changed();
     } catch (err) { setError(err); }
   };
   const copy = async () => {
@@ -110,7 +112,7 @@ function TenantDetailPage({ id }: { id: string }) {
         </div>
         {status && <p className="note">{status}</p>}
       </section>
-      <Onboarding tenantId={id} />
+      <Onboarding tenantId={id} revision={revision} />
       <section id="keys">
         <h3>API keys</h3>
         <p className="hint">A key is the tenant's identity on <span className="mono">/api/v1/**</span>. A <b>secret</b> key is for a server the tenant controls (<span className="mono">Authorization: Bearer</span>); a <b>widget</b> key is pasted into the tenant's web page and works only from browsers on the origins it was issued for. Either is shown once, when issued; the server keeps only its hash. Revoking takes effect on the next request.</p>
@@ -169,8 +171,8 @@ function TenantDetailPage({ id }: { id: string }) {
         )}
         <ErrorNote error={error} />
       </section>
-      <OrderConnectorSection tenantId={id} />
-      <TelegramSection tenantId={id} />
+      <OrderConnectorSection tenantId={id} onChanged={changed} />
+      <TelegramSection tenantId={id} onChanged={changed} />
     </>
   );
 }
