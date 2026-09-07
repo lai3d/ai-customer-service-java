@@ -1,6 +1,10 @@
 # ADR 002: Tenants, and a tenant's own knowledge
 
-- **Status:** proposed, 2026-09-07. The first engineering step of
+- **Status:** accepted 2026-09-07; being built. Step 2 of the plan (the tenant model) is
+  merged; steps 3 to 5 follow. Where the build departed from the text: existing conversations
+  kept their id as both external and internal rather than being rewritten, so the budget and
+  lease tables needed no tenant column; staff scoping and the `platform` role moved from step
+  2 to step 3, since every admin is a platform admin until knowledge is per tenant. The first engineering step of
   [BUSINESS-PLAN.md](../../../BUSINESS-PLAN.md) in the workspace root: a customer integrates
   by bringing their own knowledge, and that requires the system to know whose knowledge, whose
   conversations and whose tickets it is holding.

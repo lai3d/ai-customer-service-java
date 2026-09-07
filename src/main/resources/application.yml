@@ -218,6 +218,13 @@ spring:
             initialize-schema: never
 
 app:
+  tenancy:
+    # Seeded once, into an empty tenant_api_key table, for the `default` tenant. The public API
+    # answers 401 to everything without a key, and startup says so when this is unset and no
+    # key exists. Format: cs_ then 8 id characters then the secret; the table holds a hash.
+    default-api-key: ${DEFAULT_TENANT_API_KEY:}
+    # Spend meters carry the tenant; above this many tenants the label becomes `other`.
+    metrics-label-limit: 200
   # Only a single-role process reads these; `all` calls the roles in-process and serves no
   # internal endpoint. A chat process refuses to start without all three; a knowledge or
   # ticket process without the token. See docs/adr/001-deployment-targets.md.

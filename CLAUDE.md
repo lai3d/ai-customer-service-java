@@ -389,11 +389,39 @@ page that shows customer text on purpose) and a refused action (a rule the workf
 bend, or a role the server would not honour). A lost race (`409`) is not a refusal and is not
 recorded.
 
+### Tenants
+
+Multi-tenancy is built, on the owner's ask, as [ADR 002](docs/adr/002-tenancy.md) records.
+Every `/api/v1/**` request carries a tenant API key, `Authorization: Bearer cs_...`, checked
+by `ApiKeyFilter` (`tenancy/`, a plain servlet filter registered outside Spring Security;
+`AdminLoginTest` asserts the public side still has no session) against a SHA-256 in
+`tenant_api_key`; without one it is a `401` before anything else runs. The resolved
+`Tenant` is a request attribute (`TenantContext.require`), and from there the tenant id is a
+**method parameter**, never a thread-local: `ChatService.ask(tenantId, ...)`, `TurnRecorder.start`,
+`ConversationBudget.record`, `TicketRequest`, and the `tenantId` key in the `ToolContext`
+(`SupportTicketTools.TENANT_ID_KEY`), which a tool requires like the other two.
+
+**The client's conversation id is not the key.** `Conversations` maps `(tenant, external id)`
+to an internal id the client never chose, so a guessed id from another tenant's client
+resolves to a different, empty conversation. The internal id is what chat memory, the lease,
+the budget, `conversation_turn` and tickets key on; the external one is echoed back in
+`X-Conversation-Id`. V14 adopted every pre-existing row as the `default` tenant with its id
+serving as both. The customer-owned tables (`conversation_turn`, `answer_feedback`,
+`support_ticket`, `conversation_ticket_guard`, `ticket_operation`) carry `tenant_id`;
+`conversation_budget` and `conversation_lease` do not, being keyed by the internal id.
+
+The default tenant's first key comes from `DEFAULT_TENANT_API_KEY`, seeded once into an
+empty `tenant_api_key` table (like the first admin); every later key is issued and revoked by
+an admin at `/admin/api/tenants/{id}/keys`, returned once and recorded in `admin_audit`. The
+spend meters carry a `tenant` label up to `app.tenancy.metrics-label-limit` tenants, then
+`other`. Not yet per tenant: knowledge (every tenant retrieves from the one active version)
+and staff (every admin is a platform admin); both are the next PRs of the ADR.
+
 ## Scope
 
-Do not add customer authentication or multi-tenancy without asking; the bearer token on
-`/internal/**` is service-to-service, the staff login on `/admin/**` is for staff, and those
-two are the whole of what exists. Do not introduce LangChain4j, and do
+Customer authentication is the tenant API key above and nothing more; the bearer token on
+`/internal/**` is service-to-service, the staff login on `/admin/**` is for staff. Do not
+add per-customer identity (end-user accounts) without asking. Do not introduce LangChain4j, and do
 not hand-roll vector retrieval — that belongs to `QuestionAnswerAdvisor`. Check Spring AI's
 actual classes or configuration metadata rather than recalling its API; the naming changed
 repeatedly before 1.0.

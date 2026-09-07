@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.observability;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.ChatService;
 import org.junit.jupiter.api.DisplayName;
@@ -91,8 +92,8 @@ class DashboardMetricsTest {
         given(chatModel.call(any(Prompt.class))).willReturn(response);
         given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(response));
 
-        chatService.ask("dashboard-blocking", "How much is delivery?");
-        chatService.stream("dashboard-streaming", "运费多少钱").blockLast();
+        chatService.ask(Tenant.DEFAULT, "dashboard-blocking", "How much is delivery?");
+        chatService.stream(Tenant.DEFAULT, "dashboard-streaming", "运费多少钱").blockLast();
         rest.getForEntity("/api/v1/chat", String.class); // a 4xx on the public endpoint too
 
         String exposition = rest.getForObject("/actuator/prometheus", String.class);

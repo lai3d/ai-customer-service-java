@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.cost;
 
+import dev.merlionos.customerservice.tenancy.TenancyProperties;
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.MigratedPostgres;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -42,7 +44,8 @@ class ConversationBudgetTest {
 
     private ConversationBudget budget(long tokenBudget, Duration retention) {
         return new ConversationBudget(new CostProperties(tokenBudget, retention,
-                Map.of(MODEL, new CostProperties.ModelPrice(5.00, 25.00))), meterRegistry, postgres.jdbc);
+                Map.of(MODEL, new CostProperties.ModelPrice(5.00, 25.00))),
+                new TenancyProperties(null, null), meterRegistry, postgres.jdbc);
     }
 
     private static String conversation() {

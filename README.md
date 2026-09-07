@@ -344,17 +344,23 @@ request with a 401.
 ## API
 
 
-Both endpoints take the same body. Omit `conversationId` to start a new conversation; the
-assigned id comes back in the `X-Conversation-Id` header of every response.
+Both endpoints take the same body and a tenant API key as a bearer token
+([ADR 002](docs/adr/002-tenancy.md)): the deployment's first key is `DEFAULT_TENANT_API_KEY`
+in `.env`, later ones are issued per customer in the operations admin. Omit `conversationId`
+to start a new conversation; the id comes back in the `X-Conversation-Id` header of every
+response. A supplied id is scoped to the tenant: the same id under two keys is two
+conversations.
 
 ```bash
 # Blocking: one JSON response
 curl -sS localhost:8080/api/v1/chat \
+  -H "Authorization: Bearer $DEFAULT_TENANT_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"message": "Where is my order?"}' | jq
 
 # Streaming: server-sent events
 curl -N localhost:8080/api/v1/chat/stream \
+  -H "Authorization: Bearer $DEFAULT_TENANT_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"conversationId": "abc-123", "message": "And the second one?"}'
 ```
@@ -373,6 +379,7 @@ data: shipped on Monday.
 
 | Failure | Response |
 | --- | --- |
+| No tenant API key, or a revoked one | `401` with a `ProblemDetail` body, before anything else runs |
 | Blank or oversized message | `400` before any model call |
 | A turn already in flight on this conversation | `409` with a `ProblemDetail` body — retry once it has finished |
 | Rate limited or provider overloaded | `503` with a `ProblemDetail` body — retry is worthwhile |
@@ -424,7 +431,15 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 - [x] **12 · Deployment targets** — the same artifact as one process or as three roles, decided by two independent designs reconciled in [ADR 001](docs/adr/001-deployment-targets.md); shared state moved to Postgres under Flyway; both topologies verified in Compose, on kind and in CI
 - [x] **13 · Observability** — the Grafana stack: Prometheus with histograms and exemplars, Tempo with span-derived service graphs, Loki with trace-correlated logs, two dashboards and nine alerts as code, and an OTLP push path verified against the same dashboards
 
-Every item is done, and the system has been run end to end against the live API: a Chinese
+Phase 2 turns the engine into something a customer can integrate, in the order the business
+plan in the workspace sets: each step is something a real customer can be shown.
+
+- [ ] **14 · Tenants** — [ADR 002](docs/adr/002-tenancy.md): tenants and hashed API keys on the public API, the client's conversation id scoped to its tenant, every customer-owned row carrying the tenant, keys issued and revoked in the operations admin *(built)*; knowledge per tenant *(next)*
+- [ ] **15 · Tenant knowledge ingestion** — a customer's own help pages and PDFs into draft knowledge entries, URL and PDF first, with an SSRF guard
+- [ ] **16 · Channel and connector** — an embeddable web widget, and one real order connector (Shopify or Youzan) behind `OrderLookup`, chosen by the first pilot
+- [ ] **17 · Evaluation** — a golden set of real questions and a deflection-rate metric next to cost in Grafana
+
+Every phase 1 item is done, and the system has been run end to end against the live API: a Chinese
 question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token
 usage reaches the budget and the spans, and asked something the corpus does not cover the
 assistant says so rather than inventing an answer.
@@ -437,7 +452,7 @@ assistant says so rather than inventing an answer.
 - There is no evaluation harness scoring answer quality against a golden set — the retrieval
   measurements say which passage was found, not whether the answer was good.
 
-Deliberately out of scope: authentication, multi-tenancy, and MCP.
+Deliberately out of scope: end-user (customer) accounts, and MCP.
 
 ## The same system in Go and in .NET
 

@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.tools;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.chat.TurnEventBusProbe;
@@ -30,7 +31,8 @@ class SupportTicketToolsTest {
     private final SupportTicketTools tools = new SupportTicketTools(operations, meterRegistry, turnEventBus);
 
     private static ToolContext context(String conversationId) {
-        return new ToolContext(Map.of(SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
+        return new ToolContext(Map.of(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT,
+                SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
                 TurnEventBus.TURN_ID_KEY, "turn-" + conversationId));
     }
 
@@ -78,7 +80,8 @@ class SupportTicketToolsTest {
     @DisplayName("the turn's stream is told which tool ran and how it went")
     void publishesToolEventToTheTurn() {
         TurnEventBus.Channel channel = TurnEventBusProbe.open(turnEventBus);
-        ToolContext context = new ToolContext(Map.of(SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION,
+        ToolContext context = new ToolContext(Map.of(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT,
+                SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION,
                 TurnEventBus.TURN_ID_KEY, channel.turnId()));
 
         tools.createSupportTicket("Same problem", "other", null, context);

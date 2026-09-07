@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.TurnRecorder;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +62,7 @@ class AdminFeedbackApiTest {
         accounts.create("bob", PASSWORD, StaffRole.SUPPORT, "root");
         conversation = UUID.randomUUID().toString();
         turn = UUID.randomUUID().toString();
-        recorder.start(turn, conversation, TurnRecorder.Path.STREAM, "运费多少钱");
+        recorder.start(turn, Tenant.DEFAULT, conversation, TurnRecorder.Path.STREAM, "运费多少钱");
         recorder.finish(turn, TurnRecorder.Outcome.COMPLETED, "免运费。", "claude-opus-5", 10, 5, null, null);
     }
 

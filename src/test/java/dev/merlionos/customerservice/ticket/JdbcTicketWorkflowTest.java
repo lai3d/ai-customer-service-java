@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.ticket;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.MigratedPostgres;
 import dev.merlionos.customerservice.ticket.api.TicketActor;
 import dev.merlionos.customerservice.ticket.api.TicketConflictException;
@@ -62,7 +63,7 @@ class JdbcTicketWorkflowTest {
     }
 
     private static TicketRecord newTicket(String summary) {
-        String number = creator.create(new TicketRequest(UUID.randomUUID().toString(),
+        String number = creator.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(),
                 UUID.randomUUID().toString(), summary, "returns", null)).ticket().ticketNumber();
         return replicaA.find(number).orElseThrow();
     }

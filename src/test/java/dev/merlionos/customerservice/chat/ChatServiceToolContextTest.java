@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,22 +57,24 @@ class ChatServiceToolContextTest {
     @Test
     @DisplayName("the blocking path carries the conversation id into the tool context")
     void askSuppliesToolContext() {
-        chatService.ask(CONVERSATION_ID, "Where is my order?");
+        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "Where is my order?");
 
         assertThat(capturedToolContext()).containsEntry(
-                SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION_ID);
+                SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION_ID)
+                .containsEntry(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT);
     }
 
     @Test
     @DisplayName("the streaming path carries it too")
     void streamSuppliesToolContext() {
-        chatService.stream(CONVERSATION_ID, "Where is my order?").blockLast();
+        chatService.stream(Tenant.DEFAULT, CONVERSATION_ID, "Where is my order?").blockLast();
 
         ArgumentCaptor<Prompt> prompt = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel).stream(prompt.capture());
 
         assertThat(toolContextOf(prompt.getValue())).containsEntry(
-                SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION_ID);
+                SupportTicketTools.CONVERSATION_ID_KEY, CONVERSATION_ID)
+                .containsEntry(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT);
     }
 
     private java.util.Map<String, Object> capturedToolContext() {

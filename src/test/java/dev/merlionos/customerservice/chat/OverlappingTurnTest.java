@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,19 +50,19 @@ class OverlappingTurnTest {
                 Flux.just(reply).delayElements(Duration.ofSeconds(2)).doOnSubscribe(s -> firstStarted.countDown()));
         given(chatModel.call(any(Prompt.class))).willReturn(reply);
 
-        chatService.stream("shared-conversation", "first")
+        chatService.stream(Tenant.DEFAULT, "shared-conversation", "first")
                 .doFinally(signal -> firstFinished.countDown())
                 .subscribe();
         assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
-        assertThatThrownBy(() -> chatService.ask("shared-conversation", "second"))
+        assertThatThrownBy(() -> chatService.ask(Tenant.DEFAULT, "shared-conversation", "second"))
                 .isInstanceOf(ConversationBusyException.class);
-        assertThatThrownBy(() -> chatService.stream("shared-conversation", "second"))
+        assertThatThrownBy(() -> chatService.stream(Tenant.DEFAULT, "shared-conversation", "second"))
                 .as("refused before a stream is built, so the client sees a status, not an error event")
                 .isInstanceOf(ConversationBusyException.class);
-        assertThatCode(() -> chatService.ask("another-conversation", "unrelated")).doesNotThrowAnyException();
+        assertThatCode(() -> chatService.ask(Tenant.DEFAULT, "another-conversation", "unrelated")).doesNotThrowAnyException();
 
         assertThat(firstFinished.await(10, TimeUnit.SECONDS)).isTrue();
-        assertThatCode(() -> chatService.ask("shared-conversation", "second, later")).doesNotThrowAnyException();
+        assertThatCode(() -> chatService.ask(Tenant.DEFAULT, "shared-conversation", "second, later")).doesNotThrowAnyException();
     }
 }

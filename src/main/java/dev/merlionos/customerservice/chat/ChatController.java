@@ -1,5 +1,9 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Conversations;
+import dev.merlionos.customerservice.tenancy.Tenant;
+import dev.merlionos.customerservice.tenancy.TenantContext;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/chat")
@@ -37,18 +40,22 @@ class ChatController {
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
     private final ChatService chatService;
+    private final Conversations conversations;
 
-    ChatController(ChatService chatService) {
+    ChatController(ChatService chatService, Conversations conversations) {
         this.chatService = chatService;
+        this.conversations = conversations;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    ResponseEntity<ChatReply> chat(@Valid @RequestBody ChatRequest request) {
-        String conversationId = resolveConversationId(request);
+    ResponseEntity<ChatReply> chat(@Valid @RequestBody ChatRequest request, HttpServletRequest http) {
+        Tenant tenant = TenantContext.require(http);
+        Resolved conversation = resolveConversation(tenant, request);
 
         return ResponseEntity.ok()
-                .header(CONVERSATION_ID_HEADER, conversationId)
-                .body(new ChatReply(conversationId, chatService.ask(conversationId, request.message())));
+                .header(CONVERSATION_ID_HEADER, conversation.external())
+                .body(new ChatReply(conversation.external(),
+                        chatService.ask(tenant.id(), conversation.internal(), request.message())));
     }
 
     /**
@@ -67,10 +74,13 @@ class ChatController {
      */
     @PostMapping(path = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    ResponseEntity<Flux<ServerSentEvent<TurnEvent>>> stream(@Valid @RequestBody ChatRequest request) {
-        String conversationId = resolveConversationId(request);
+    ResponseEntity<Flux<ServerSentEvent<TurnEvent>>> stream(@Valid @RequestBody ChatRequest request,
+                                                              HttpServletRequest http) {
+        Tenant tenant = TenantContext.require(http);
+        Resolved conversation = resolveConversation(tenant, request);
+        String conversationId = conversation.internal();
 
-        Flux<ServerSentEvent<TurnEvent>> events = chatService.stream(conversationId, request.message())
+        Flux<ServerSentEvent<TurnEvent>> events = chatService.stream(tenant.id(), conversationId, request.message())
                 .map(ChatController::toServerSentEvent)
                 .onErrorResume(error -> {
                     log.error("Streamed chat failed for conversation {}", conversationId, error);
@@ -79,7 +89,7 @@ class ChatController {
                 });
 
         return ResponseEntity.ok()
-                .header(CONVERSATION_ID_HEADER, conversationId)
+                .header(CONVERSATION_ID_HEADER, conversation.external())
                 .body(withHeartbeat(events));
     }
 
@@ -102,9 +112,19 @@ class ChatController {
                 Flux.merge(shared, heartbeats.takeUntilOther(shared.ignoreElements())));
     }
 
-    private static String resolveConversationId(ChatRequest request) {
-        return StringUtils.hasText(request.conversationId())
-                ? request.conversationId()
-                : UUID.randomUUID().toString();
+    /** The client's id and ours. The client's is echoed; ours is what every table keys on. */
+    private record Resolved(String external, String internal) {
+    }
+
+    /**
+     * The client's conversation id is scoped to its tenant and mapped to an internal one
+     * (ADR 002): a guessed id from another tenant's client resolves to a different, empty
+     * conversation rather than to someone else's history. A request with no id starts a new
+     * conversation whose id is both.
+     */
+    private Resolved resolveConversation(Tenant tenant, ChatRequest request) {
+        String external = StringUtils.hasText(request.conversationId()) ? request.conversationId() : null;
+        String internal = conversations.resolve(tenant.id(), external);
+        return new Resolved(external != null ? external : internal, internal);
     }
 }

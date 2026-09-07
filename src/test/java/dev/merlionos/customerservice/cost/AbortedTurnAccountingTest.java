@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.cost;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.ChatService;
 import org.junit.jupiter.api.DisplayName;
@@ -56,7 +57,7 @@ class AbortedTurnAccountingTest {
                 Flux.just(withUsage()).concatWith(Flux.error(new IllegalStateException("upstream died"))));
 
         String conversation = UUID.randomUUID().toString();
-        chatService.stream(conversation, "How much is delivery?")
+        chatService.stream(Tenant.DEFAULT, conversation, "How much is delivery?")
                 .onErrorResume(error -> Flux.empty())
                 .blockLast();
 
@@ -75,7 +76,7 @@ class AbortedTurnAccountingTest {
         // Cancel after tokens have flowed, which is when usage exists to record. Cancelling on
         // the first event would cancel on the retrieval event, before the model had replied at
         // all -- nothing to account for, and the assertion would be about the wrong thing.
-        chatService.stream(conversation, "How much is delivery?")
+        chatService.stream(Tenant.DEFAULT, conversation, "How much is delivery?")
                 .filter(event -> event instanceof dev.merlionos.customerservice.chat.TurnEvent.Token)
                 .take(2)
                 .blockLast();
@@ -108,7 +109,7 @@ class AbortedTurnAccountingTest {
         given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(withUsage()));
 
         String conversation = UUID.randomUUID().toString();
-        chatService.stream(conversation, "How much is delivery?").blockLast();
+        chatService.stream(Tenant.DEFAULT, conversation, "How much is delivery?").blockLast();
 
         assertThat(budget.spent(conversation))
                 .as("the completion path and doFinally must not both count it")

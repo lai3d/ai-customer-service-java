@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,7 +62,7 @@ class TurnEventStreamIntegrationTest {
     @Test
     @DisplayName("a turn reports what it retrieved, what it answered, and what it cost")
     void streamsRetrievalTokensAndUsage() {
-        List<TurnEvent> events = chatService.stream("conversation-events", "运费多少钱")
+        List<TurnEvent> events = chatService.stream(Tenant.DEFAULT, "conversation-events", "运费多少钱")
                 .collectList().block();
 
         assertThat(events).isNotNull();
@@ -104,7 +105,7 @@ class TurnEventStreamIntegrationTest {
     @Test
     @DisplayName("a streamed turn leaves a completed record: question, answer, model usage, and what retrieval found")
     void streamedTurnIsRecorded() {
-        chatService.stream("conversation-recorded", "运费多少钱").collectList().block();
+        chatService.stream(Tenant.DEFAULT, "conversation-recorded", "运费多少钱").collectList().block();
 
         Map<String, Object> turn = turnRow("conversation-recorded");
         assertThat(turn).containsEntry("path", "stream").containsEntry("outcome", "completed")
@@ -128,7 +129,7 @@ class TurnEventStreamIntegrationTest {
                 List.of(new Generation(new AssistantMessage("满 50 美元免运费。"))),
                 ChatResponseMetadata.builder().usage(new DefaultUsage(900, 40)).model("claude-opus-5").build()));
 
-        String answer = chatService.ask("conversation-blocking", "运费多少钱");
+        String answer = chatService.ask(Tenant.DEFAULT, "conversation-blocking", "运费多少钱");
 
         assertThat(answer).isEqualTo("满 50 美元免运费。");
         Map<String, Object> turn = turnRow("conversation-blocking");
@@ -144,7 +145,7 @@ class TurnEventStreamIntegrationTest {
     void failedTurnIsRecorded() {
         given(chatModel.stream(any(Prompt.class))).willReturn(Flux.error(new IllegalStateException("provider down")));
 
-        assertThatThrownBy(() -> chatService.stream("conversation-failed", "运费多少钱").collectList().block())
+        assertThatThrownBy(() -> chatService.stream(Tenant.DEFAULT, "conversation-failed", "运费多少钱").collectList().block())
                 .isInstanceOf(RuntimeException.class);
 
         Map<String, Object> turn = turnRow("conversation-failed");
@@ -159,7 +160,7 @@ class TurnEventStreamIntegrationTest {
     @Test
     @DisplayName("a client that stops listening leaves an interrupted record, not a completed one")
     void cancelledTurnIsRecorded() {
-        chatService.stream("conversation-cancelled", "运费多少钱").take(1).blockLast();
+        chatService.stream(Tenant.DEFAULT, "conversation-cancelled", "运费多少钱").take(1).blockLast();
 
         assertThat(turnRow("conversation-cancelled")).containsEntry("outcome", "interrupted");
     }
@@ -167,7 +168,7 @@ class TurnEventStreamIntegrationTest {
     @Test
     @DisplayName("retrieval is reported once, not on every chunk")
     void reportsRetrievalOnce() {
-        List<TurnEvent> events = chatService.stream("conversation-once", "运费多少钱")
+        List<TurnEvent> events = chatService.stream(Tenant.DEFAULT, "conversation-once", "运费多少钱")
                 .collectList().block();
 
         assertThat(events).filteredOn(TurnEvent.Retrieval.class::isInstance).hasSize(1);

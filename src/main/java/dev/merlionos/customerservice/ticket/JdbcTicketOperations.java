@@ -89,8 +89,8 @@ public class JdbcTicketOperations implements TicketOperations {
             // The row exists after this whether or not it existed before, and the FOR UPDATE
             // below is what every competing creator for this conversation waits on -- including
             // a retry of an operation that is still being committed by its first attempt.
-            jdbc.update("INSERT INTO conversation_ticket_guard (conversation_id) VALUES (?) ON CONFLICT DO NOTHING",
-                    conversationId);
+            jdbc.update("INSERT INTO conversation_ticket_guard (conversation_id, tenant_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                    conversationId, request.tenantId());
             int count = jdbc.queryForObject(
                     "SELECT ticket_count FROM conversation_ticket_guard WHERE conversation_id = ? FOR UPDATE",
                     Integer.class, conversationId);
@@ -106,9 +106,9 @@ public class JdbcTicketOperations implements TicketOperations {
             TicketResult outcome = decide(conversationId, deduplicationKey, request);
             jdbc.update("""
                     INSERT INTO ticket_operation
-                        (operation_id, conversation_id, fingerprint, status, ticket_number, explanation, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, request.operationId(), conversationId, fingerprint, outcome.status().name(),
+                        (operation_id, tenant_id, conversation_id, fingerprint, status, ticket_number, explanation, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, request.operationId(), request.tenantId(), conversationId, fingerprint, outcome.status().name(),
                     outcome.ticket() == null ? null : outcome.ticket().ticketNumber(), outcome.explanation(),
                     Timestamp.from(Instant.now()));
             return outcome;
@@ -149,9 +149,9 @@ public class JdbcTicketOperations implements TicketOperations {
             // a fresh ticket "updated before it was created" is a wrong answer to a right question.
             jdbc.update("""
                     INSERT INTO support_ticket
-                        (ticket_number, conversation_id, dedupe_key, category, summary, order_number, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, ticket.ticketNumber(), conversationId, deduplicationKey, ticket.category(),
+                        (ticket_number, tenant_id, conversation_id, dedupe_key, category, summary, order_number, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, ticket.ticketNumber(), request.tenantId(), conversationId, deduplicationKey, ticket.category(),
                     ticket.summary(), ticket.orderNumber(), Timestamp.from(ticket.createdAt()),
                     Timestamp.from(ticket.createdAt()));
             jdbc.update("UPDATE conversation_ticket_guard SET ticket_count = ticket_count + 1 WHERE conversation_id = ?",
@@ -186,7 +186,7 @@ public class JdbcTicketOperations implements TicketOperations {
 
     /** What makes two requests "the same request": everything the caller chose, normalised. */
     static String fingerprint(TicketRequest request) {
-        return String.join("\u001f", request.conversationId(), normalise(request.summary()),
+        return String.join("\u001f", request.tenantId(), request.conversationId(), normalise(request.summary()),
                 normalise(request.category()), request.orderNumber() == null ? "" : request.orderNumber().strip());
     }
 

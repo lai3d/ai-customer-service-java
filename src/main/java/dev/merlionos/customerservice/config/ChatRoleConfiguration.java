@@ -8,6 +8,8 @@ import dev.merlionos.customerservice.orders.OrderLookup;
 import dev.merlionos.customerservice.provider.XaiChatConfig;
 import dev.merlionos.customerservice.target.ConditionalOnTarget;
 import dev.merlionos.customerservice.target.DeploymentTarget;
+import dev.merlionos.customerservice.tenancy.Tenants;
+import dev.merlionos.customerservice.tenancy.Tenants;
 import dev.merlionos.customerservice.tools.OrderTools;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -32,6 +34,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         ConversationBudget.class,   // cost
         OrderLookup.class,          // orders
         XaiChatConfig.class,        // provider
+        Tenants.class,              // tenancy: the tenant table, the API-key filter, the conversation mapping
+        Tenants.class,              // tenancy: the tenant table, the API-key filter, the conversation mapping
         OrderTools.class            // tools
 })
 public class ChatRoleConfiguration {

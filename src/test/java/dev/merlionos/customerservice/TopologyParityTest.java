@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
@@ -255,7 +256,7 @@ class TopologyParityTest {
 
         given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Sorry to hear that."))))));
-        List<TurnEvent> events = chat.getBean(ChatService.class).stream("parity-conversation", question)
+        List<TurnEvent> events = chat.getBean(ChatService.class).stream(Tenant.DEFAULT, "parity-conversation", question)
                 .collectList().block();
 
         TurnEvent.Retrieval retrieval = events.stream()
@@ -276,7 +277,7 @@ class TopologyParityTest {
         SupportTicketTools tools = chat.getBean(SupportTicketTools.class);
         JdbcTemplate ticketDb = ticket.getBean(JdbcTemplate.class);
         String conversation = "seam-conversation";
-        ToolContext context = new ToolContext(Map.of(
+        ToolContext context = new ToolContext(Map.of(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT,
                 SupportTicketTools.CONVERSATION_ID_KEY, conversation, TurnEventBus.TURN_ID_KEY, "turn-1"));
 
         TicketResult created = tools.createSupportTicket("Parcel arrived crushed", "returns", "ORD-10042", context);
@@ -396,7 +397,7 @@ class TopologyParityTest {
     void ticketProcessGone() {
         ticket.close();
         SupportTicketTools tools = chat.getBean(SupportTicketTools.class);
-        ToolContext context = new ToolContext(Map.of(
+        ToolContext context = new ToolContext(Map.of(SupportTicketTools.TENANT_ID_KEY, Tenant.DEFAULT,
                 SupportTicketTools.CONVERSATION_ID_KEY, "orphan-conversation", TurnEventBus.TURN_ID_KEY, "turn-2"));
 
         TicketResult result = tools.createSupportTicket("Anything", "other", null, context);
@@ -417,7 +418,7 @@ class TopologyParityTest {
         given(chatModel.call(any(Prompt.class))).willReturn(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Should never be reached.")))));
 
-        assertThatThrownBy(() -> chat.getBean(ChatService.class).ask("grounding-conversation", "how much is delivery"))
+        assertThatThrownBy(() -> chat.getBean(ChatService.class).ask(Tenant.DEFAULT, "grounding-conversation", "how much is delivery"))
                 .isInstanceOf(KnowledgeUnavailableException.class);
         assertThatThrownBy(() -> http(chat).get().uri("/actuator/health/readiness").retrieve().toBodilessEntity())
                 .isInstanceOf(org.springframework.web.client.HttpServerErrorException.ServiceUnavailable.class);
