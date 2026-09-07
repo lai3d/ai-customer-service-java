@@ -404,6 +404,7 @@ against evidence, and says what the evidence was.
 | [Virtual threads, measured](docs/benchmark.md) | 3x the throughput and 202 platform threads down to 2 — plus two measurements that were confidently wrong first |
 | [Chat providers](docs/providers.md) | Anthropic, OpenAI, Gemini and xAI by configuration — and why xAI is a provider rather than a base-URL trick |
 | [The demo UI](docs/demo-ui.md) | A glass box rather than a chat widget, and the two backend problems it forced into the open |
+| [Evaluation](docs/evaluation.md) | The golden set and the deflection rate: what a pass is, what the first live run found (an empty answer, a rubric fault), and what the numbers do not mean |
 | [The web widget](docs/widget.md) | The chat widget a customer embeds with one script tag, and why a key in a web page is bounded by origins rather than secrecy |
 | [Deployment](docs/deployment.md) | The container image, the Compose stack, and the Kubernetes manifests |
 | [Operations admin](docs/operations-admin.md) | Staff login, the ticket loop, the turn record, conversations, feedback, knowledge publication and the overview as built, in two rounds, where they depart from the proposal and what building them found; then the proposal |
@@ -440,7 +441,7 @@ plan in the workspace sets: each step is something a real customer can be shown.
 - [x] **14 · Tenants** — [ADR 002](docs/adr/002-tenancy.md): tenants and hashed API keys on the public API, the client's conversation id scoped to its tenant, every customer-owned row carrying the tenant, keys issued and revoked in the operations admin; knowledge per tenant, each tenant retrieving only its own active version, through the advisor and over the seam; staff per tenant, every admin read and write scoped by the session, platform staff above them
 - [x] **15 · Tenant knowledge ingestion** — a customer's own help pages and PDFs into draft knowledge entries through Spring AI's readers, re-import as replacement, fetched on the knowledge role behind an SSRF guard; publishing stays the admin's explicit step
 - [ ] **16 · Channel and connector** — an embeddable [web widget](docs/widget.md) on the customer's own page, with widget keys bound to origins *(built)*; one real order connector (Shopify or Youzan) behind `OrderLookup`, chosen by the first pilot *(next)*
-- [ ] **17 · Evaluation** — a golden set of real questions and a deflection-rate metric next to cost in Grafana
+- [x] **17 · Evaluation** — a [golden set](docs/evaluation.md) per tenant run through the real chat path and scored by rule, the deflection rate sampled from real conversations, both as gauges on the Quality row of the dashboard; the bundled set measured live, 41 of 43
 
 Every phase 1 item is done, and the system has been run end to end against the live API: a Chinese
 question retrieves Chinese passages and is answered in Chinese, both tools round-trip, real token
@@ -452,8 +453,9 @@ assistant says so rather than inventing an answer.
 - One of fourteen multi-intent questions still misses the passage that answers it. Fixing it
   would mean putting a third of the corpus into every prompt; the measurement behind that
   decision is in [Retrieval](docs/retrieval.md#multi-intent-questions-and-what-fixed-them).
-- There is no evaluation harness scoring answer quality against a golden set — the retrieval
-  measurements say which passage was found, not whether the answer was good.
+- Answer quality is scored by rule against a golden set ([Evaluation](docs/evaluation.md)):
+  the facts an answer must state, not whether it is well put. A model-graded score is the
+  next step, and costs a second model call per case.
 
 Deliberately out of scope: end-user (customer) accounts, and MCP.
 

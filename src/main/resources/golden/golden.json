@@ -1,0 +1,704 @@
+{
+  "notice": "The default tenant's golden set, seeded once into an empty golden_case table (docs/evaluation.md). Paraphrases of what the bundled FAQ answers, with the fact a wrong answer would get wrong; two multi-intent questions; the two tools; two questions the knowledge does not cover.",
+  "cases": [
+    {
+      "question": "I got a jacket two weeks ago and it doesn't fit. Can I still send it back?",
+      "language": "en",
+      "expectedEntryIds": [
+        "returns-window"
+      ],
+      "mustContain": [
+        "30 days"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "两周前买的外套不合身，现在还能退吗？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "returns-window"
+      ],
+      "mustContain": [
+        "30 天"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "What are the steps to return something I bought?",
+      "language": "en",
+      "expectedEntryIds": [
+        "returns-how"
+      ],
+      "mustContain": [
+        "prepaid"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "退货具体怎么操作？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "returns-how"
+      ],
+      "mustContain": [
+        "面单"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I posted my return last week. When does the money come back?",
+      "language": "en",
+      "expectedEntryIds": [
+        "returns-refund-timing"
+      ],
+      "mustContain": [
+        "3 business days"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "退货寄回去了，退款什么时候到？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "returns-refund-timing"
+      ],
+      "mustContain": [
+        "3 个工作日"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "The box arrived crushed and the lamp inside is cracked. What now?",
+      "language": "en",
+      "expectedEntryIds": [
+        "returns-damaged"
+      ],
+      "mustContain": [
+        "48 hours"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "收到的台灯是裂的，怎么处理？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "returns-damaged"
+      ],
+      "mustContain": [
+        "48 小时"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I'd like the same shoes in a bigger size. Can you swap them?",
+      "language": "en",
+      "expectedEntryIds": [
+        "returns-exchange"
+      ],
+      "mustContain": [
+        "new order"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "鞋子想换大一码，可以直接换吗？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "returns-exchange"
+      ],
+      "mustContain": [
+        "重新下单"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "If I order today, when will it arrive?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-times"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "3 to 5",
+        "3-5",
+        "three to five"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "今天下单大概几天能到？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-times"
+      ],
+      "mustContain": [
+        "3 到 5"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "Is delivery free?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-cost"
+      ],
+      "mustContain": [
+        "50"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "运费要多少钱，有没有包邮？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-cost"
+      ],
+      "mustContain": [
+        "50"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I haven't got a tracking update since dispatch. Is that normal?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-tracking"
+      ],
+      "mustContain": [
+        "12 hours"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "发货后一直没有物流信息，正常吗？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-tracking"
+      ],
+      "mustContain": [
+        "12 小时"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "Can you deliver to Japan, and who pays the customs charges?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-international"
+      ],
+      "mustContain": [
+        "34"
+      ],
+      "anyOf": [
+        "duties",
+        "duty",
+        "tax"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "能寄到日本吗？关税谁付？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-international"
+      ],
+      "mustContain": [
+        "34"
+      ],
+      "anyOf": [
+        "关税",
+        "税"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I entered the wrong flat number. Can I fix the address?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-address-change"
+      ],
+      "mustContain": [
+        "Preparing"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "收货地址填错了，还能改吗？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-address-change"
+      ],
+      "mustContain": [
+        "备货中"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "Do you take PayPal or only cards?",
+      "language": "en",
+      "expectedEntryIds": [
+        "payment-methods"
+      ],
+      "mustContain": [
+        "PayPal"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "可以用 PayPal 付款吗？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "payment-methods"
+      ],
+      "mustContain": [
+        "PayPal"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "My card keeps getting declined at checkout and I don't know why.",
+      "language": "en",
+      "expectedEntryIds": [
+        "payment-declined"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "expired",
+        "billing address",
+        "fraud"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "结账时一直提示付款失败，是什么原因？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "payment-declined"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "过期",
+        "账单地址",
+        "风控"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "There are two charges on my statement for a single order.",
+      "language": "en",
+      "expectedEntryIds": [
+        "payment-double-charge"
+      ],
+      "mustContain": [
+        "5 business days"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "一个订单在账单上扣了两次。",
+      "language": "zh",
+      "expectedEntryIds": [
+        "payment-double-charge"
+      ],
+      "mustContain": [
+        "5 个工作日"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I need a proper invoice with my company's tax number.",
+      "language": "en",
+      "expectedEntryIds": [
+        "payment-invoice"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "shipped",
+        "ships",
+        "dispatched"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "我要一张带公司抬头和税号的发票。",
+      "language": "zh",
+      "expectedEntryIds": [
+        "payment-invoice"
+      ],
+      "mustContain": [
+        "发货"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I can't remember my password. What do I do?",
+      "language": "en",
+      "expectedEntryIds": [
+        "account-password"
+      ],
+      "mustContain": [
+        "30 minutes"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "密码忘了，怎么找回？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "account-password"
+      ],
+      "mustContain": [
+        "30 分钟"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "Please delete my account and all my data.",
+      "language": "en",
+      "expectedEntryIds": [
+        "account-delete"
+      ],
+      "mustContain": [
+        "30 days"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "我想注销账户并删除所有数据。",
+      "language": "zh",
+      "expectedEntryIds": [
+        "account-delete"
+      ],
+      "mustContain": [
+        "30 天"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "An order from three years ago has vanished from my account.",
+      "language": "en",
+      "expectedEntryIds": [
+        "account-order-history"
+      ],
+      "mustContain": [
+        "24 months"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "三年前的订单在账户里找不到了。",
+      "language": "zh",
+      "expectedEntryIds": [
+        "account-order-history"
+      ],
+      "mustContain": [
+        "24 个月"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "Is there a real person I can talk to, and when?",
+      "language": "en",
+      "expectedEntryIds": [
+        "support-hours"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "9am",
+        "9 am",
+        "9:00",
+        "09:00"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "什么时候能找到人工客服？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "support-hours"
+      ],
+      "mustContain": [],
+      "anyOf": [
+        "9:00",
+        "9 点",
+        "9点",
+        "九点"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": null
+    },
+    {
+      "question": "I ordered yesterday and need to change the delivery address; also, how long will delivery take?",
+      "language": "en",
+      "expectedEntryIds": [
+        "shipping-address-change",
+        "shipping-times"
+      ],
+      "mustContain": [
+        "Preparing"
+      ],
+      "anyOf": [
+        "3 to 5",
+        "3-5",
+        "three to five"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": "multi-intent"
+    },
+    {
+      "question": "我想改一下收货地址，另外运费怎么算？",
+      "language": "zh",
+      "expectedEntryIds": [
+        "shipping-address-change",
+        "shipping-cost"
+      ],
+      "mustContain": [
+        "备货中",
+        "50"
+      ],
+      "anyOf": [],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": false,
+      "note": "multi-intent"
+    },
+    {
+      "question": "Where is my order ORD-10042?",
+      "language": "en",
+      "expectedEntryIds": [],
+      "mustContain": [
+        "ORD-10042"
+      ],
+      "anyOf": [
+        "transit",
+        "on its way",
+        "shipped",
+        "SingPost"
+      ],
+      "mustNotContain": [],
+      "expectTool": "lookup_order_status",
+      "expectRefusal": false,
+      "note": "order tool"
+    },
+    {
+      "question": "我的订单 ORD-10043 现在什么状态？",
+      "language": "zh",
+      "expectedEntryIds": [],
+      "mustContain": [
+        "ORD-10043"
+      ],
+      "anyOf": [
+        "备货",
+        "准备",
+        "处理",
+        "打包"
+      ],
+      "mustNotContain": [],
+      "expectTool": "lookup_order_status",
+      "expectRefusal": false,
+      "note": "order tool"
+    },
+    {
+      "question": "My parcel arrived crushed and I want a refund. Please have a person deal with this.",
+      "language": "en",
+      "expectedEntryIds": [],
+      "mustContain": [],
+      "anyOf": [
+        "ticket",
+        "TKT-",
+        "agent",
+        "colleague",
+        "team"
+      ],
+      "mustNotContain": [],
+      "expectTool": "create_support_ticket",
+      "expectRefusal": false,
+      "note": "escalation"
+    },
+    {
+      "question": "Do you have the blue reading lamp in stock right now?",
+      "language": "en",
+      "expectedEntryIds": [],
+      "mustContain": [],
+      "anyOf": [
+        "don't have",
+        "do not have",
+        "can't check",
+        "cannot check",
+        "not able",
+        "unable",
+        "no information",
+        "don't know",
+        "do not know",
+        "escalate",
+        "human",
+        "agent",
+        "not something i can"
+      ],
+      "mustNotContain": [
+        "yes, it is in stock",
+        "in stock and ready"
+      ],
+      "expectTool": null,
+      "expectRefusal": true,
+      "note": "outside the knowledge"
+    },
+    {
+      "question": "你们的蓝牙耳机现在有货吗？",
+      "language": "zh",
+      "expectedEntryIds": [],
+      "mustContain": [],
+      "anyOf": [
+        "无法",
+        "没有",
+        "不能",
+        "人工",
+        "转接",
+        "查不到",
+        "不清楚",
+        "不了解"
+      ],
+      "mustNotContain": [],
+      "expectTool": null,
+      "expectRefusal": true,
+      "note": "outside the knowledge"
+    }
+  ]
+}

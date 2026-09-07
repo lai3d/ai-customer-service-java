@@ -21,8 +21,8 @@
         <java.version>21</java.version>
         <!-- Spring AI 1.1.x targets Spring Boot 3.5.x. The 2.0.x line requires Spring Boot 4.x. -->
         <spring-ai.version>1.1.8</spring-ai.version>
-        <!-- Overridable so the benchmark can be opted into: -Dexcluded.test.groups= -->
-        <excluded.test.groups>benchmark</excluded.test.groups>
+        <!-- Overridable so the benchmark and the live evaluation can be opted into: -Dexcluded.test.groups= -->
+        <excluded.test.groups>benchmark,evaluation</excluded.test.groups>
     </properties>
 
     <dependencyManagement>

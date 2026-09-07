@@ -45,6 +45,19 @@ public class Conversations {
         return find(tenantId, external).orElseThrow();
     }
 
+    /**
+     * A conversation an evaluation run owns, marked so nothing counts it as a customer's:
+     * not deflection, not the overview, not what staff read. Its id is minted here.
+     */
+    public String createEvaluation(String tenantId, String externalId) {
+        String internal = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO conversation (id, tenant_id, external_id, created_at, kind) VALUES (?, ?, ?, ?, 'evaluation')
+                ON CONFLICT (tenant_id, external_id) DO NOTHING
+                """, internal, tenantId, externalId, Timestamp.from(Instant.now()));
+        return find(tenantId, externalId).orElseThrow();
+    }
+
     public Optional<String> find(String tenantId, String externalId) {
         return jdbc.query("SELECT id FROM conversation WHERE tenant_id = ? AND external_id = ?",
                 (rs, i) -> rs.getString(1), tenantId, externalId).stream().findFirst();
