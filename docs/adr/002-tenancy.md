@@ -1,20 +1,36 @@
 # ADR 002: Tenants, and a tenant's own knowledge
 
-- **Status:** accepted 2026-09-07; being built. Steps 2 (the tenant model), 3 (knowledge
-  per tenant) and 4 (URL and PDF ingestion) are merged; step 5, staff per tenant, is being
-  built by the operations-admin session, and the docs step closes the ADR. Where the build departed from the text: existing conversations
-  kept their id as both external and internal rather than being rewritten, so the budget and
-  lease tables needed no tenant column; staff scoping and the `platform` role moved from step
-  2 to step 3, since every admin is a platform admin until knowledge is per tenant; in step 3 the tenant
-  reached the vector store as the advisor's per-request filter expression rather than a
-  metadata field on every document, because a version already belongs to one tenant.
-  In step 4 an import runs asynchronously on the knowledge role and is polled, rather than
-  answering within the seam's five-second call; chunk entry ids are derived from the source
-  and the chunk's position so a re-import replaces. Staff per tenant is step 5, owned by the
-  operations-admin session, with platform staff as accounts with no tenant. The first engineering step of
-  [BUSINESS-PLAN.md](../../../BUSINESS-PLAN.md) in the workspace root: a customer integrates
-  by bringing their own knowledge, and that requires the system to know whose knowledge, whose
-  conversations and whose tickets it is holding.
+- **Status:** built, 2026-09-07, in five pull requests over one day (#51 the tenant model,
+  #53 knowledge per tenant, #55 URL and PDF ingestion, #56 staff per tenant, with the admin
+  UI's #52 and #54); about six session hours against the eleven to fourteen estimated. The
+  first engineering step of [BUSINESS-PLAN.md](../../../BUSINESS-PLAN.md) in the workspace
+  root: a customer integrates by bringing their own knowledge, and that requires the system
+  to know whose knowledge, whose conversations and whose tickets it is holding.
+- **Where the build departed from the text below**, so the text stays a record of the
+  decision and this list a record of what was learned building it:
+  - Existing conversations kept their id as both external and internal rather than being
+    rewritten, so `conversation_budget` and `conversation_lease`, keyed by the internal id,
+    needed no tenant column.
+  - The tenant reaches the vector store as `QuestionAnswerAdvisor`'s per-request filter
+    expression (`tenant == 'acme'`, read back by `ActiveVersionVectorStore`), not as a
+    metadata field on every document: a version already belongs to one tenant, so the
+    `corpus_version` filter is the isolation and the tenant only chooses the version.
+  - An import runs asynchronously on the knowledge role and is polled, like a publication,
+    because a fetch can take seconds and the seam's client gives an internal call five;
+    chunk entry ids are the source's hash plus the chunk's position, so a re-import replaces.
+  - There is no `platform` role. Platform staff are accounts with no tenant, admins by a
+    CHECK; `default` tenant staff carry `tenant = default`, so null means one thing. The seed
+    creates one platform admin and nothing else; a platform admin creating a support member
+    without naming a tenant puts them in `default`, and `?tenant=platform` on the staff list
+    is the platform accounts. Platform staff see every tenant's rows, narrowed by `?tenant=`,
+    rather than "no customer content": the operator of a multi-tenant deployment is who
+    answers a tenant's support question about its own data.
+  - A single row outside the caller's tenant is a `404`, not a `403`, since a `403` would
+    confirm the row exists; naming another tenant in `?tenant=` is a `403` recorded as a
+    refusal. The last-enabled-admin rule is per scope, platform accounts counting only among
+    platform accounts.
+  - Known limit, recorded in CLAUDE.md: the SSRF guard resolves a host and the HTTP client
+    resolves it again, so DNS rebinding between the two is not caught.
 - **Supersedes:** the scope line in CLAUDE.md that kept multi-tenancy out, on the owner's ask.
 - **Builds on:** [ADR 001](001-deployment-targets.md) (the roles and their seams), the
   knowledge-version design and the staff login recorded in `docs/operations-admin.md`.
@@ -257,7 +273,7 @@ single tenant did. Estimates are Claude session hours.
 | 2 | The tenant model: tables, the migration that adopts existing rows into `default`, the API-key filter and tenant context, the `conversation` mapping, every query scoped, isolation tests per module, the `platform` role and its endpoints, the smoke scripts and the demo page sending a key | 5–7 |
 | 3 | Knowledge per tenant: filters, per-tenant active pointer, bootstrap for `default` only, the seams carrying the tenant, the parity test case | 2 |
 | 4 | Ingestion: URL and PDF into draft entries, the SSRF guard, re-ingest as replacement, tests with a local HTTP server and a small PDF | 3–4 |
-| 5 | Docs: this ADR marked built, CLAUDE.md's scope line and a tenancy section, `docs/operations-admin.md` record, `BUSINESS-PLAN.md` step 1 done | 1 |
+| 5 | Staff per tenant (moved here from step 2; built by the operations-admin session) and the docs: this ADR marked built, CLAUDE.md's scope line and a tenancy section, `docs/operations-admin.md` record, `BUSINESS-PLAN.md` step 1 done | 1 |
 
 ## Open questions for review
 
