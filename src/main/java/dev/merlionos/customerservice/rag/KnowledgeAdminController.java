@@ -44,61 +44,62 @@ class KnowledgeAdminController {
         this.admin = admin;
     }
 
-    @GetMapping("/entries")
-    List<KnowledgeEntry> entries() {
-        return admin.entries();
+    @GetMapping("/{tenant}/entries")
+    List<KnowledgeEntry> entries(@PathVariable String tenant) {
+        return admin.entries(tenant);
     }
 
-    @GetMapping("/entries/{id}")
-    ResponseEntity<KnowledgeEntry> entry(@PathVariable String id) {
-        return admin.entry(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    @GetMapping("/{tenant}/entries/{id}")
+    ResponseEntity<KnowledgeEntry> entry(@PathVariable String tenant, @PathVariable String id) {
+        return admin.entry(tenant, id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/entries/{id}")
-    KnowledgeEntry create(@PathVariable String id, @RequestBody KnowledgeCommand command) {
-        return admin.createEntry(id, command.category(), command.actor());
+    @PostMapping("/{tenant}/entries/{id}")
+    KnowledgeEntry create(@PathVariable String tenant, @PathVariable String id, @RequestBody KnowledgeCommand command) {
+        return admin.createEntry(tenant, id, command.category(), command.actor());
     }
 
-    @PutMapping("/entries/{id}/drafts/{language}")
-    KnowledgeRevision saveDraft(@PathVariable String id, @PathVariable String language, @RequestBody DraftText draft) {
-        return admin.saveDraft(id, language, draft.question(), draft.answer(), draft.note(), draft.actor());
+    @PutMapping("/{tenant}/entries/{id}/drafts/{language}")
+    KnowledgeRevision saveDraft(@PathVariable String tenant, @PathVariable String id, @PathVariable String language,
+                                @RequestBody DraftText draft) {
+        return admin.saveDraft(tenant, id, language, draft.question(), draft.answer(), draft.note(), draft.actor());
     }
 
-    @DeleteMapping("/entries/{id}/drafts/{language}")
-    void discardDraft(@PathVariable String id, @PathVariable String language) {
-        admin.discardDraft(id, language);
+    @DeleteMapping("/{tenant}/entries/{id}/drafts/{language}")
+    void discardDraft(@PathVariable String tenant, @PathVariable String id, @PathVariable String language) {
+        admin.discardDraft(tenant, id, language);
     }
 
-    @PostMapping("/entries/{id}/retire")
-    KnowledgeEntry retire(@PathVariable String id, @RequestBody KnowledgeCommand command) {
-        return admin.retire(id, Boolean.TRUE.equals(command.retired()), command.actor());
+    @PostMapping("/{tenant}/entries/{id}/retire")
+    KnowledgeEntry retire(@PathVariable String tenant, @PathVariable String id, @RequestBody KnowledgeCommand command) {
+        return admin.retire(tenant, id, Boolean.TRUE.equals(command.retired()), command.actor());
     }
 
-    @GetMapping("/versions")
-    List<KnowledgeVersion> versions() {
-        return admin.versions();
+    @GetMapping("/{tenant}/versions")
+    List<KnowledgeVersion> versions(@PathVariable String tenant) {
+        return admin.versions(tenant);
     }
 
-    @GetMapping("/versions/{version}")
-    ResponseEntity<KnowledgeVersion> version(@PathVariable String version) {
-        return admin.version(version).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    @GetMapping("/{tenant}/versions/{version}")
+    ResponseEntity<KnowledgeVersion> version(@PathVariable String tenant, @PathVariable String version) {
+        return admin.version(tenant, version).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/active")
-    Map<String, String> active() {
+    @GetMapping("/{tenant}/active")
+    Map<String, String> active(@PathVariable String tenant) {
         Map<String, String> body = new java.util.HashMap<>();
-        body.put("version", admin.activeVersion().orElse(null));
+        body.put("version", admin.activeVersion(tenant).orElse(null));
         return body;
     }
 
-    @PostMapping("/publish")
-    KnowledgeVersion publish(@RequestBody KnowledgeCommand command) {
-        return admin.publish(command.note(), command.actor(), command.expectedActive());
+    @PostMapping("/{tenant}/publish")
+    KnowledgeVersion publish(@PathVariable String tenant, @RequestBody KnowledgeCommand command) {
+        return admin.publish(tenant, command.note(), command.actor(), command.expectedActive());
     }
 
-    @PostMapping("/rollback")
-    KnowledgeVersion rollback(@RequestBody KnowledgeCommand command) {
-        return admin.rollback(command.version(), command.expectedActive(), command.actor());
+    @PostMapping("/{tenant}/rollback")
+    KnowledgeVersion rollback(@PathVariable String tenant, @RequestBody KnowledgeCommand command) {
+        return admin.rollback(tenant, command.version(), command.expectedActive(), command.actor());
     }
 
     @PostMapping("/preview")

@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.rag;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.SearchQuery;
+import dev.merlionos.customerservice.rag.api.TenantFilter;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 
@@ -26,6 +27,7 @@ public class LocalKnowledgeSearch implements KnowledgeSearch {
                 .query(query.text())
                 .topK(query.topK())
                 .similarityThreshold(query.similarityThreshold())
+                .filterExpression(TenantFilter.expression(query.tenantId()))
                 .build();
 
         List<org.springframework.ai.document.Document> found = query.version() != null

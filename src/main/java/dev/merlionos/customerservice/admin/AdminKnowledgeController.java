@@ -9,6 +9,8 @@ import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.RagProperties;
 import dev.merlionos.customerservice.rag.api.SearchQuery;
+import dev.merlionos.customerservice.tenancy.Tenant;
+import dev.merlionos.customerservice.tenancy.Tenants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -35,6 +38,11 @@ import java.util.Map;
  * documents are embedded, then {@code active}, or {@code failed} with the reason. A
  * publication or rollback is recorded in {@code admin_audit}; a refusal is, as everywhere
  * in the admin; a conflict is not.
+ *
+ * <p>Whose knowledge: the {@code tenant} query parameter, {@code default} when absent. Every
+ * member of staff is platform staff today and may name any tenant; staff scoped to one
+ * tenant are the next step of ADR 002, and when they arrive the parameter is what they
+ * cannot change.
  */
 @RestController
 @RequestMapping(AdminSecurityConfiguration.API_PATH + "/knowledge")
@@ -46,41 +54,55 @@ class AdminKnowledgeController {
     private final RagProperties rag;
     private final AdminAudit audit;
 
-    AdminKnowledgeController(KnowledgeAdmin knowledge, RagProperties rag, AdminAudit audit) {
+    private final Tenants tenants;
+
+    AdminKnowledgeController(KnowledgeAdmin knowledge, RagProperties rag, AdminAudit audit, Tenants tenants) {
         this.knowledge = knowledge;
         this.rag = rag;
         this.audit = audit;
+        this.tenants = tenants;
+    }
+
+    /** The tenant a request is about; an unknown one is a 404 before anything is read or written. */
+    private String tenantOf(String tenant) {
+        String id = tenant == null || tenant.isBlank() ? Tenant.DEFAULT : tenant.strip();
+        tenants.find(id).orElseThrow(() -> new NotFound("No tenant '" + id + "'"));
+        return id;
     }
 
     @GetMapping("/entries")
-    List<KnowledgeEntry> entries() {
-        return knowledge.entries();
+    List<KnowledgeEntry> entries(@RequestParam(required = false) String tenant) {
+        return knowledge.entries(tenantOf(tenant));
     }
 
     @GetMapping("/entries/{id}")
-    KnowledgeEntry entry(@PathVariable String id) {
-        return knowledge.entry(id).orElseThrow(() -> new NotFound("No entry '" + id + "'"));
+    KnowledgeEntry entry(@PathVariable String id, @RequestParam(required = false) String tenant) {
+        return knowledge.entry(tenantOf(tenant), id).orElseThrow(() -> new NotFound("No entry '" + id + "'"));
     }
 
     record NewEntry(String category) {
     }
 
     @PostMapping("/entries/{id}")
-    ResponseEntity<KnowledgeEntry> create(@PathVariable String id, @RequestBody NewEntry request, Authentication auth) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(knowledge.createEntry(id, request.category(), auth.getName()));
+    ResponseEntity<KnowledgeEntry> create(@PathVariable String id, @RequestParam(required = false) String tenant,
+                                          @RequestBody NewEntry request, Authentication auth) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(knowledge.createEntry(tenantOf(tenant), id, request.category(), auth.getName()));
     }
 
     record Draft(String question, String answer, String note) {
     }
 
     @PutMapping("/entries/{id}/drafts/{language}")
-    KnowledgeRevision saveDraft(@PathVariable String id, @PathVariable String language, @RequestBody Draft draft, Authentication auth) {
-        return knowledge.saveDraft(id, language, draft.question(), draft.answer(), draft.note(), auth.getName());
+    KnowledgeRevision saveDraft(@PathVariable String id, @PathVariable String language, @RequestParam(required = false) String tenant,
+                                @RequestBody Draft draft, Authentication auth) {
+        return knowledge.saveDraft(tenantOf(tenant), id, language, draft.question(), draft.answer(), draft.note(), auth.getName());
     }
 
     @DeleteMapping("/entries/{id}/drafts/{language}")
-    ResponseEntity<Void> discardDraft(@PathVariable String id, @PathVariable String language) {
-        knowledge.discardDraft(id, language);
+    ResponseEntity<Void> discardDraft(@PathVariable String id, @PathVariable String language,
+                                      @RequestParam(required = false) String tenant) {
+        knowledge.discardDraft(tenantOf(tenant), id, language);
         return ResponseEntity.noContent().build();
     }
 
@@ -89,21 +111,24 @@ class AdminKnowledgeController {
 
     @PostMapping("/entries/{id}/retire")
     @PreAuthorize("hasRole('ADMIN')")
-    KnowledgeEntry retire(@PathVariable String id, @RequestBody Retirement request, Authentication auth) {
-        return knowledge.retire(id, request.retired(), auth.getName());
+    KnowledgeEntry retire(@PathVariable String id, @RequestParam(required = false) String tenant,
+                          @RequestBody Retirement request, Authentication auth) {
+        return knowledge.retire(tenantOf(tenant), id, request.retired(), auth.getName());
     }
 
     @GetMapping("/versions")
-    Map<String, Object> versions() {
+    Map<String, Object> versions(@RequestParam(required = false) String tenant) {
+        String id = tenantOf(tenant);
         Map<String, Object> body = new java.util.HashMap<>();
-        body.put("active", knowledge.activeVersion().orElse(null));
-        body.put("versions", knowledge.versions());
+        body.put("tenant", id);
+        body.put("active", knowledge.activeVersion(id).orElse(null));
+        body.put("versions", knowledge.versions(id));
         return body;
     }
 
     @GetMapping("/versions/{version}")
-    KnowledgeVersion version(@PathVariable String version) {
-        return knowledge.version(version).orElseThrow(() -> new NotFound("No version '" + version + "'"));
+    KnowledgeVersion version(@PathVariable String version, @RequestParam(required = false) String tenant) {
+        return knowledge.version(tenantOf(tenant), version).orElseThrow(() -> new NotFound("No version '" + version + "'"));
     }
 
     record Publication(String note, String expectedActive) {
@@ -117,18 +142,20 @@ class AdminKnowledgeController {
      */
     @PostMapping("/publish")
     @PreAuthorize("hasRole('ADMIN')")
-    ResponseEntity<Map<String, Object>> publish(@RequestBody Publication request, Authentication auth) {
+    ResponseEntity<Map<String, Object>> publish(@RequestParam(required = false) String tenant, @RequestBody Publication request,
+                                                Authentication auth) {
+        String id = tenantOf(tenant);
         String expected = request.expectedActive();
-        if (expected != null && !expected.equals(knowledge.activeVersion().orElse(null))) {
-            throw new KnowledgeConflictException("The active version is " + knowledge.activeVersion().orElse("none")
+        if (expected != null && !expected.equals(knowledge.activeVersion(id).orElse(null))) {
+            throw new KnowledgeConflictException("The active version is " + knowledge.activeVersion(id).orElse("none")
                     + ", not " + expected + "; reload and look again");
         }
         String actor = auth.getName();
         Thread.ofVirtual().name("knowledge-publish").start(() -> {
             try {
-                KnowledgeVersion version = knowledge.publish(request.note(), actor, expected);
+                KnowledgeVersion version = knowledge.publish(id, request.note(), actor, expected);
                 audit.record(actor, AdminAudit.Action.PUBLISHED, version.version(),
-                        version.state() + (request.note() == null ? "" : ": " + request.note()));
+                        id + " " + version.state() + (request.note() == null ? "" : ": " + request.note()));
             }
             catch (RuntimeException e) {
                 log.warn("Publication by {} did not complete: {}", actor, e.getMessage());
@@ -143,9 +170,10 @@ class AdminKnowledgeController {
 
     @PostMapping("/rollback")
     @PreAuthorize("hasRole('ADMIN')")
-    KnowledgeVersion rollback(@RequestBody Rollback request, Authentication auth) {
-        KnowledgeVersion version = knowledge.rollback(request.version(), request.expectedActive(), auth.getName());
-        audit.record(auth.getName(), AdminAudit.Action.ROLLED_BACK, version.version(), "from " + request.expectedActive());
+    KnowledgeVersion rollback(@RequestParam(required = false) String tenant, @RequestBody Rollback request, Authentication auth) {
+        String id = tenantOf(tenant);
+        KnowledgeVersion version = knowledge.rollback(id, request.version(), request.expectedActive(), auth.getName());
+        audit.record(auth.getName(), AdminAudit.Action.ROLLED_BACK, version.version(), id + " from " + request.expectedActive());
         return version;
     }
 
@@ -153,9 +181,9 @@ class AdminKnowledgeController {
     }
 
     @PostMapping("/preview")
-    List<Passage> preview(@RequestBody Preview request) {
+    List<Passage> preview(@RequestParam(required = false) String tenant, @RequestBody Preview request) {
         int topK = request.topK() == null || request.topK() < 1 ? rag.topK() : Math.min(request.topK(), 20);
-        return knowledge.preview(new SearchQuery(request.text(), topK, rag.similarityThreshold()), request.version());
+        return knowledge.preview(new SearchQuery(tenantOf(tenant), request.text(), topK, rag.similarityThreshold()), request.version());
     }
 
     static class NotFound extends RuntimeException {

@@ -2,39 +2,45 @@ package dev.merlionos.customerservice.rag;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Which knowledge version retrieval reads: the one row of {@code knowledge_active}, cached
- * for a moment so a burst of turns does not each ask the database, but never for longer
- * than a switch should take to be seen everywhere.
+ * Which knowledge version retrieval reads for a tenant: that tenant's row of
+ * {@code knowledge_active}, cached for a moment so a burst of turns does not each ask the
+ * database, but never for longer than a switch should take to be seen everywhere.
  */
 public class ActiveKnowledgeVersion {
 
     static final long CACHE_MILLIS = 2_000;
 
+    private record Cached(String version, long at) {
+    }
+
     private final JdbcTemplate jdbc;
-    private volatile String cached;
-    private volatile long cachedAt;
+    private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
     public ActiveKnowledgeVersion(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
-    public Optional<String> get() {
+    public Optional<String> get(String tenantId) {
         long now = System.currentTimeMillis();
-        if (now - cachedAt > CACHE_MILLIS) {
-            // The row always exists; its version is null until something is active, and a
+        Cached cached = cache.get(tenantId);
+        if (cached == null || now - cached.at() > CACHE_MILLIS) {
+            // A tenant with no row, or a row whose version is null, has nothing active; a
             // null element is what findFirst refuses, so it is filtered rather than found.
-            cached = jdbc.query("SELECT version FROM knowledge_active WHERE id = 1", (rs, i) -> rs.getString(1))
+            String version = jdbc.query("SELECT version FROM knowledge_active WHERE tenant_id = ?", (rs, i) -> rs.getString(1), tenantId)
                     .stream().filter(java.util.Objects::nonNull).findFirst().orElse(null);
-            cachedAt = now;
+            cached = new Cached(version, now);
+            cache.put(tenantId, cached);
         }
-        return Optional.ofNullable(cached);
+        return Optional.ofNullable(cached.version());
     }
 
-    /** Forgets the cached value, so the process that switched sees its own switch at once. */
+    /** Forgets every cached value, so the process that switched sees its own switch at once. */
     public void refresh() {
-        cachedAt = 0;
+        cache.clear();
     }
 }

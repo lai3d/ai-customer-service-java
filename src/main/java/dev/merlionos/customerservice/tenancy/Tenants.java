@@ -21,6 +21,9 @@ public class Tenants {
         Instant now = Instant.now();
         jdbc.update("INSERT INTO tenant (tenant_id, name, enabled, created_at) VALUES (?, ?, true, ?)",
                 tenantId, name, Timestamp.from(now));
+        // Its knowledge pointer, with nothing active: a new tenant retrieves nothing until it
+        // publishes its own knowledge (ADR 002); the bundled corpus is the default tenant's.
+        jdbc.update("INSERT INTO knowledge_active (tenant_id) VALUES (?) ON CONFLICT (tenant_id) DO NOTHING", tenantId);
         return new Tenant(tenantId, name, true, now);
     }
 

@@ -47,15 +47,15 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
-    public List<KnowledgeEntry> entries() {
-        List<KnowledgeEntry> entries = client.get().uri(BASE + "/entries").retrieve().body(ENTRIES);
+    public List<KnowledgeEntry> entries(String tenantId) {
+        List<KnowledgeEntry> entries = client.get().uri(BASE + "/{t}/entries", tenantId).retrieve().body(ENTRIES);
         return entries == null ? List.of() : entries;
     }
 
     @Override
-    public Optional<KnowledgeEntry> entry(String entryId) {
+    public Optional<KnowledgeEntry> entry(String tenantId, String entryId) {
         try {
-            return Optional.ofNullable(client.get().uri(BASE + "/entries/{id}", entryId).retrieve().body(KnowledgeEntry.class));
+            return Optional.ofNullable(client.get().uri(BASE + "/{t}/entries/{id}", tenantId, entryId).retrieve().body(KnowledgeEntry.class));
         }
         catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
@@ -63,38 +63,38 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
-    public KnowledgeEntry createEntry(String entryId, String category, String actor) {
-        return translating(() -> client.post().uri(BASE + "/entries/{id}", entryId)
+    public KnowledgeEntry createEntry(String tenantId, String entryId, String category, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/entries/{id}", tenantId, entryId)
                 .body(new KnowledgeCommand(actor, null, null, category, null, null)).retrieve().body(KnowledgeEntry.class));
     }
 
     @Override
-    public KnowledgeRevision saveDraft(String entryId, String language, String question, String answer, String note, String actor) {
-        return translating(() -> client.put().uri(BASE + "/entries/{id}/drafts/{lang}", entryId, language)
+    public KnowledgeRevision saveDraft(String tenantId, String entryId, String language, String question, String answer, String note, String actor) {
+        return translating(() -> client.put().uri(BASE + "/{t}/entries/{id}/drafts/{lang}", tenantId, entryId, language)
                 .body(new DraftText(question, answer, note, actor)).retrieve().body(KnowledgeRevision.class));
     }
 
     @Override
-    public void discardDraft(String entryId, String language) {
-        translating(() -> client.delete().uri(BASE + "/entries/{id}/drafts/{lang}", entryId, language).retrieve().toBodilessEntity());
+    public void discardDraft(String tenantId, String entryId, String language) {
+        translating(() -> client.delete().uri(BASE + "/{t}/entries/{id}/drafts/{lang}", tenantId, entryId, language).retrieve().toBodilessEntity());
     }
 
     @Override
-    public KnowledgeEntry retire(String entryId, boolean retired, String actor) {
-        return translating(() -> client.post().uri(BASE + "/entries/{id}/retire", entryId)
+    public KnowledgeEntry retire(String tenantId, String entryId, boolean retired, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/entries/{id}/retire", tenantId, entryId)
                 .body(new KnowledgeCommand(actor, null, null, null, null, retired)).retrieve().body(KnowledgeEntry.class));
     }
 
     @Override
-    public List<KnowledgeVersion> versions() {
-        List<KnowledgeVersion> versions = client.get().uri(BASE + "/versions").retrieve().body(VERSIONS);
+    public List<KnowledgeVersion> versions(String tenantId) {
+        List<KnowledgeVersion> versions = client.get().uri(BASE + "/{t}/versions", tenantId).retrieve().body(VERSIONS);
         return versions == null ? List.of() : versions;
     }
 
     @Override
-    public Optional<KnowledgeVersion> version(String version) {
+    public Optional<KnowledgeVersion> version(String tenantId, String version) {
         try {
-            return Optional.ofNullable(client.get().uri(BASE + "/versions/{v}", version).retrieve().body(KnowledgeVersion.class));
+            return Optional.ofNullable(client.get().uri(BASE + "/{t}/versions/{v}", tenantId, version).retrieve().body(KnowledgeVersion.class));
         }
         catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
@@ -102,27 +102,27 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
-    public Optional<String> activeVersion() {
-        Map<String, String> body = client.get().uri(BASE + "/active").retrieve().body(MAP);
+    public Optional<String> activeVersion(String tenantId) {
+        Map<String, String> body = client.get().uri(BASE + "/{t}/active", tenantId).retrieve().body(MAP);
         return Optional.ofNullable(body == null ? null : body.get("version"));
     }
 
     @Override
-    public KnowledgeVersion publish(String note, String actor, String expectedActive) {
-        return translating(() -> client.post().uri(BASE + "/publish")
+    public KnowledgeVersion publish(String tenantId, String note, String actor, String expectedActive) {
+        return translating(() -> client.post().uri(BASE + "/{t}/publish", tenantId)
                 .body(new KnowledgeCommand(actor, expectedActive, note, null, null, null)).retrieve().body(KnowledgeVersion.class));
     }
 
     @Override
-    public KnowledgeVersion rollback(String version, String expectedActive, String actor) {
-        return translating(() -> client.post().uri(BASE + "/rollback")
+    public KnowledgeVersion rollback(String tenantId, String version, String expectedActive, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/rollback", tenantId)
                 .body(new KnowledgeCommand(actor, expectedActive, null, null, version, null)).retrieve().body(KnowledgeVersion.class));
     }
 
     @Override
     public List<Passage> preview(SearchQuery query, String version) {
         List<Passage> passages = translating(() -> client.post().uri(BASE + "/preview")
-                .body(new SearchQuery(query.text(), query.topK(), query.similarityThreshold(), version)).retrieve().body(PASSAGES));
+                .body(new SearchQuery(query.tenantId(), query.text(), query.topK(), query.similarityThreshold(), version)).retrieve().body(PASSAGES));
         return passages == null ? List.of() : passages;
     }
 

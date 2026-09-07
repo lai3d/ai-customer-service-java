@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice;
 
 import dev.merlionos.customerservice.tenancy.Tenant;
+import dev.merlionos.customerservice.tenancy.Tenants;
 import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
@@ -59,6 +60,7 @@ import reactor.core.publisher.Flux;
 import java.util.List;
 import java.util.Map;
 
+import static dev.merlionos.customerservice.rag.api.SearchQuery.DEFAULT_TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -229,7 +231,7 @@ class TopologyParityTest {
     @DisplayName("internal endpoints refuse a call without the token, and take one with it")
     void internalEndpointsRequireTheToken() {
         HttpStatusCode knowledgeWithout = http(knowledge).post().uri("/internal/v1/knowledge/search")
-                .body(new SearchQuery("anything", 1, 0))
+                .body(new SearchQuery(DEFAULT_TENANT, "anything", 1, 0))
                 .exchange((request, response) -> response.getStatusCode());
         HttpStatusCode ticketWithout = http(ticket).get().uri("/internal/v1/tickets?conversationId=x")
                 .exchange((request, response) -> response.getStatusCode());
@@ -252,7 +254,7 @@ class TopologyParityTest {
         String question = "my parcel showed up broken";
         RagProperties rag = knowledge.getBean(RagProperties.class);
         List<Passage> local = knowledge.getBean(KnowledgeSearch.class)
-                .search(new SearchQuery(question, rag.topK(), rag.similarityThreshold()));
+                .search(new SearchQuery(DEFAULT_TENANT, question, rag.topK(), rag.similarityThreshold()));
 
         given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(
                 new ChatResponse(List.of(new Generation(new AssistantMessage("Sorry to hear that."))))));
@@ -342,23 +344,45 @@ class TopologyParityTest {
         KnowledgeAdmin remote = chat.getBean(KnowledgeAdmin.class);
         assertThat(remote).isInstanceOf(HttpKnowledgeAdmin.class);
         KnowledgeAdmin local = knowledge.getBean(KnowledgeAdmin.class);
-        String before = remote.activeVersion().orElseThrow();
-        assertThat(before).isEqualTo(local.activeVersion().orElseThrow());
-        assertThat(remote.entries()).hasSize(local.entries().size()).hasSize(18);
+        String before = remote.activeVersion(DEFAULT_TENANT).orElseThrow();
+        assertThat(before).isEqualTo(local.activeVersion(DEFAULT_TENANT).orElseThrow());
+        assertThat(remote.entries(DEFAULT_TENANT)).hasSize(local.entries(DEFAULT_TENANT).size()).hasSize(18);
 
-        remote.createEntry("seam-entry", "orders", "alice");
-        remote.saveDraft("seam-entry", "en", "Is there a seam?", "Yes, and it carries drafts.", null, "alice");
-        assertThat(local.entry("seam-entry")).hasValueSatisfying(e -> assertThat(e.revisions()).hasSize(1));
-        assertThatThrownBy(() -> remote.createEntry("seam-entry", "orders", "alice")).isInstanceOf(KnowledgeRuleException.class);
-        assertThatThrownBy(() -> remote.publish("late", "root", "nope")).isInstanceOf(KnowledgeConflictException.class);
+        remote.createEntry(DEFAULT_TENANT, "seam-entry", "orders", "alice");
+        remote.saveDraft(DEFAULT_TENANT, "seam-entry", "en", "Is there a seam?", "Yes, and it carries drafts.", null, "alice");
+        assertThat(local.entry(DEFAULT_TENANT, "seam-entry")).hasValueSatisfying(e -> assertThat(e.revisions()).hasSize(1));
+        assertThatThrownBy(() -> remote.createEntry(DEFAULT_TENANT, "seam-entry", "orders", "alice")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> remote.publish(DEFAULT_TENANT, "late", "root", "nope")).isInstanceOf(KnowledgeConflictException.class);
 
-        KnowledgeVersion published = remote.publish("over the seam", "root", before);
+        KnowledgeVersion published = remote.publish(DEFAULT_TENANT, "over the seam", "root", before);
         assertThat(published.state()).isEqualTo("active");
-        assertThat(local.activeVersion()).hasValue(published.version());
-        assertThat(remote.preview(new SearchQuery("is there a seam", 3, 0), null))
+        assertThat(local.activeVersion(DEFAULT_TENANT)).hasValue(published.version());
+        assertThat(remote.preview(new SearchQuery(DEFAULT_TENANT, "is there a seam", 3, 0), null))
                 .extracting(p -> p.metadata().get("entry_id")).contains("seam-entry");
-        assertThat(remote.rollback(before, published.version(), "root").state()).isEqualTo("active");
-        assertThat(local.activeVersion()).hasValue(before);
+        assertThat(remote.rollback(DEFAULT_TENANT, before, published.version(), "root").state()).isEqualTo("active");
+        assertThat(local.activeVersion(DEFAULT_TENANT)).hasValue(before);
+
+        // A second tenant, created on the chat side, publishes through the seam; a turn of its
+        // own retrieves only its text, and a default-tenant turn never sees it. This is the
+        // remote store carrying the tenant clause of the advisor's filter across the seam.
+        chat.getBean(Tenants.class).create("acme", "Acme");
+        remote.createEntry("acme", "seam-entry", "orders", "alice");
+        remote.saveDraft("acme", "seam-entry", "en", "Is there a seam for Acme?", "Yes, and Acme's unicorn saddles cross it.", null, "alice");
+        assertThat(remote.publish("acme", "acme over the seam", "root", null).state()).isEqualTo("active");
+        assertThat(local.activeVersion("acme")).isPresent().isNotEqualTo(local.activeVersion(DEFAULT_TENANT));
+        given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("Yes."))))));
+        List<TurnEvent> acmeTurn = chat.getBean(ChatService.class).stream("acme", "acme-parity", "is there a seam for unicorn saddles")
+                .collectList().block();
+        TurnEvent.Retrieval acmeRetrieval = acmeTurn.stream().filter(TurnEvent.Retrieval.class::isInstance)
+                .map(TurnEvent.Retrieval.class::cast).findFirst().orElseThrow();
+        assertThat(acmeRetrieval.passages()).hasSize(1);
+        assertThat(acmeRetrieval.passages().getFirst().entryId()).isEqualTo("seam-entry");
+        assertThat(acmeRetrieval.passages().getFirst().corpusVersion()).isEqualTo(local.activeVersion("acme").orElseThrow());
+        List<TurnEvent> defaultTurn = chat.getBean(ChatService.class).stream(Tenant.DEFAULT, "default-parity", "is there a seam for unicorn saddles")
+                .collectList().block();
+        assertThat(defaultTurn.stream().filter(TurnEvent.Retrieval.class::isInstance).map(TurnEvent.Retrieval.class::cast)
+                .findFirst().orElseThrow().passages()).allSatisfy(p -> assertThat(p.corpusVersion()).isEqualTo(before));
     }
 
     @Test

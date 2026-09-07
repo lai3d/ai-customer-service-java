@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.SearchQuery;
+import dev.merlionos.customerservice.rag.api.TenantFilter;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -17,8 +19,15 @@ import java.util.Optional;
  * {@code all} process and {@link LocalKnowledgeSearch} in a {@code knowledge} process both
  * read through it without either having to know.
  *
- * <p>With no active version -- a fresh database before the bundled corpus is adopted --
- * a search finds nothing, which is the truth and what readiness already says.
+ * <p>Whose active version: the tenant named in the request's filter expression
+ * ({@link TenantFilter}), which is how {@code QuestionAnswerAdvisor} lets a request say
+ * anything. A request that names no tenant is the default tenant's -- the bundled corpus,
+ * every pre-tenancy caller, every test that searches the store directly; the customer path
+ * always names one, and {@code KnowledgeAdminIntegrationTest.tenantsRetrieveOnlyTheirOwn} is what fails if it stops.
+ *
+ * <p>With no active version -- a fresh database before the bundled corpus is adopted, or a
+ * tenant that has not published -- a search finds nothing, which is the truth and, for the
+ * default tenant, what readiness already says.
  */
 public class ActiveVersionVectorStore implements VectorStore {
 
@@ -42,7 +51,9 @@ public class ActiveVersionVectorStore implements VectorStore {
 
     @Override
     public List<Document> similaritySearch(SearchRequest request) {
-        return active.get().map(version -> similaritySearch(request, version)).orElse(List.of());
+        String tenant = TenantFilter.tenantOf(request.getFilterExpression()).orElse(SearchQuery.DEFAULT_TENANT);
+        SearchRequest rest = SearchRequest.from(request).filterExpression(TenantFilter.without(request.getFilterExpression())).build();
+        return active.get(tenant).map(version -> similaritySearch(rest, version)).orElse(List.of());
     }
 
     /** The same search, against one named version. */

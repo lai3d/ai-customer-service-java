@@ -1,6 +1,19 @@
 package dev.merlionos.customerservice.rag;
 
 import dev.merlionos.customerservice.PostgresTestcontainer;
+import dev.merlionos.customerservice.chat.ChatService;
+import dev.merlionos.customerservice.chat.TurnEvent;
+import dev.merlionos.customerservice.rag.api.TenantFilter;
+import dev.merlionos.customerservice.tenancy.Tenants;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import reactor.core.publisher.Flux;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
@@ -26,8 +39,11 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
 
+import static dev.merlionos.customerservice.rag.api.SearchQuery.DEFAULT_TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 
 /**
  * Editing and publishing over the real embedding model and pgvector. Deliberately its own
@@ -47,12 +63,16 @@ class KnowledgeAdminIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired DataSource dataSource;
     @Autowired FaqIngestionService ingestion;
+    @Autowired Tenants tenants;
+    @Autowired VectorStore vectorStore;
+    @Autowired ChatService chatService;
+    @MockitoBean AnthropicChatModel chatModel;
 
     static String bundled;
     static String published;
 
     private List<String> entriesFound(String question, String version) {
-        return admin.preview(new SearchQuery(question, 3, 0), version).stream()
+        return admin.preview(new SearchQuery(DEFAULT_TENANT, question, 3, 0), version).stream()
                 .map(p -> String.valueOf(p.metadata().get("entry_id"))).toList();
     }
 
@@ -61,16 +81,16 @@ class KnowledgeAdminIntegrationTest {
     @DisplayName("the bundled corpus was adopted as the active version, with its entries as published revisions, without re-embedding")
     void bundledCorpusIsAdopted() {
         bundled = ingestion.bundledVersion();
-        assertThat(admin.activeVersion()).hasValue(bundled);
-        KnowledgeVersion version = admin.version(bundled).orElseThrow();
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(bundled);
+        KnowledgeVersion version = admin.version(DEFAULT_TENANT, bundled).orElseThrow();
         assertThat(version.state()).isEqualTo("active");
         assertThat(version.documentCount()).isEqualTo(36);
         assertThat(version.createdBy()).isEqualTo(KnowledgeBootstrap.BUNDLED_ACTOR);
-        assertThat(admin.entries()).hasSize(18).allSatisfy(entry ->
+        assertThat(admin.entries(DEFAULT_TENANT)).hasSize(18).allSatisfy(entry ->
                 assertThat(entry.revisions()).extracting(r -> r.state()).containsOnly("published"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM vector_store", Integer.class))
                 .as("adoption embedded nothing").isEqualTo(36);
-        assertThat(search.search(new SearchQuery("运费多少钱", 3, 0))).extracting(p -> p.metadata().get("entry_id"))
+        assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "运费多少钱", 3, 0))).extracting(p -> p.metadata().get("entry_id"))
                 .contains("shipping-cost");
     }
 
@@ -78,34 +98,34 @@ class KnowledgeAdminIntegrationTest {
     @Order(2)
     @DisplayName("a draft changes nothing a customer sees; a publication builds a new version, activates it, and retrieval follows")
     void draftThenPublish() {
-        KnowledgeEntry created = admin.createEntry("gift-wrap", "orders", "alice");
+        KnowledgeEntry created = admin.createEntry(DEFAULT_TENANT, "gift-wrap", "orders", "alice");
         assertThat(created.revisions()).isEmpty();
-        admin.saveDraft("gift-wrap", "en", "Do you offer gift wrapping?",
+        admin.saveDraft(DEFAULT_TENANT, "gift-wrap", "en", "Do you offer gift wrapping?",
                 "Yes. Choose gift wrapping at checkout for 3 dollars per item; a handwritten note is free.", "new service", "alice");
-        admin.saveDraft("gift-wrap", "zh", "可以礼品包装吗？", "可以。结账时选择礼品包装，每件 3 美元，手写贺卡免费。", null, "alice");
-        admin.saveDraft("shipping-cost", "en", "How much does shipping cost?",
+        admin.saveDraft(DEFAULT_TENANT, "gift-wrap", "zh", "可以礼品包装吗？", "可以。结账时选择礼品包装，每件 3 美元，手写贺卡免费。", null, "alice");
+        admin.saveDraft(DEFAULT_TENANT, "shipping-cost", "en", "How much does shipping cost?",
                 "Shipping is free on orders over 50 dollars. Below that, standard shipping is 5 dollars.", "threshold named", "alice");
-        assertThat(admin.entry("gift-wrap").orElseThrow().revisions()).extracting(r -> r.state()).containsOnly("draft");
+        assertThat(admin.entry(DEFAULT_TENANT, "gift-wrap").orElseThrow().revisions()).extracting(r -> r.state()).containsOnly("draft");
 
         assertThat(entriesFound("gift wrapping", null)).as("drafts are invisible to retrieval").doesNotContain("gift-wrap");
-        assertThatThrownBy(() -> admin.saveDraft("nope", "en", "q", "a", null, "alice")).isInstanceOf(KnowledgeRuleException.class);
-        assertThatThrownBy(() -> admin.saveDraft("gift-wrap", "en", "", "a", null, "alice")).isInstanceOf(KnowledgeRuleException.class);
-        assertThatThrownBy(() -> admin.createEntry("gift-wrap", "orders", "alice")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> admin.saveDraft(DEFAULT_TENANT, "nope", "en", "q", "a", null, "alice")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> admin.saveDraft(DEFAULT_TENANT, "gift-wrap", "en", "", "a", null, "alice")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> admin.createEntry(DEFAULT_TENANT, "gift-wrap", "orders", "alice")).isInstanceOf(KnowledgeRuleException.class);
 
-        KnowledgeVersion version = admin.publish("gift wrapping and the shipping threshold", "alice", bundled);
+        KnowledgeVersion version = admin.publish(DEFAULT_TENANT, "gift wrapping and the shipping threshold", "alice", bundled);
         published = version.version();
         assertThat(version.state()).isEqualTo("active");
         assertThat(version.documentCount()).as("18 bundled entries in two languages, plus the new one in two").isEqualTo(38);
-        assertThat(admin.activeVersion()).hasValue(published);
-        assertThat(admin.version(bundled).orElseThrow().state()).as("retained for rollback").isEqualTo("ready");
-        assertThat(admin.entry("gift-wrap").orElseThrow().revisions()).extracting(r -> r.state()).containsOnly("published");
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(published);
+        assertThat(admin.version(DEFAULT_TENANT, bundled).orElseThrow().state()).as("retained for rollback").isEqualTo("ready");
+        assertThat(admin.entry(DEFAULT_TENANT, "gift-wrap").orElseThrow().revisions()).extracting(r -> r.state()).containsOnly("published");
         assertThat(jdbc.queryForList("SELECT state FROM knowledge_revision WHERE entry_id = 'shipping-cost' AND language = 'en' ORDER BY id",
                 String.class)).containsExactly("superseded", "published");
 
         assertThat(entriesFound("gift wrapping", null)).contains("gift-wrap");
-        assertThat(search.search(new SearchQuery("gift wrapping", 3, 0))).extracting(p -> p.metadata().get("entry_id"))
+        assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "gift wrapping", 3, 0))).extracting(p -> p.metadata().get("entry_id"))
                 .as("the retrieval seam reads the new version").contains("gift-wrap");
-        assertThat(search.search(new SearchQuery("gift wrapping", 3, 0)).getFirst().metadata())
+        assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "gift wrapping", 3, 0)).getFirst().metadata())
                 .containsEntry("corpus_version", published);
         assertThat(entriesFound("gift wrapping", bundled)).as("the old version is still searchable by name").doesNotContain("gift-wrap");
     }
@@ -114,42 +134,42 @@ class KnowledgeAdminIntegrationTest {
     @Order(3)
     @DisplayName("a stale expected version is a conflict and activates nothing; rollback re-activates a retained version")
     void conflictAndRollback() {
-        assertThatThrownBy(() -> admin.publish("late", "bob", bundled)).isInstanceOf(KnowledgeConflictException.class);
-        assertThat(admin.activeVersion()).hasValue(published);
+        assertThatThrownBy(() -> admin.publish(DEFAULT_TENANT, "late", "bob", bundled)).isInstanceOf(KnowledgeConflictException.class);
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(published);
 
-        KnowledgeVersion back = admin.rollback(bundled, published, "bob");
+        KnowledgeVersion back = admin.rollback(DEFAULT_TENANT, bundled, published, "bob");
         assertThat(back.state()).isEqualTo("active");
-        assertThat(admin.activeVersion()).hasValue(bundled);
-        assertThat(admin.version(published).orElseThrow().state()).isEqualTo("ready");
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(bundled);
+        assertThat(admin.version(DEFAULT_TENANT, published).orElseThrow().state()).isEqualTo("ready");
         assertThat(entriesFound("gift wrapping", null)).doesNotContain("gift-wrap");
-        assertThatThrownBy(() -> admin.rollback(published, "wrong", "bob")).isInstanceOf(KnowledgeConflictException.class);
-        assertThatThrownBy(() -> admin.rollback("nope", null, "bob")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> admin.rollback(DEFAULT_TENANT, published, "wrong", "bob")).isInstanceOf(KnowledgeConflictException.class);
+        assertThatThrownBy(() -> admin.rollback(DEFAULT_TENANT, "nope", null, "bob")).isInstanceOf(KnowledgeRuleException.class);
 
-        admin.rollback(published, bundled, "bob");
-        assertThat(admin.activeVersion()).hasValue(published);
+        admin.rollback(DEFAULT_TENANT, published, bundled, "bob");
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(published);
     }
 
     @Test
     @Order(4)
     @DisplayName("retiring an entry leaves it out of the next publication; old versions lose their documents after the retained few")
     void retireAndRetention() {
-        admin.retire("gift-wrap", true, "alice");
-        String before = admin.activeVersion().orElseThrow();
-        KnowledgeVersion v2 = admin.publish("without gift wrap", "alice", before);
+        admin.retire(DEFAULT_TENANT, "gift-wrap", true, "alice");
+        String before = admin.activeVersion(DEFAULT_TENANT).orElseThrow();
+        KnowledgeVersion v2 = admin.publish(DEFAULT_TENANT, "without gift wrap", "alice", before);
         assertThat(v2.documentCount()).isEqualTo(36);
         assertThat(entriesFound("gift wrapping", null)).doesNotContain("gift-wrap");
         assertThat(entriesFound("gift wrapping", published)).as("the retained version still has it").contains("gift-wrap");
 
-        admin.publish("three", "alice", v2.version());
-        admin.publish("four", "alice", null);
-        List<KnowledgeVersion> versions = admin.versions();
+        admin.publish(DEFAULT_TENANT, "three", "alice", v2.version());
+        admin.publish(DEFAULT_TENANT, "four", "alice", null);
+        List<KnowledgeVersion> versions = admin.versions(DEFAULT_TENANT);
         assertThat(versions).filteredOn(v -> v.state().equals("active")).hasSize(1);
         assertThat(versions).filteredOn(v -> v.state().equals("ready")).hasSize(JdbcKnowledgeAdmin.RETAINED_VERSIONS);
         assertThat(versions).filteredOn(v -> v.state().equals("retired")).extracting(KnowledgeVersion::version)
                 .as("the oldest ready version, the bundled one, was retired").contains(bundled);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM vector_store WHERE metadata->>'corpus_version' = ?", Integer.class, bundled))
                 .as("its documents are gone").isZero();
-        assertThatThrownBy(() -> admin.rollback(bundled, null, "bob")).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> admin.rollback(DEFAULT_TENANT, bundled, null, "bob")).isInstanceOf(KnowledgeRuleException.class);
 
     }
 
@@ -177,33 +197,111 @@ class KnowledgeAdminIntegrationTest {
         assertThat(jdbc.queryForObject("SHOW hnsw.iterative_scan", String.class)).as("the pool's init SQL").isEqualTo("strict_order");
         jdbc.execute("ALTER TABLE vector_store SET (autovacuum_enabled = false)");
         for (int i = 0; i < 20; i++) {
-            for (KnowledgeEntry entry : admin.entries()) {
+            for (KnowledgeEntry entry : admin.entries(DEFAULT_TENANT)) {
                 if (entry.retired()) {
                     continue;
                 }
                 for (KnowledgeRevision revision : entry.revisions()) {
                     if (revision.state().equals("published")) {
-                        admin.saveDraft(entry.entryId(), revision.language(), revision.question(),
+                        admin.saveDraft(DEFAULT_TENANT, entry.entryId(), revision.language(), revision.question(),
                                 revision.answer() + " (revision " + i + ")", null, "alice");
                     }
                 }
             }
-            admin.publish("churn " + i, "alice", null);
+            admin.publish(DEFAULT_TENANT, "churn " + i, "alice", null);
         }
         assertThat(jdbc.queryForObject("SELECT n_dead_tup FROM pg_stat_user_tables WHERE relname = 'vector_store'", Long.class))
                 .as("the dead rows the scan has to step over are really there").isGreaterThan(300);
         assertThat(jdbc.queryForObject("SELECT count(DISTINCT embedding::text) FROM vector_store", Long.class))
                 .as("no two live rows share a vector, so none share a graph element")
                 .isEqualTo(jdbc.queryForObject("SELECT count(*) FROM vector_store", Long.class));
-        String active = admin.activeVersion().orElseThrow();
+        String active = admin.activeVersion(DEFAULT_TENANT).orElseThrow();
         String plan = String.join("\n", jdbc.queryForList("EXPLAIN SELECT * FROM vector_store WHERE metadata::jsonb @@ '$.corpus_version == \""
                 + active + "\"'::jsonpath ORDER BY embedding <=> (SELECT embedding FROM vector_store LIMIT 1) LIMIT 8", String.class));
         assertThat(plan).as("the search goes through the HNSW index, not an exact scan").contains("Index Scan using spring_ai_vector_index");
         for (String question : List.of("shipping", "退货", "password", "my parcel arrived crushed")) {
-            List<Passage> found = admin.preview(new SearchQuery(question, 8, 0), null);
+            List<Passage> found = admin.preview(new SearchQuery(DEFAULT_TENANT, question, 8, 0), null);
             assertThat(found).as("top-8 for '%s' after churn", question).hasSize(8);
             assertThat(found).allSatisfy(p -> assertThat(p.metadata()).containsEntry("corpus_version", active));
         }
-        assertThat(search.search(new SearchQuery("shipping", 8, 0))).as("the seam sees the same").hasSize(8);
+        assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "shipping", 8, 0))).as("the seam sees the same").hasSize(8);
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("a second tenant publishes its own knowledge; each tenant retrieves only its own, over the seam and through the advisor")
+    void tenantsRetrieveOnlyTheirOwn() {
+        tenants.create("acme", "Acme");
+        assertThat(admin.activeVersion("acme")).as("a new tenant starts with nothing active").isEmpty();
+        assertThat(admin.entries("acme")).isEmpty();
+        assertThat(admin.version("acme", admin.activeVersion(DEFAULT_TENANT).orElseThrow()))
+                .as("another tenant's version is not addressable under this one").isEmpty();
+        assertThatThrownBy(() -> admin.preview(new SearchQuery("acme", "anything", 3, 0), null))
+                .isInstanceOf(KnowledgeRuleException.class);
+        assertThat(search.search(new SearchQuery("acme", "shipping", 3, 0))).as("and retrieves nothing until it publishes").isEmpty();
+
+        // The same entry id as the default tenant's, with different text: ids are per tenant.
+        admin.createEntry("acme", "shipping-cost", "orders", "acme-admin");
+        admin.saveDraft("acme", "shipping-cost", "en", "What does Acme charge for shipping?",
+                "Acme ships every order of unicorn saddles for a flat 9 dollars.", null, "acme-admin");
+        KnowledgeVersion acme = admin.publish("acme", "first", "acme-admin", null);
+        assertThat(acme.state()).isEqualTo("active");
+        assertThat(acme.documentCount()).isEqualTo(1);
+        assertThat(admin.activeVersion("acme")).hasValue(acme.version());
+        assertThat(admin.versions("acme")).hasSize(1);
+        assertThat(admin.versions(DEFAULT_TENANT)).extracting(KnowledgeVersion::version).doesNotContain(acme.version());
+
+        // Over the seam, as a knowledge process answers a chat process.
+        List<Passage> acmeFound = search.search(new SearchQuery("acme", "unicorn saddles shipping", 8, 0));
+        assertThat(acmeFound).hasSize(1);
+        assertThat(acmeFound.getFirst().text()).contains("unicorn saddles");
+        assertThat(acmeFound.getFirst().metadata()).containsEntry("corpus_version", acme.version());
+        assertThat(search.search(new SearchQuery(DEFAULT_TENANT, "unicorn saddles shipping", 8, 0)))
+                .as("the default tenant does not see Acme's text").allSatisfy(p -> assertThat(p.text()).doesNotContain("unicorn"));
+
+        // Directly against the store, the way QuestionAnswerAdvisor asks: the tenant is a filter clause.
+        List<org.springframework.ai.document.Document> viaFilter = vectorStore.similaritySearch(SearchRequest.builder()
+                .query("unicorn saddles shipping").topK(8).similarityThreshold(0)
+                .filterExpression(TenantFilter.expression("acme")).build());
+        assertThat(viaFilter).hasSize(1);
+        assertThat(vectorStore.similaritySearch(SearchRequest.builder().query("unicorn saddles shipping").topK(8).similarityThreshold(0).build()))
+                .as("no tenant clause is the default tenant").allSatisfy(d -> assertThat(d.getText()).doesNotContain("unicorn"));
+
+        // Through the whole advisor chain, as a customer turn: this is the path that must not leak.
+        given(chatModel.stream(any(Prompt.class))).willReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("Nine dollars."))))));
+        assertThat(retrievedBy("acme", "how much is shipping")).containsExactly("shipping-cost");
+        assertThat(retrievedVersionsBy("acme", "how much is shipping")).containsOnly(acme.version());
+        assertThat(retrievedBy(DEFAULT_TENANT, "how much is shipping")).contains("shipping-cost").hasSizeGreaterThan(1);
+        assertThat(retrievedVersionsBy(DEFAULT_TENANT, "how much is shipping"))
+                .containsOnly(admin.activeVersion(DEFAULT_TENANT).orElseThrow()).doesNotContain(acme.version());
+
+        // Retention and rollback are per tenant: Acme's publications retire Acme's versions only.
+        String defaultActive = admin.activeVersion(DEFAULT_TENANT).orElseThrow();
+        for (int i = 0; i < JdbcKnowledgeAdmin.RETAINED_VERSIONS + 1; i++) {
+            admin.saveDraft("acme", "shipping-cost", "en", "What does Acme charge for shipping?",
+                    "Acme ships unicorn saddles for " + (10 + i) + " dollars.", null, "acme-admin");
+            admin.publish("acme", "revision " + i, "acme-admin", null);
+        }
+        assertThat(admin.versions("acme")).filteredOn(v -> v.state().equals("retired")).extracting(KnowledgeVersion::version)
+                .contains(acme.version());
+        assertThat(admin.activeVersion(DEFAULT_TENANT)).hasValue(defaultActive);
+        assertThat(admin.versions(DEFAULT_TENANT)).filteredOn(v -> v.state().equals("ready")).hasSize(JdbcKnowledgeAdmin.RETAINED_VERSIONS);
+        assertThatThrownBy(() -> admin.rollback("acme", defaultActive, null, "acme-admin"))
+                .as("Acme cannot activate the default tenant's version").isInstanceOf(KnowledgeRuleException.class);
+    }
+
+    private List<String> retrievedBy(String tenant, String question) {
+        return retrieval(tenant, question).passages().stream().map(TurnEvent.Passage::entryId).toList();
+    }
+
+    private List<String> retrievedVersionsBy(String tenant, String question) {
+        return retrieval(tenant, question).passages().stream().map(TurnEvent.Passage::corpusVersion).toList();
+    }
+
+    private TurnEvent.Retrieval retrieval(String tenant, String question) {
+        List<TurnEvent> events = chatService.stream(tenant, java.util.UUID.randomUUID().toString(), question).collectList().block();
+        return events.stream().filter(TurnEvent.Retrieval.class::isInstance).map(TurnEvent.Retrieval.class::cast)
+                .findFirst().orElseThrow();
     }
 }
