@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { OrderConnectorSection } from '../components/OrderConnector';
+import { TelegramSection } from '../components/Telegram';
 import { ErrorNote } from '../components/ui';
 
 // The one page every role has for its own account: changing the password. The current
@@ -41,6 +42,7 @@ export function Account() {
       <ErrorNote error={error} />
     </section>
     {me!.role === 'admin' && me!.tenant && <OrderConnectorSection tenantId={me!.tenant.id} />}
+    {me!.role === 'admin' && me!.tenant && <TelegramSection tenantId={me!.tenant.id} />}
     </>
   );
 }

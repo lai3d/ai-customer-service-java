@@ -80,6 +80,11 @@ export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
 export type ConnectorKind = 'shopify' | 'xboard';
 export interface OrderConnector { tenantId: string; kind: ConnectorKind; shopDomain: string | null; baseUrl: string | null; accessToken: string | null; apiVersion: string | null; adminPath: string | null; configuredAt: string; configuredBy: string }
 export interface ConnectorTest { ok: boolean; shopDomain: string; shopName: string | null; error: string | null }
+/** A tenant's Telegram bot; the token comes back masked. */
+export type TelegramMode = 'polling' | 'webhook';
+export interface TelegramBot { tenantId: string; botToken: string; botUsername: string; mode: TelegramMode; configuredAt: string; configuredBy: string }
+export interface TelegramView { bot: TelegramBot; polling: boolean; webhookUrl: string | null }
+export interface TelegramTest { ok: boolean; botUsername: string | null; error: string | null }
 /** The one response that carries a key: shown once, never readable back. */
 export interface IssuedKey { keyId: string; key: string; label: string; kind: KeyKind; origins: string[] }
 export interface StaffAccount { username: string; role: Role; enabled: boolean; createdAt: string; createdBy: string | null; tenantId: string | null }
@@ -214,6 +219,10 @@ export const api = {
   tenant: (id: string) => call<TenantDetail>('GET', `/tenants/${encodeURIComponent(id)}`),
   createTenant: (id: string, name: string) => call<Tenant>('POST', '/tenants', { id, name }),
   setTenantEnabled: (id: string, enabled: boolean) => call<Tenant>('POST', `/tenants/${encodeURIComponent(id)}/enabled`, { enabled }),
+  telegram: (id: string) => call<TelegramView | undefined>('GET', `/tenants/${encodeURIComponent(id)}/telegram`),
+  saveTelegram: (id: string, botToken: string, mode: TelegramMode) => call<TelegramView>('PUT', `/tenants/${encodeURIComponent(id)}/telegram`, { botToken, mode }),
+  deleteTelegram: (id: string) => call<void>('DELETE', `/tenants/${encodeURIComponent(id)}/telegram`),
+  testTelegram: (id: string) => call<TelegramTest>('POST', `/tenants/${encodeURIComponent(id)}/telegram/test`),
   orderConnector: (id: string) => call<OrderConnector | undefined>('GET', `/tenants/${encodeURIComponent(id)}/order-connector`),
   saveShopifyConnector: (id: string, shopDomain: string, accessToken: string, apiVersion?: string) =>
     call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'shopify', shopDomain, accessToken, apiVersion: apiVersion || undefined }),

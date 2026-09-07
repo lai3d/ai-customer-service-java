@@ -56,7 +56,7 @@ src/
 ├── auth.tsx          who is signed in (GET /admin/api/me), sign-out on 401
 ├── App.tsx           the routes and the navigation; /staff and /tenants are admin-only
 ├── format.ts         dates, durations, numbers
-├── components/       Markdown.tsx (the subset), ui.tsx (ErrorNote, Pill, Pager, Empty, Notice)
+├── components/       Markdown.tsx (the subset), ui.tsx (ErrorNote, Pill, Pager, Empty, Notice), TenantPicker, OrderConnector, Telegram
 ├── pages/            Login, Overview, Tickets, TicketDetail, Conversations, Conversation,
 │                     Feedback, Knowledge, Evaluation, Staff, Tenants, Account
 └── *.test.ts         api, format, markdown, no-markup-sinks
