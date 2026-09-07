@@ -254,7 +254,7 @@ Kubernetes manifests, the switching procedure and what running the split found.
 | Memory | Spring AI JDBC chat memory repository |
 | Observability | Micrometer → Prometheus (histograms, exemplars); Micrometer Tracing → OTLP → Tempo; Alloy → Loki; Grafana provisioned with dashboards, alerts and the links between the three |
 | Staff login | Spring Security 6.5 (JSON login on `/admin/api/**` only, bcrypt), Spring Session JDBC (sessions in Postgres) |
-| Operations UI | `admin-ui/`: Vite 6, React 19, TypeScript 5, react-router 7; vitest; its own nginx image on 8084 proxying `/admin/api` ([its README](admin-ui/README.md)) |
+| Operations UI | `admin-ui/`: Vite 6, React 19, TypeScript 5, react-router 7; vitest, and a Playwright walk of the built image in CI; its own nginx image on 8084 proxying `/admin/api` ([its README](admin-ui/README.md)) |
 | Build | Maven (wrapper included) |
 | Tests | JUnit 5 + Testcontainers |
 
@@ -296,6 +296,15 @@ the provider is reached, so a placeholder key is enough.
 ```bash
 scripts/verify-services.sh          # build, start the four containers, assert, leave it running
 scripts/verify-services.sh --down   # stop and remove it, including the volume
+```
+
+### The operations UI, walked in a browser
+
+```bash
+docker build -t ai-customer-service-java:local . && docker build -t ai-customer-service-java-admin-ui:local admin-ui
+(cd admin-ui && npm ci && npx playwright install --with-deps chromium)
+scripts/verify-admin-ui.sh          # Postgres, the app and the UI on their own stack; Playwright walks the UI through the proxy
+scripts/verify-admin-ui.sh --down   # remove it, including the database
 ```
 
 It asserts what only separate processes can show: an importer that runs once and

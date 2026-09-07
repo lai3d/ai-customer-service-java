@@ -10,7 +10,7 @@ import { when } from '../format';
  * deployment with a public origin. Shown to platform staff on the tenant's page and to a
  * tenant's own admins on their account page.
  */
-export function TelegramSection({ tenantId }: { tenantId: string }) {
+export function TelegramSection({ tenantId, onChanged }: { tenantId: string; onChanged?: () => void }) {
   const [view, setView] = useState<TelegramView | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [token, setToken] = useState('');
@@ -24,7 +24,7 @@ export function TelegramSection({ tenantId }: { tenantId: string }) {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    try { const saved = await api.saveTelegram(tenantId, token.trim(), mode); setEditing(false); setToken(''); setTest(null); setStatus(`Bot @${saved.bot.botUsername} connected in ${saved.bot.mode} mode.`); setError(null); await load(); }
+    try { const saved = await api.saveTelegram(tenantId, token.trim(), mode); setEditing(false); setToken(''); setTest(null); setStatus(`Bot @${saved.bot.botUsername} connected in ${saved.bot.mode} mode.`); setError(null); await load(); onChanged?.(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
   const runTest = async () => {
@@ -33,7 +33,7 @@ export function TelegramSection({ tenantId }: { tenantId: string }) {
   };
   const remove = async () => {
     setBusy(true);
-    try { await api.deleteTelegram(tenantId); setTest(null); setStatus('Bot removed; polling stopped or the webhook deleted.'); setError(null); await load(); }
+    try { await api.deleteTelegram(tenantId); setTest(null); setStatus('Bot removed; polling stopped or the webhook deleted.'); setError(null); await load(); onChanged?.(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
   const startEdit = () => { setMode(view?.bot.mode ?? 'polling'); setToken(''); setEditing(true); setStatus(''); };

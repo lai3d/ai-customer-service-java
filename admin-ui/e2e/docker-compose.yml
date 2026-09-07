@@ -1,0 +1,55 @@
+# The stack the browser walk runs against: Postgres, the application image and the UI image,
+# wired exactly as docker-compose.yml wires them (nginx proxies /admin/api to app:8080) but
+# under its own project name, without fixed container names and with only the UI published,
+# so it can run next to a laptop's normal stack and CI reaches everything through the proxy.
+#
+#   scripts/verify-admin-ui.sh          # up, walk, leave running
+#   scripts/verify-admin-ui.sh --down   # remove it, including the volume
+#
+# The application starts with a placeholder model key: no test sends a turn, and startup does
+# not call the provider. The seeded admin and the default tenant's key come from the script.
+name: csagent-admin-ui-walk
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: csagent
+      POSTGRES_USER: csagent
+      POSTGRES_PASSWORD: csagent
+    volumes:
+      - ../../docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U csagent -d csagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  app:
+    image: ${APP_IMAGE:-ai-customer-service-java:local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-placeholder-no-model-call-is-made-during-the-walk}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=csagent
+      - POSTGRES_USER=csagent
+      - POSTGRES_PASSWORD=csagent
+      - ADMIN_SEED_USERNAME
+      - ADMIN_SEED_PASSWORD
+      - DEFAULT_TENANT_API_KEY
+      - OTLP_TRACING_EXPORT_ENABLED=false
+    # The image's HEALTHCHECK is readiness (Postgres reached, schema migrated, the bundled FAQ
+    # imported), which is what `up --wait` waits for.
+
+  admin-ui:
+    image: ${ADMIN_UI_IMAGE:-ai-customer-service-java-admin-ui:local}
+    depends_on:
+      - app
+    environment:
+      - ADMIN_API_UPSTREAM=app:8080
+    ports:
+      - "${E2E_UI_PORT:-18084}:8084"
