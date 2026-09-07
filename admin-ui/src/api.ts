@@ -78,7 +78,7 @@ export interface TenantKey { keyId: string; label: string; kind: KeyKind; origin
 export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
 /** A tenant's order system; the token comes back masked to its last four characters. */
 export type ConnectorKind = 'shopify' | 'xboard';
-export interface OrderConnector { tenantId: string; kind: ConnectorKind; shopDomain: string | null; baseUrl: string | null; accessToken: string | null; apiVersion: string | null; configuredAt: string; configuredBy: string }
+export interface OrderConnector { tenantId: string; kind: ConnectorKind; shopDomain: string | null; baseUrl: string | null; accessToken: string | null; apiVersion: string | null; adminPath: string | null; configuredAt: string; configuredBy: string }
 export interface ConnectorTest { ok: boolean; shopDomain: string; shopName: string | null; error: string | null }
 /** The one response that carries a key: shown once, never readable back. */
 export interface IssuedKey { keyId: string; key: string; label: string; kind: KeyKind; origins: string[] }
@@ -191,6 +191,8 @@ export const api = {
   imports: (tenant: string) => call<KnowledgeImport[]>('GET', `/knowledge/imports${query({ tenant })}`),
   importOf: (tenant: string, id: number) => call<KnowledgeImport>('GET', `/knowledge/imports/${id}${query({ tenant })}`),
   importUrl: (tenant: string, url: string) => call<KnowledgeImport>('POST', `/knowledge/imports/url${query({ tenant })}`, { url }),
+  /** The panel's knowledge articles into drafts; needs the connector's admin token and admin path (422 otherwise). */
+  importXboard: (tenant: string) => call<KnowledgeImport>('POST', `/knowledge/imports/xboard${query({ tenant })}`),
   importPdf: (tenant: string, file: File) => { const form = new FormData(); form.append('file', file, file.name); return upload<KnowledgeImport>(`/knowledge/imports/pdf${query({ tenant })}`, form); },
   preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
 
@@ -216,8 +218,8 @@ export const api = {
   saveShopifyConnector: (id: string, shopDomain: string, accessToken: string, apiVersion?: string) =>
     call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'shopify', shopDomain, accessToken, apiVersion: apiVersion || undefined }),
   /** An Xboard panel: the customer's own subscription, read with the customer's own token; the tenant's token is optional. */
-  saveXboardConnector: (id: string, baseUrl: string, accessToken?: string) =>
-    call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'xboard', baseUrl, accessToken: accessToken || undefined }),
+  saveXboardConnector: (id: string, baseUrl: string, accessToken?: string, adminPath?: string) =>
+    call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'xboard', baseUrl, accessToken: accessToken || undefined, adminPath: adminPath || undefined }),
   deleteOrderConnector: (id: string) => call<void>('DELETE', `/tenants/${encodeURIComponent(id)}/order-connector`),
   testOrderConnector: (id: string) => call<ConnectorTest>('POST', `/tenants/${encodeURIComponent(id)}/order-connector/test`),
   issueTenantKey: (id: string, label: string, kind: KeyKind = 'secret', origins: string[] = []) =>

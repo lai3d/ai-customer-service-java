@@ -15,6 +15,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
   const [kind, setKind] = useState<ConnectorKind>('shopify');
   const [domain, setDomain] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [adminPath, setAdminPath] = useState('');
   const [token, setToken] = useState('');
   const [version, setVersion] = useState('');
   const [test, setTest] = useState<ConnectorTest | null>(null);
@@ -26,7 +27,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    try { if (kind === 'shopify') await api.saveShopifyConnector(tenantId, domain.trim(), token.trim(), version.trim()); else await api.saveXboardConnector(tenantId, baseUrl.trim(), token.trim()); setEditing(false); setToken(''); setTest(null); setStatus(kind === 'shopify' || token.trim() ? 'Connector saved; the token is stored and shown masked from now on.' : 'Connector saved; the panel is read with each customer\'s own token.'); setError(null); await load(); }
+    try { if (kind === 'shopify') await api.saveShopifyConnector(tenantId, domain.trim(), token.trim(), version.trim()); else await api.saveXboardConnector(tenantId, baseUrl.trim(), token.trim(), adminPath.trim()); setEditing(false); setToken(''); setTest(null); setStatus(kind === 'shopify' || token.trim() ? 'Connector saved; the token is stored and shown masked from now on.' : 'Connector saved; the panel is read with each customer\'s own token.'); setError(null); await load(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
   const runTest = async () => {
@@ -38,7 +39,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
     try { await api.deleteOrderConnector(tenantId); setTest(null); setStatus('Connector removed; the assistant will offer a ticket instead of an order lookup.'); setError(null); await load(); }
     catch (err) { setError(err); } finally { setBusy(false); }
   };
-  const startEdit = () => { setKind(connector?.kind ?? 'shopify'); setDomain(connector?.shopDomain ?? ''); setBaseUrl(connector?.baseUrl ?? ''); setVersion(connector?.apiVersion ?? ''); setToken(''); setEditing(true); setStatus(''); };
+  const startEdit = () => { setKind(connector?.kind ?? 'shopify'); setDomain(connector?.shopDomain ?? ''); setBaseUrl(connector?.baseUrl ?? ''); setAdminPath(connector?.adminPath ?? ''); setVersion(connector?.apiVersion ?? ''); setToken(''); setEditing(true); setStatus(''); };
   return (
     <section>
       <h3>Order system</h3>
@@ -50,6 +51,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
           <dt>Kind</dt><dd>{connector.kind}</dd>
           {connector.kind === 'shopify' ? <><dt>Store</dt><dd className="mono">{connector.shopDomain}</dd></> : <><dt>Panel</dt><dd className="mono">{connector.baseUrl}</dd></>}
           <dt>Token</dt><dd className="mono">{connector.accessToken ?? 'none (the customer\'s own token is used)'}</dd>
+          {connector.kind === 'xboard' && <><dt>Admin path</dt><dd className="mono">{connector.adminPath ?? 'none'}</dd></>}
           {connector.kind === 'shopify' && <><dt>API version</dt><dd className="mono">{connector.apiVersion}</dd></>}
           <dt>Configured</dt><dd>{when(connector.configuredAt)} by {connector.configuredBy}</dd>
         </dl>
@@ -76,7 +78,8 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
           </>}
           {kind === 'xboard' && <>
             <label>Panel origin <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://panel.example.com" size={32} required autoFocus /></label>
-            <label>Panel token (optional) <input type="password" value={token} onChange={e => setToken(e.target.value)} size={36} autoComplete="off" /></label>
+            <label>Admin token (optional) <input type="password" value={token} onChange={e => setToken(e.target.value)} size={36} autoComplete="off" /></label>
+            <label>Admin path (optional) <input value={adminPath} onChange={e => setAdminPath(e.target.value)} placeholder="the secret segment under /api/v2/" size={24} title="With the admin token: tickets raised in the panel and its knowledge articles as an import source" /></label>
           </>}
           <button className="primary" disabled={busy}>Save</button>
           <button type="button" onClick={() => setEditing(false)}>Cancel</button>
@@ -89,7 +92,7 @@ export function OrderConnectorSection({ tenantId }: { tenantId: string }) {
       <ErrorNote error={error} />
       <details>
         <summary className="hint">How the store owner gets a token</summary>
-        <p className="hint">Xboard: the panel's origin is enough; the widget on the panel's own pages forwards the signed-in customer's token (<span className="mono">data-customer-token</span> or <span className="mono">data-customer-token-key</span> on the script tag), so the assistant reads that customer's account and no one else's. Shopify:</p>
+        <p className="hint">Xboard: the panel's origin is enough for a customer's own questions; the admin token and the admin path (the secret segment its admin API lives under) add tickets raised in the panel and its knowledge articles as an import source. Also: the widget on the panel's own pages forwards the signed-in customer's token (<span className="mono">data-customer-token</span> or <span className="mono">data-customer-token-key</span> on the script tag), so the assistant reads that customer's account and no one else's. Shopify:</p>
         <ol className="hint">
           <li>In the store's admin: Settings → Apps and sales channels → Develop apps → Create an app.</li>
           <li>Configure Admin API scopes: <span className="mono">read_orders</span> (and <span className="mono">read_fulfillments</span> where it is separate). Nothing else; the connector only reads.</li>
