@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { TenantPicker } from '../components/TenantPicker';
-import { api, type KnowledgeEntry, type KnowledgeRevision, type Passage, type Versions } from '../api';
+import { api, type KnowledgeEntry, type KnowledgeImport, type KnowledgeRevision, type Passage, type Versions } from '../api';
+import { filterEntries, pageOf, sourcesOf } from '../knowledgeFilter';
 import { useAuth } from '../auth';
 import { Empty, ErrorNote, Pill } from '../components/ui';
 import { when } from '../format';
@@ -42,6 +43,13 @@ export function KnowledgePage() {
   const chooseTenant = (id: string) => { const p = new URLSearchParams(params); if (id === 'default') p.delete('tenant'); else p.set('tenant', id); setParams(p); setCurrent(null); setPreview(null); setStatus(''); };
   const admin = me!.role === 'admin';
   const [entries, setEntries] = useState<KnowledgeEntry[] | null>(null);
+  const [filterText, setFilterText] = useState('');
+  const [filterSource, setFilterSource] = useState('');
+  const [entryPage, setEntryPage] = useState(0);
+  const [imports, setImports] = useState<KnowledgeImport[] | null>(null);
+  const [importUrl, setImportUrl] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
   const [versions, setVersions] = useState<Versions | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [status, setStatus] = useState('');
@@ -56,8 +64,24 @@ export function KnowledgePage() {
   const [previewVersion, setPreviewVersion] = useState('');
   const [preview, setPreview] = useState<Passage[] | null>(null);
 
-  const load = useCallback(() => Promise.all([api.entries(tenant), api.versions(tenant)]).then(([e, v]) => { setEntries(e); setVersions(v); setError(null); }, setError), [tenant]);
+  const load = useCallback(() => Promise.all([api.entries(tenant), api.versions(tenant), admin ? api.imports(tenant) : Promise.resolve(null)])
+    .then(([e, v, i]) => { setEntries(e); setVersions(v); setImports(i); setError(null); }, setError), [tenant, admin]);
   useEffect(() => { void load(); }, [load]);
+  // An import runs on the knowledge role; poll its row until it is done or failed, then reload the entries it wrote.
+  useEffect(() => {
+    if (!imports?.some(i => i.state === 'running')) return;
+    const timer = setInterval(() => { void load(); }, 2000);
+    return () => clearInterval(timer);
+  }, [imports, load]);
+  const startImport = async (e: FormEvent) => {
+    e.preventDefault();
+    setImporting(true);
+    try {
+      if (importFile) await api.importPdf(tenant, importFile); else await api.importUrl(tenant, importUrl.trim());
+      setImportUrl(''); setImportFile(null); setStatus('Import started; its drafts appear below when it is done. Nothing is live until published.'); setError(null);
+      await load();
+    } catch (err) { setError(err); } finally { setImporting(false); }
+  };
 
   const entry = entries?.find(e => e.entryId === current) ?? null;
   const languages = entry ? Array.from(new Set([...entry.revisions.map(r => r.language), ...extraLanguages])) : [];
@@ -114,21 +138,41 @@ export function KnowledgePage() {
         )}
         {status && <p className="note">{status}</p>}
         <ErrorNote error={error} />
-        {entries && (
+        {entries && entries.length > 0 && (
+          <div className="row">
+            <label>Find <input value={filterText} onChange={e => { setFilterText(e.target.value); setEntryPage(0); }} placeholder="id, category or source" /></label>
+            <label>Source
+              <select value={filterSource} onChange={e => { setFilterSource(e.target.value); setEntryPage(0); }}>
+                <option value="">any</option>
+                <option value="typed">typed here or bundled</option>
+                {sourcesOf(entries).map(src => <option key={src} value={src}>{src}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+        {entries && (() => { const shown = pageOf(filterEntries(entries, filterText, filterSource), entryPage); return (<>
           <table>
-            <thead><tr><th>Entry</th><th>Category</th><th>Languages</th><th></th></tr></thead>
+            <thead><tr><th>Entry</th><th>Category</th><th>Source</th><th>Languages</th><th></th></tr></thead>
             <tbody>
-              {entries.map(e => (
+              {shown.items.map(e => (
                 <tr key={e.entryId}>
                   <td className="mono">{e.entryId}{e.retired ? ' (retired)' : ''}</td>
                   <td>{e.category}</td>
+                  <td className="mono">{e.source ? `${e.sourceKind} · ${e.source}` : '—'}</td>
                   <td>{e.revisions.map(r => <Pill key={r.id} kind={r.state}>{r.language} {r.state}</Pill>).reduce<React.ReactNode[]>((acc, p, i) => (i ? [...acc, ' ', p] : [p]), [])}</td>
                   <td><button onClick={() => { setCurrent(e.entryId); setExtraLanguages([]); }}>Edit</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
+          {shown.pages > 1 && (
+            <p className="row">
+              <button type="button" disabled={shown.page === 0} onClick={() => setEntryPage(shown.page - 1)}>‹</button>
+              <span className="hint">page {shown.page + 1} of {shown.pages}</span>
+              <button type="button" disabled={shown.page >= shown.pages - 1} onClick={() => setEntryPage(shown.page + 1)}>›</button>
+            </p>
+          )}
+        </>); })()}
         {entry && (
           <div>
             <h3>{entry.entryId} · {entry.category}{entry.retired ? ' · retired' : ''}</h3>
@@ -145,6 +189,35 @@ export function KnowledgePage() {
           </div>
         )}
       </section>
+      {admin && (
+        <section>
+          <h2>Imports</h2>
+          <p className="hint">A tenant's own document into draft entries: a web page by URL, or a PDF. Each chunk becomes a draft in the category <span className="mono">imported</span>; importing the same source again replaces its drafts. The knowledge role fetches and parses it; nothing is live until published.</p>
+          <form className="row" onSubmit={startImport}>
+            <label>URL <input value={importUrl} onChange={e => setImportUrl(e.target.value)} placeholder="https://help.example.com/returns" size={40} disabled={!!importFile} /></label>
+            <label>or a PDF <input type="file" accept="application/pdf,.pdf" onChange={e => setImportFile(e.target.files?.[0] ?? null)} /></label>
+            <button className="primary" disabled={importing || (!importFile && !importUrl.trim())}>{importing ? 'Starting…' : 'Import'}</button>
+          </form>
+          {imports && imports.length === 0 && <Empty>No imports yet.</Empty>}
+          {imports && imports.length > 0 && (
+            <table>
+              <thead><tr><th>#</th><th>Source</th><th>State</th><th>Entries</th><th>Requested</th><th>Finished</th></tr></thead>
+              <tbody>
+                {imports.map(i => (
+                  <tr key={i.id}>
+                    <td>#{i.id}</td>
+                    <td className="mono">{i.sourceKind} · {i.source}</td>
+                    <td><Pill kind={i.state}>{i.state}</Pill>{i.error && <div className="hint">{i.error}</div>}</td>
+                    <td>{i.entries ?? '—'}</td>
+                    <td>{i.requestedBy}, {when(i.requestedAt)}</td>
+                    <td>{i.finishedAt ? when(i.finishedAt) : '…'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
       <section>
         <h2>Versions</h2>
         {versions && versions.versions.length === 0 && <Empty>No versions yet.</Empty>}

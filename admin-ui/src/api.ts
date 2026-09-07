@@ -61,7 +61,10 @@ export interface KnowledgeRevision {
   id: number; entryId: string; language: string; question: string; answer: string; state: 'draft' | 'published' | 'superseded';
   createdAt: string; createdBy: string; note: string | null;
 }
-export interface KnowledgeEntry { entryId: string; category: string; retired: boolean; createdAt: string; createdBy: string; revisions: KnowledgeRevision[] }
+/** sourceKind and source are set for entries an import wrote (url or pdf), null for typed ones and the bundled corpus. */
+export interface KnowledgeEntry { entryId: string; category: string; retired: boolean; createdAt: string; createdBy: string; revisions: KnowledgeRevision[]; sourceKind: 'url' | 'pdf' | null; source: string | null }
+/** One import of a tenant's document, polled like a publication: running, then done with the entries written, or failed with the reason. */
+export interface KnowledgeImport { id: number; tenantId: string; sourceKind: 'url' | 'pdf'; source: string; state: 'running' | 'done' | 'failed'; entries: number | null; error: string | null; requestedBy: string; requestedAt: string; finishedAt: string | null }
 export interface KnowledgeVersion {
   version: string; state: 'building' | 'ready' | 'active' | 'failed' | 'retired'; documentCount: number | null;
   createdAt: string; createdBy: string; activatedAt: string | null; note: string | null; error: string | null;
@@ -97,6 +100,17 @@ async function call<T>(method: string, path: string, body?: unknown, signOutOn40
   if (!res.ok) {
     const message = await errorMessage(res);
     if (res.status === 401 && signOutOn401) onUnauthorized?.();
+    throw new ApiError(res.status, message);
+  }
+  return await res.json() as T;
+}
+
+/** A multipart upload; the CSRF header travels the same way as on every other mutation. */
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(BASE + path, { method: 'POST', headers: { Accept: 'application/json', 'X-XSRF-TOKEN': csrfToken() }, body: form, credentials: 'same-origin' });
+  if (!res.ok) {
+    const message = await errorMessage(res);
+    if (res.status === 401) onUnauthorized?.();
     throw new ApiError(res.status, message);
   }
   return await res.json() as T;
@@ -143,6 +157,10 @@ export const api = {
   versions: (tenant: string) => call<Versions>('GET', `/knowledge/versions${query({ tenant })}`),
   publish: (tenant: string, note: string, expectedActive: string | null) => call<{ started: boolean }>('POST', `/knowledge/publish${query({ tenant })}`, { note, expectedActive }),
   rollback: (tenant: string, version: string, expectedActive: string | null) => call<KnowledgeVersion>('POST', `/knowledge/rollback${query({ tenant })}`, { version, expectedActive }),
+  imports: (tenant: string) => call<KnowledgeImport[]>('GET', `/knowledge/imports${query({ tenant })}`),
+  importOf: (tenant: string, id: number) => call<KnowledgeImport>('GET', `/knowledge/imports/${id}${query({ tenant })}`),
+  importUrl: (tenant: string, url: string) => call<KnowledgeImport>('POST', `/knowledge/imports/url${query({ tenant })}`, { url }),
+  importPdf: (tenant: string, file: File) => { const form = new FormData(); form.append('file', file, file.name); return upload<KnowledgeImport>(`/knowledge/imports/pdf${query({ tenant })}`, form); },
   preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
 
   staff: (tenant?: string) => call<StaffAccount[]>('GET', '/staff' + query({ tenant })),
