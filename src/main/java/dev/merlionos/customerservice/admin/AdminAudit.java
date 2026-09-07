@@ -18,7 +18,7 @@ public class AdminAudit {
         ACCOUNT_DISABLED("account_disabled"), ACCOUNT_ENABLED("account_enabled"), ROLE_CHANGED("role_changed"),
         PASSWORD_RESET("password_reset"), PASSWORD_CHANGED("password_changed"),
         TENANT_CREATED("tenant_created"), TENANT_ENABLED("tenant_enabled"), TENANT_DISABLED("tenant_disabled"),
-        KEY_ISSUED("key_issued"), KEY_REVOKED("key_revoked"), IMPORTED("imported"), EVALUATED("evaluated"), CONNECTOR_CHANGED("connector_changed");
+        KEY_ISSUED("key_issued"), KEY_REVOKED("key_revoked"), IMPORTED("imported"), EVALUATED("evaluated"), CONNECTOR_CHANGED("connector_changed"), CHANNEL_CHANGED("channel_changed");
 
         final String value;
 

@@ -43,6 +43,8 @@ the measured numbers below are from that run, not estimates.
 | `ORDER_CONNECTOR_KEY` | before a real store | none | Encrypts a tenant's store access token at rest (AES-256-GCM; 32 bytes, base64: `openssl rand -base64 32`). Unset, tokens are stored as given and startup warns. Read by `all` and `chat` processes. See [connectors](connectors.md). |
 | `SHOPIFY_BASE_URL` | no | none | Where Shopify is; blank means `https://<shop domain>`. A local stand-in (`scripts/fake-shopify.py`) for a demo without a store. |
 | `XBOARD_BASE_URL` | no | none | Where every tenant's Xboard panel is; blank means the connector's own URL. A stand-in (`scripts/fake-xboard.py`) likewise. |
+| `PUBLIC_URL` | webhook mode | none | This deployment's public origin, e.g. `https://cs.example.com`, which Telegram posts a bot's updates to (`/telegram/{tenant}/{secret}`). Unset, only polling can be configured. See [channels](channels.md). |
+| `TELEGRAM_API_BASE_URL` | no | `https://api.telegram.org` | A stand-in for the Bot API, for tests and a demo. |
 | `CONNECTOR_ALLOW_PRIVATE_NETWORKS` | no | `false` | Lets a panel URL point inside the deployment (loopback, private ranges). A laptop; never facing tenants. |
 | `ADMIN_SESSION_TIMEOUT` | no | `30m` | Idle time before a staff session ends. Sessions are rows in `spring_session`, shared by every replica. |
 | `ADMIN_SESSION_MAX_LIFETIME` | no | `12h` | How long a staff session may live from its sign-in, however busy it is; older ones are ended on their next request. Must be positive. |
