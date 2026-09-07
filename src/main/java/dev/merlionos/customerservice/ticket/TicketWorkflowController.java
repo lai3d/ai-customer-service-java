@@ -53,11 +53,12 @@ class TicketWorkflowController {
                       @RequestParam(required = false) String from,
                       @RequestParam(required = false) String to,
                       @RequestParam(defaultValue = "0") int page,
-                      @RequestParam(defaultValue = "0") int size) {
+                      @RequestParam(defaultValue = "0") int size,
+                      @RequestParam(required = false) String tenant) {
         // Parsed by hand: Spring's default conversion wants the enum's constant name, and the
         // page and the client both speak the lower-case wire form.
         return workflow.search(new TicketFilter(blank(state) ? null : TicketState.fromValue(state), owner,
-                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size));
+                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size, tenant));
     }
 
     private static boolean blank(String value) {

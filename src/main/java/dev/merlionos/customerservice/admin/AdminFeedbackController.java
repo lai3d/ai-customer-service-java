@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.chat.TurnRecords;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,8 +26,10 @@ class AdminFeedbackController {
 
     private final AnswerFeedback feedback;
     private final AdminAudit audit;
+    private final TurnRecords records;
 
-    AdminFeedbackController(AnswerFeedback feedback, AdminAudit audit) {
+    AdminFeedbackController(AnswerFeedback feedback, AdminAudit audit, TurnRecords records) {
+        this.records = records;
         this.feedback = feedback;
         this.audit = audit;
     }
@@ -34,13 +37,20 @@ class AdminFeedbackController {
     @GetMapping
     AnswerFeedback.Page list(@RequestParam(required = false) String state,
                              @RequestParam(defaultValue = "0") int page,
-                             @RequestParam(defaultValue = "0") int size) {
-        return feedback.list(state, page, size);
+                             @RequestParam(defaultValue = "0") int size,
+                             @RequestParam(required = false) String tenant, Authentication authentication) {
+        return feedback.list(StaffScope.of(authentication).listTenant(tenant), state, page, size);
+    }
+
+    /** A flag outside the caller's tenant is answered as missing. */
+    private AnswerFeedback.Report scoped(long id, Authentication authentication) {
+        return feedback.find(id).filter(report -> StaffScope.of(authentication).covers(report.tenantId()))
+                .orElseThrow(() -> new AnswerFeedback.NotFound(id));
     }
 
     @GetMapping("/{id}")
-    AnswerFeedback.Report one(@PathVariable long id) {
-        return feedback.find(id).orElseThrow(() -> new AnswerFeedback.NotFound(id));
+    AnswerFeedback.Report one(@PathVariable long id, Authentication authentication) {
+        return scoped(id, authentication);
     }
 
     record NewReport(String turnId, String issue, String note) {
@@ -48,6 +58,10 @@ class AdminFeedbackController {
 
     @PostMapping
     ResponseEntity<AnswerFeedback.Report> report(@RequestBody NewReport request, Authentication authentication) {
+        String turnTenant = request.turnId() == null ? null : records.tenantOfTurn(request.turnId()).orElse(null);
+        if (turnTenant != null && !StaffScope.of(authentication).covers(turnTenant)) {
+            throw new AnswerFeedback.Rule("No recorded turn " + request.turnId());
+        }
         AnswerFeedback.Report created = feedback.report(request.turnId(), request.issue(), request.note(),
                 authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -59,6 +73,7 @@ class AdminFeedbackController {
 
     @PostMapping("/{id}/handle")
     AnswerFeedback.Report handle(@PathVariable long id, @RequestBody Handling request, Authentication authentication) {
+        scoped(id, authentication);
         return feedback.handle(id, request.state(), request.conclusion(), request.revisionId(), authentication.getName(),
                 request.expectedVersion());
     }

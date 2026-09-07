@@ -46,6 +46,12 @@ class AdminTenantController {
         this.audit = audit;
     }
 
+    /** Tenants are platform staff's business; a tenant's own admin has no tenant to manage but their own. */
+    @org.springframework.web.bind.annotation.ModelAttribute
+    void platformOnly(Authentication authentication) {
+        StaffScope.of(authentication).requirePlatform();
+    }
+
     @GetMapping
     List<Tenant> list() {
         return tenants.all();

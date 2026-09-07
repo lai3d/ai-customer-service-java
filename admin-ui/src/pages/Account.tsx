@@ -28,7 +28,7 @@ export function Account() {
   return (
     <section>
       <h2>Account</h2>
-      <p className="hint">Signed in as <span className="mono">{me!.username}</span> ({me!.role}). A new password is at least 12 characters and must differ from the current one. Changing it signs out every other session of this account; this one stays.</p>
+      <p className="hint">Signed in as <span className="mono">{me!.username}</span> ({me!.role}{me!.tenant ? `, tenant ${me!.tenant.name}` : ', platform'}). A new password is at least 12 characters and must differ from the current one. Changing it signs out every other session of this account; this one stays.</p>
       <form className="row" onSubmit={submit}>
         <label>Current password <input type="password" value={current} onChange={e => setCurrent(e.target.value)} required autoComplete="current-password" /></label>
         <label>New password <input type="password" value={next} onChange={e => setNext(e.target.value)} required minLength={12} autoComplete="new-password" /></label>

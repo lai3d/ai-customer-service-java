@@ -91,7 +91,7 @@ class AdminStaffApiTest {
         assertThat(promoted.body()).contains("\"role\":\"admin\"");
         assertThat(sam.get("/admin/api/me").statusCode()).as("the session signed in as support is gone").isEqualTo(401);
         assertThat(AdminBrowser.signedIn(port, "sam", "support-password-1").get("/admin/api/me").body())
-                .isEqualTo("{\"username\":\"sam\",\"role\":\"admin\"}");
+                .isEqualTo("{\"username\":\"sam\",\"role\":\"admin\",\"tenant\":{\"id\":\"default\",\"name\":\"Default tenant\"}}");
         assertThat(audit()).singleElement().satisfies(row -> {
             assertThat(row).containsEntry("actor", "root").containsEntry("action", "role_changed").containsEntry("target", "sam");
             assertThat(row).containsEntry("detail", "support -> admin");
@@ -191,23 +191,32 @@ class AdminStaffApiTest {
         assertThat(admin.postJson("/admin/api/staff/root/role", "{\"role\":\"support\"}").statusCode()).isEqualTo(422);
         assertThat(admin.get("/admin/api/me").statusCode()).as("nothing happened to the caller").isEqualTo(200);
 
-        // A second admin, who then tries to remove the first while being the one who would remain
-        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, "root");
+        // Platform staff are admins by the schema: root cannot become support, and the last platform admin stays.
+        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, null, "root");
         AdminBrowser kim = AdminBrowser.signedIn(port, "kim", "second-admin-password");
-        assertThat(kim.postJson("/admin/api/staff/root/role", "{\"role\":\"support\"}").statusCode()).as("two admins: allowed").isEqualTo(200);
-        AdminBrowser rootAgain = AdminBrowser.signedIn(port, "root", "first-admin-password");
-        assertThat(rootAgain.get("/admin/api/staff").statusCode()).as("root is support now").isEqualTo(403);
-        HttpResponse<String> last = kim.postJson("/admin/api/staff/root/enabled", "{\"enabled\":false}");
-        assertThat(last.statusCode()).as("disabling a support account is fine").isEqualTo(200);
-        assertThat(kim.postJson("/admin/api/staff/root/role", "{\"role\":\"admin\"}").statusCode())
-                .as("a disabled account can be made admin again").isEqualTo(200);
+        assertThat(kim.postJson("/admin/api/staff/root/role", "{\"role\":\"support\"}").statusCode())
+                .as("a platform account is an admin or nothing").isEqualTo(422);
+        assertThat(kim.postJson("/admin/api/staff/root/enabled", "{\"enabled\":false}").statusCode())
+                .as("two platform admins: disabling one is allowed").isEqualTo(200);
+        assertThat(admin.get("/admin/api/me").statusCode()).as("root's session ended").isEqualTo(401);
         assertThat(kim.postJson("/admin/api/staff/root/enabled", "{\"enabled\":true}").statusCode()).isEqualTo(200);
-        assertThat(rootAgain.get("/admin/api/me").statusCode()).as("its old session did not come back").isEqualTo(401);
+
+        // Within a tenant the rule is the tenant's own: its two admins may demote each other down to one.
+        accounts.create("dana", "tenant-admin-password", StaffRole.ADMIN, "default", "root");
+        AdminBrowser dana = AdminBrowser.signedIn(port, "dana", "tenant-admin-password");
+        assertThat(dana.postJson("/admin/api/staff/sam/role", "{\"role\":\"admin\"}").statusCode()).as("dana promotes sam").isEqualTo(200);
+        assertThat(dana.postJson("/admin/api/staff/sam/role", "{\"role\":\"support\"}").statusCode()).as("two tenant admins: allowed").isEqualTo(200);
+        assertThat(dana.postJson("/admin/api/staff/dana/enabled", "{\"enabled\":false}").statusCode()).as("never yourself").isEqualTo(422);
+        assertThat(dana.postJson("/admin/api/staff/root/enabled", "{\"enabled\":false}").statusCode())
+                .as("a tenant admin does not see platform accounts").isEqualTo(404);
+        assertThat(kim.postJson("/admin/api/staff/dana/enabled", "{\"enabled\":false}").statusCode())
+                .as("platform may disable a tenant's last admin: the tenant still has platform above it").isEqualTo(200);
 
         assertThat(audit()).filteredOn(row -> row.get("action").equals("refused"))
                 .extracting(row -> row.get("actor") + " " + row.get("target") + ": " + row.get("detail"))
                 .containsExactly("root root: You cannot disable your own account", "root root: You cannot change your own role",
-                        "root GET /admin/api/staff: Access Denied");
+                        "kim root: Platform staff are admins; give 'root' a tenant instead",
+                        "dana dana: You cannot disable your own account");
     }
 
     @Test

@@ -71,6 +71,9 @@ public class HttpTicketWorkflow implements TicketWorkflow {
                     if (filter.to() != null) {
                         builder.queryParam("to", filter.to().toString());
                     }
+                    if (filter.tenantId() != null) {
+                        builder.queryParam("tenant", filter.tenantId());
+                    }
                     return builder.build();
                 })
                 .retrieve().body(TicketPage.class);

@@ -48,13 +48,13 @@ public class JdbcTicketWorkflow implements TicketWorkflow {
     private static final Logger log = LoggerFactory.getLogger(JdbcTicketWorkflow.class);
 
     private static final String COLUMNS = "ticket_number, conversation_id, category, summary, order_number, "
-            + "state, owner, created_at, updated_at, version";
+            + "state, owner, created_at, updated_at, version, tenant_id";
 
     private static final RowMapper<TicketRecord> RECORD = (rs, i) -> new TicketRecord(
             rs.getString("ticket_number"), rs.getString("conversation_id"), rs.getString("category"),
             rs.getString("summary"), rs.getString("order_number"), TicketState.fromValue(rs.getString("state")),
             rs.getString("owner"), rs.getTimestamp("created_at").toInstant(),
-            rs.getTimestamp("updated_at").toInstant(), rs.getInt("version"));
+            rs.getTimestamp("updated_at").toInstant(), rs.getInt("version"), rs.getString("tenant_id"));
 
     private static final RowMapper<TicketEvent> EVENT = (rs, i) -> new TicketEvent(
             rs.getLong("id"), rs.getString("ticket_number"), TicketEvent.Kind.fromValue(rs.getString("kind")),
@@ -100,6 +100,10 @@ public class JdbcTicketWorkflow implements TicketWorkflow {
         if (filter.to() != null) {
             where.add("created_at < ?");
             args.add(Timestamp.from(filter.to()));
+        }
+        if (filter.tenantId() != null) {
+            where.add("tenant_id = ?");
+            args.add(filter.tenantId());
         }
         String clause = where.isEmpty() ? "" : " WHERE " + String.join(" AND ", where);
 
@@ -249,7 +253,7 @@ public class JdbcTicketWorkflow implements TicketWorkflow {
                     note, Timestamp.from(now));
             return new TicketRecord(current.ticketNumber(), current.conversationId(), current.category(),
                     current.summary(), current.orderNumber(), target.state(), target.owner(),
-                    current.createdAt(), now, current.version() + 1);
+                    current.createdAt(), now, current.version() + 1, current.tenantId());
         });
         log.info("Ticket {} {} by {}: now {}{}", ticketNumber, kind.value(), actor.username(),
                 changed.state().value(), changed.owner() == null ? "" : ", owned by " + changed.owner());

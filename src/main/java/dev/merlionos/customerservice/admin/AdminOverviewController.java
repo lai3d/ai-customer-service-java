@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.admin;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,7 +26,8 @@ class AdminOverviewController {
     }
 
     @GetMapping
-    AdminOverview.Overview overview(@RequestParam(required = false) String from, @RequestParam(required = false) String to) {
+    AdminOverview.Overview overview(@RequestParam(required = false) String from, @RequestParam(required = false) String to,
+                                    @RequestParam(required = false) String tenant, Authentication authentication) {
         Instant[] window = AdminOverview.defaultWindow();
         Instant end = to == null || to.isBlank() ? window[1] : Instant.parse(to);
         Instant start = from == null || from.isBlank() ? end.minus(Duration.ofDays(1)) : Instant.parse(from);
@@ -35,7 +37,7 @@ class AdminOverviewController {
         if (Duration.between(start, end).compareTo(MAX_WINDOW) > 0) {
             throw new IllegalArgumentException("the window is at most " + MAX_WINDOW.toDays() + " days");
         }
-        return overview.over(start, end);
+        return overview.over(start, end, StaffScope.of(authentication).listTenant(tenant));
     }
 
     @ExceptionHandler({IllegalArgumentException.class, java.time.format.DateTimeParseException.class})

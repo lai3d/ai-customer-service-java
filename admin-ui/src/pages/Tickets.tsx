@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { api, type TicketPage } from '../api';
 import { useAuth } from '../auth';
 import { Empty, ErrorNote, Pager, Pill } from '../components/ui';
+import { TenantPicker } from '../components/TenantPicker';
 import { when } from '../format';
 
 export function Tickets() {
@@ -12,16 +13,19 @@ export function Tickets() {
   const state = params.get('state') ?? '';
   const owner = params.get('owner') ?? '';
   const page = Number(params.get('page') ?? '0');
+  const tenant = params.get('tenant') ?? '';
+  const platform = me!.tenant === null;
   const [data, setData] = useState<TicketPage | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     setData(null);
-    api.tickets({ state: state || undefined, owner: owner || undefined, page, size: 25 }).then(setData, setError);
-  }, [state, owner, page]);
+    api.tickets({ state: state || undefined, owner: owner || undefined, page, size: 25, tenant: tenant || undefined }).then(setData, setError);
+  }, [state, owner, page, tenant]);
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); p.delete('page'); setParams(p); };
   return (
     <section>
       <h2>Tickets</h2>
+      <TenantPicker value={tenant} onChange={v => set('tenant', v)} allowAll />
       <div className="toolbar">
         <label>State
           <select value={state} onChange={e => set('state', e.target.value)}>
@@ -41,11 +45,12 @@ export function Tickets() {
       {data && data.tickets.length === 0 && <Empty>No tickets. One appears when the assistant raises it.</Empty>}
       {data && data.tickets.length > 0 && (
         <table>
-          <thead><tr><th>Ticket</th><th>State</th><th>Owner</th><th>Category</th><th>Summary</th><th>Updated</th></tr></thead>
+          <thead><tr><th>Ticket</th>{platform && <th>Tenant</th>}<th>State</th><th>Owner</th><th>Category</th><th>Summary</th><th>Updated</th></tr></thead>
           <tbody>
             {data.tickets.map(t => (
               <tr key={t.ticketNumber} className="link" onClick={() => navigate(`/tickets/${t.ticketNumber}`)}>
                 <td className="mono">{t.ticketNumber}</td>
+                {platform && <td className="mono">{t.tenantId}</td>}
                 <td><Pill kind={t.state}>{t.state}</Pill></td>
                 <td className="mono">{t.owner ?? '—'}</td>
                 <td>{t.category}</td>

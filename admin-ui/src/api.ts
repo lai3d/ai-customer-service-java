@@ -6,12 +6,14 @@
 // the rules refused it and reloading will not help.
 
 export type Role = 'admin' | 'support';
-export interface Me { username: string; role: Role }
+/** tenant is null for platform staff, who run the deployment and see every tenant. */
+export interface TenantRef { id: string; name: string }
+export interface Me { username: string; role: Role; tenant: TenantRef | null }
 
 export type TicketState = 'open' | 'claimed' | 'resolved' | 'closed';
 export interface Ticket {
   ticketNumber: string; conversationId: string; category: string; summary: string; orderNumber: string | null;
-  state: TicketState; owner: string | null; createdAt: string; updatedAt: string; version: number;
+  state: TicketState; owner: string | null; createdAt: string; updatedAt: string; version: number; tenantId: string;
 }
 export interface TicketEvent {
   id: number; ticketNumber: string; kind: string; actor: string; fromState?: string; toState?: string;
@@ -25,7 +27,7 @@ export interface TicketConversation { conversationId: string; messages: Transcri
 
 export interface ConversationSummary {
   conversationId: string; turns: number; firstAt: string; lastAt: string; lastOutcome: string;
-  failed: number; interrupted: number; unknown: number;
+  failed: number; interrupted: number; unknown: number; tenantId: string; externalId: string | null;
 }
 export interface ConversationPage { conversations: ConversationSummary[]; total: number; page: number; size: number }
 export interface Retrieved { rank: number; entryId: string; language: string | null; score: number; corpusVersion: string | null }
@@ -38,10 +40,10 @@ export interface Turn {
 export interface Feedback {
   id: number; turnId: string; conversationId: string; issue: string; note: string | null; state: 'open' | 'handled' | 'dismissed';
   conclusion: string | null; reportedBy: string; reportedAt: string; handledBy: string | null; handledAt: string | null;
-  version: number; revisionId: number | null;
+  version: number; revisionId: number | null; tenantId: string;
 }
 export interface FeedbackPage { reports: Feedback[]; total: number; page: number; size: number }
-export interface ConversationDetail { conversationId: string; turns: Turn[]; tickets: SupportTicket[]; feedback: Feedback[]; notPersisted: string }
+export interface ConversationDetail { conversationId: string; tenantId: string; externalId: string | null; turns: Turn[]; tickets: SupportTicket[]; feedback: Feedback[]; notPersisted: string }
 
 export interface Stat { key: string; label: string; value: number | null; definition: string }
 export interface Overview { from: string; to: string; turns: Stat[]; tickets: Stat[]; feedback: Stat[]; knowledge: Stat[]; staff: Stat[] }
@@ -51,7 +53,7 @@ export interface TenantKey { keyId: string; label: string; createdAt: string; re
 export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
 /** The one response that carries a key: shown once, never readable back. */
 export interface IssuedKey { keyId: string; key: string; label: string }
-export interface StaffAccount { username: string; role: Role; enabled: boolean; createdAt: string; createdBy: string | null }
+export interface StaffAccount { username: string; role: Role; enabled: boolean; createdAt: string; createdBy: string | null; tenantId: string | null }
 
 export interface KnowledgeRevision {
   id: number; entryId: string; language: string; question: string; answer: string; state: 'draft' | 'published' | 'superseded';
@@ -112,19 +114,19 @@ export const api = {
   me: () => call<Me>('GET', '/me'),
   changeOwnPassword: (currentPassword: string, newPassword: string) => call<void>('POST', '/me/password', { currentPassword, newPassword }),
 
-  overview: (f: { from?: string; to?: string }) => call<Overview>('GET', '/overview' + query(f)),
+  overview: (f: { from?: string; to?: string; tenant?: string }) => call<Overview>('GET', '/overview' + query(f)),
 
-  tickets: (f: { state?: string; owner?: string; page?: number; size?: number }) => call<TicketPage>('GET', '/tickets' + query(f)),
+  tickets: (f: { state?: string; owner?: string; page?: number; size?: number; tenant?: string }) => call<TicketPage>('GET', '/tickets' + query(f)),
   ticket: (n: string) => call<TicketDetail>('GET', `/tickets/${encodeURIComponent(n)}`),
   ticketConversation: (n: string) => call<TicketConversation>('GET', `/tickets/${encodeURIComponent(n)}/conversation`),
   ticketAction: (n: string, action: string, expectedVersion: number, extra: { assignee?: string; text?: string } = {}) =>
     call<Ticket>('POST', `/tickets/${encodeURIComponent(n)}/${action}`, { expectedVersion, ...extra }),
 
-  conversations: (f: { conversationId?: string; outcome?: string; from?: string; to?: string; page?: number; size?: number }) =>
+  conversations: (f: { conversationId?: string; outcome?: string; from?: string; to?: string; page?: number; size?: number; tenant?: string }) =>
     call<ConversationPage>('GET', '/conversations' + query(f)),
   conversation: (id: string) => call<ConversationDetail>('GET', `/conversations/${encodeURIComponent(id)}`),
 
-  feedback: (f: { state?: string; page?: number; size?: number }) => call<FeedbackPage>('GET', '/feedback' + query(f)),
+  feedback: (f: { state?: string; page?: number; size?: number; tenant?: string }) => call<FeedbackPage>('GET', '/feedback' + query(f)),
   flag: (turnId: string, issue: string, note: string) => call<Feedback>('POST', '/feedback', { turnId, issue, note }),
   handleFeedback: (id: number, state: 'handled' | 'dismissed', conclusion: string, expectedVersion: number, revisionId?: number) =>
     call<Feedback>('POST', `/feedback/${id}/handle`, { state, conclusion, expectedVersion, revisionId: revisionId ?? null }),
@@ -141,8 +143,9 @@ export const api = {
   rollback: (tenant: string, version: string, expectedActive: string | null) => call<KnowledgeVersion>('POST', `/knowledge/rollback${query({ tenant })}`, { version, expectedActive }),
   preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
 
-  staff: () => call<StaffAccount[]>('GET', '/staff'),
-  createStaff: (username: string, password: string, role: Role) => call<StaffAccount>('POST', '/staff', { username, password, role }),
+  staff: (tenant?: string) => call<StaffAccount[]>('GET', '/staff' + query({ tenant })),
+  /** tenantId: a tenant's id, 'platform' for a platform admin, or undefined to let the server decide (own tenant, or default for support). */
+  createStaff: (username: string, password: string, role: Role, tenantId?: string) => call<StaffAccount>('POST', '/staff', { username, password, role, tenantId }),
   setStaffEnabled: (username: string, enabled: boolean) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/enabled`, { enabled }),
   setStaffRole: (username: string, role: Role) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/role`, { role }),
   tenants: () => call<Tenant[]>('GET', '/tenants'),

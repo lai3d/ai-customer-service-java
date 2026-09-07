@@ -18,6 +18,7 @@ export function App() {
   if (!ready) return <p className="empty">Signing in…</p>;
   if (!me) return <Login />;
   const admin = me.role === 'admin';
+  const platform = me.tenant === null;
   return (
     <>
       <header className="top">
@@ -29,10 +30,10 @@ export function App() {
           <NavLink to="/feedback">Feedback</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
           {admin && <NavLink to="/staff">Staff</NavLink>}
-          {admin && <NavLink to="/tenants">Tenants</NavLink>}
+          {platform && <NavLink to="/tenants">Tenants</NavLink>}
           <NavLink to="/account">Account</NavLink>
         </nav>
-        <span className="who">{me.username} · {me.role}</span>
+        <span className="who">{me.username} · {me.role}{me.tenant ? ` · ${me.tenant.name}` : ' · platform'}</span>
         <button onClick={() => void logout()}>Sign out</button>
       </header>
       <main key={location.pathname}>
@@ -45,8 +46,8 @@ export function App() {
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
           <Route path="/staff" element={admin ? <Staff /> : <Navigate to="/" replace />} />
-          <Route path="/tenants" element={admin ? <TenantsPage /> : <Navigate to="/" replace />} />
-          <Route path="/tenants/:id" element={admin ? <TenantsPage /> : <Navigate to="/" replace />} />
+          <Route path="/tenants" element={platform ? <TenantsPage /> : <Navigate to="/" replace />} />
+          <Route path="/tenants/:id" element={platform ? <TenantsPage /> : <Navigate to="/" replace />} />
           <Route path="/account" element={<Account />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

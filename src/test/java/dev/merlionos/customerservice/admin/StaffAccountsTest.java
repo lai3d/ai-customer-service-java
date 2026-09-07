@@ -155,8 +155,8 @@ class StaffAccountsTest {
     @Test
     @DisplayName("two admins demoting each other at the same moment leave one admin, not none")
     void demotionsTakeTurns() throws Exception {
-        accounts.create("root", "first-admin-password", StaffRole.ADMIN, "seed");
-        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, "root");
+        accounts.create("root", "first-admin-password", StaffRole.ADMIN, "default", "seed");
+        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, "default", "root");
         java.util.concurrent.CyclicBarrier together = new java.util.concurrent.CyclicBarrier(2);
         java.util.List<java.util.concurrent.Callable<String>> attempts = java.util.List.of(
                 () -> { together.await(); return demote("kim", "root"); },
@@ -184,21 +184,38 @@ class StaffAccountsTest {
     }
 
     @Test
-    @DisplayName("the rules: not yourself, not the last enabled admin, not an account that does not exist")
+    @DisplayName("the rules: not yourself, not the last enabled admin of a scope, platform stays admin, not an account that does not exist")
     void rules() {
         accounts.create("root", "first-admin-password", StaffRole.ADMIN, "seed");
         accounts.create("sam", "support-password-1", StaffRole.SUPPORT, "root");
+        assertThat(accounts.find("root").orElseThrow().platform()).as("an admin created without a tenant is platform").isTrue();
+        assertThat(accounts.find("sam").orElseThrow().tenantId()).as("a support member without a tenant joins default").isEqualTo("default");
+        assertThatThrownBy(() -> accounts.create("eve", "support-password-1", StaffRole.SUPPORT, null, "root"))
+                .as("platform support is not a thing").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> accounts.create("eve", "support-password-1", StaffRole.SUPPORT, "nope", "root"))
+                .as("an unknown tenant").isInstanceOf(IllegalArgumentException.class).hasMessageContaining("No tenant");
 
         assertThatThrownBy(() -> accounts.setEnabled("root", false, "root")).isInstanceOf(StaffRuleException.class);
         assertThatThrownBy(() -> accounts.setRole("root", StaffRole.SUPPORT, "root")).isInstanceOf(StaffRuleException.class);
         assertThatThrownBy(() -> accounts.setEnabled("nobody", false, "root")).isInstanceOf(StaffAccountNotFoundException.class);
         assertThatThrownBy(() -> accounts.resetPassword("sam", "short")).isInstanceOf(IllegalArgumentException.class);
 
-        assertThat(accounts.setRole("sam", StaffRole.ADMIN, "root").role()).isEqualTo(StaffRole.ADMIN);
-        assertThat(accounts.setRole("root", StaffRole.SUPPORT, "sam").role()).as("two admins: root may be demoted").isEqualTo(StaffRole.SUPPORT);
-        assertThatThrownBy(() -> accounts.setEnabled("sam", false, "root")).as("sam is the last admin now")
-                .isInstanceOf(StaffRuleException.class).hasMessageContaining("only enabled admin");
-        assertThatThrownBy(() -> accounts.setRole("sam", StaffRole.SUPPORT, "root")).isInstanceOf(StaffRuleException.class);
+        assertThat(accounts.setRole("sam", StaffRole.ADMIN, "root").role()).as("sam is default's admin now").isEqualTo(StaffRole.ADMIN);
+        assertThatThrownBy(() -> accounts.setRole("root", StaffRole.SUPPORT, "sam")).as("platform staff are admins")
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("Platform staff are admins");
+        accounts.create("kim", "second-admin-password", StaffRole.ADMIN, null, "root");
+        assertThat(accounts.setEnabled("root", false, "kim").enabled()).as("two platform admins: one may go").isFalse();
+        assertThatThrownBy(() -> accounts.setEnabled("kim", false, "sam")).as("the last platform admin stays, whoever asks")
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("of the platform");
+        assertThat(accounts.setEnabled("root", true, "kim").enabled()).isTrue();
+        assertThat(accounts.setEnabled("sam", false, "root").enabled())
+                .as("platform may disable a tenant's last admin: platform is above it").isFalse();
+        assertThat(accounts.setEnabled("sam", true, "root").enabled()).isTrue();
+        accounts.create("dana", "tenant-admin-password", StaffRole.ADMIN, "default", "root");
+        assertThat(accounts.setRole("dana", StaffRole.SUPPORT, "sam").role()).as("two tenant admins: one may be demoted").isEqualTo(StaffRole.SUPPORT);
+        assertThatThrownBy(() -> accounts.setRole("sam", StaffRole.SUPPORT, "dana")).as("sam is default's last admin now")
+                .isInstanceOf(StaffRuleException.class).hasMessageContaining("of tenant 'default'");
+        assertThat(accounts.setRole("sam", StaffRole.SUPPORT, "root").role()).as("but platform may demote it").isEqualTo(StaffRole.SUPPORT);
         assertThat(accounts.setEnabled("root", false, "sam").enabled()).isFalse();
         assertThat(accounts.credential("root").orElseThrow().enabled()).isFalse();
 

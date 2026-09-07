@@ -37,9 +37,9 @@ function LanguageForm({ tenant, entry, language, draft, published, onSaved }: {
 
 export function KnowledgePage() {
   const [params, setParams] = useSearchParams();
-  const tenant = params.get('tenant') || 'default';
-  const chooseTenant = (id: string) => { const p = new URLSearchParams(params); if (id === 'default') p.delete('tenant'); else p.set('tenant', id); setParams(p); setCurrent(null); setPreview(null); setStatus(''); };
   const { me } = useAuth();
+  const tenant = me?.tenant ? me.tenant.id : (params.get('tenant') || 'default');
+  const chooseTenant = (id: string) => { const p = new URLSearchParams(params); if (id === 'default') p.delete('tenant'); else p.set('tenant', id); setParams(p); setCurrent(null); setPreview(null); setStatus(''); };
   const admin = me!.role === 'admin';
   const [entries, setEntries] = useState<KnowledgeEntry[] | null>(null);
   const [versions, setVersions] = useState<Versions | null>(null);
