@@ -10,6 +10,7 @@ import { FeedbackPage } from './pages/Feedback';
 import { KnowledgePage } from './pages/Knowledge';
 import { Staff } from './pages/Staff';
 import { TenantsPage } from './pages/Tenants';
+import { EvaluationPage } from './pages/Evaluation';
 import { Account } from './pages/Account';
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
           <NavLink to="/conversations">Conversations</NavLink>
           <NavLink to="/feedback">Feedback</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
+          <NavLink to="/evaluation">Evaluation</NavLink>
           {admin && <NavLink to="/staff">Staff</NavLink>}
           {platform && <NavLink to="/tenants">Tenants</NavLink>}
           <NavLink to="/account">Account</NavLink>
@@ -45,6 +47,7 @@ export function App() {
           <Route path="/conversations/:id" element={<ConversationPage />} />
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
+          <Route path="/evaluation" element={<EvaluationPage />} />
           <Route path="/staff" element={admin ? <Staff /> : <Navigate to="/" replace />} />
           <Route path="/tenants" element={platform ? <TenantsPage /> : <Navigate to="/" replace />} />
           <Route path="/tenants/:id" element={platform ? <TenantsPage /> : <Navigate to="/" replace />} />

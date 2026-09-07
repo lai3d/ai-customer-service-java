@@ -45,6 +45,29 @@ export interface Feedback {
 export interface FeedbackPage { reports: Feedback[]; total: number; page: number; size: number }
 export interface ConversationDetail { conversationId: string; tenantId: string; externalId: string | null; turns: Turn[]; tickets: SupportTicket[]; feedback: Feedback[]; notPersisted: string }
 
+/** A golden case: a question and what a correct answer must satisfy (docs/evaluation.md). */
+export interface GoldenCase {
+  id: number; tenantId: string; question: string; language: string; expectedEntryIds: string[]; mustContain: string[];
+  anyOf: string[]; mustNotContain: string[]; expectTool: string | null; expectRefusal: boolean; enabled: boolean;
+  note: string | null; createdAt: string; createdBy: string;
+}
+export interface CaseInput {
+  question: string; language: string; expectedEntryIds: string[]; mustContain: string[]; anyOf: string[]; mustNotContain: string[];
+  expectTool: string | null; expectRefusal: boolean; enabled: boolean; note: string | null;
+}
+export interface EvaluationRun {
+  id: number; tenantId: string; state: 'running' | 'done' | 'failed'; cases: number; passed: number; retrievalHits: number;
+  answerPasses: number; toolPasses: number; inputTokens: number; outputTokens: number; model: string | null; note: string | null;
+  error: string | null; requestedBy: string; startedAt: string; finishedAt: string | null;
+}
+export interface EvaluationResult {
+  runId: number; caseId: number; question: string; conversationId: string; retrieved: string[]; tools: string[]; answer: string | null;
+  retrievalHit: boolean; answerPass: boolean; toolPass: boolean; passed: boolean; failures: string | null;
+  inputTokens: number | null; outputTokens: number | null; millis: number | null;
+}
+export interface RunDetail { run: EvaluationRun; results: EvaluationResult[] }
+export interface Deflection { tenant: string; days: number; conversations: number; escalated: number; flagged: number; deflectionRate: number; definition: string }
+
 export interface Stat { key: string; label: string; value: number | null; definition: string }
 export interface Overview { from: string; to: string; turns: Stat[]; tickets: Stat[]; feedback: Stat[]; knowledge: Stat[]; staff: Stat[] }
 
@@ -162,6 +185,15 @@ export const api = {
   importUrl: (tenant: string, url: string) => call<KnowledgeImport>('POST', `/knowledge/imports/url${query({ tenant })}`, { url }),
   importPdf: (tenant: string, file: File) => { const form = new FormData(); form.append('file', file, file.name); return upload<KnowledgeImport>(`/knowledge/imports/pdf${query({ tenant })}`, form); },
   preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
+
+  evaluationCases: (tenant: string) => call<GoldenCase[]>('GET', `/evaluation/cases${query({ tenant })}`),
+  createCase: (tenant: string, input: CaseInput) => call<GoldenCase>('POST', `/evaluation/cases${query({ tenant })}`, input),
+  updateCase: (tenant: string, id: number, input: CaseInput) => call<GoldenCase>('PUT', `/evaluation/cases/${id}${query({ tenant })}`, input),
+  deleteCase: (id: number) => call<void>('DELETE', `/evaluation/cases/${id}`),
+  startRun: (tenant: string, note: string) => call<EvaluationRun>('POST', `/evaluation/runs${query({ tenant })}`, { note }),
+  runs: (tenant: string) => call<EvaluationRun[]>('GET', `/evaluation/runs${query({ tenant })}`),
+  run: (tenant: string, id: number) => call<RunDetail>('GET', `/evaluation/runs/${id}${query({ tenant })}`),
+  deflection: (tenant: string, days: number) => call<Deflection>('GET', `/evaluation/deflection${query({ tenant, days })}`),
 
   staff: (tenant?: string) => call<StaffAccount[]>('GET', '/staff' + query({ tenant })),
   /** tenantId: a tenant's id, 'platform' for a platform admin, or undefined to let the server decide (own tenant, or default for support). */
