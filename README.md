@@ -434,7 +434,7 @@ Phase 1 is built one item at a time, each landing as a reviewable change.
 Phase 2 turns the engine into something a customer can integrate, in the order the business
 plan in the workspace sets: each step is something a real customer can be shown.
 
-- [ ] **14 · Tenants** — [ADR 002](docs/adr/002-tenancy.md): tenants and hashed API keys on the public API, the client's conversation id scoped to its tenant, every customer-owned row carrying the tenant, keys issued and revoked in the operations admin; knowledge per tenant, each tenant retrieving only its own active version, through the advisor and over the seam *(built)*; staff per tenant *(next)*
+- [x] **14 · Tenants** — [ADR 002](docs/adr/002-tenancy.md): tenants and hashed API keys on the public API, the client's conversation id scoped to its tenant, every customer-owned row carrying the tenant, keys issued and revoked in the operations admin; knowledge per tenant, each tenant retrieving only its own active version, through the advisor and over the seam; staff per tenant, every admin read and write scoped by the session, platform staff above them
 - [x] **15 · Tenant knowledge ingestion** — a customer's own help pages and PDFs into draft knowledge entries through Spring AI's readers, re-import as replacement, fetched on the knowledge role behind an SSRF guard; publishing stays the admin's explicit step
 - [ ] **16 · Channel and connector** — an embeddable web widget, and one real order connector (Shopify or Youzan) behind `OrderLookup`, chosen by the first pilot
 - [ ] **17 · Evaluation** — a golden set of real questions and a deflection-rate metric next to cost in Grafana

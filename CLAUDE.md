@@ -436,7 +436,8 @@ one, and `KnowledgeAdminIntegrationTest.tenantsRetrieveOnlyTheirOwn` fails if it
 nothing active and retrieves nothing until it publishes; readiness is the default
 tenant's corpus. `KnowledgeAdmin` takes the tenant first on every method, the internal
 knowledge-admin seam has it as a path segment, and the admin's `/admin/api/knowledge/**`
-takes it as `?tenant=` (`default` when absent), which every member of staff may set today.
+takes it as `?tenant=`, which narrows what platform staff see; a tenant's own staff are
+scoped by their session (see the staff login section).
 **A tenant's own documents** come in through `KnowledgeImporter` on the knowledge role:
 `POST /admin/api/knowledge/imports/url` and `/imports/pdf` (admins, `?tenant=`), over the
 seam as `/internal/v1/knowledge-admin/{tenant}/imports/...`. The fetch and the parse run
@@ -453,8 +454,7 @@ be public, checked again on every redirect hop (`SourceGuardTest` lists what is 
 `app.knowledge-import.allow-private-networks` switches that off for a laptop and for the
 tests, which serve their pages locally; never facing tenants. Known limit: the address is
 resolved by the guard and again by the client, so DNS rebinding between the two is not caught.
-Not yet per tenant: staff (every admin is a platform admin); that is the next PR of the ADR,
-owned by the operations-admin session.
+Every part of ADR 002 is built; the record of what departed from its text is in its status line.
 
 ## Scope
 
