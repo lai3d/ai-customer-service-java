@@ -73,6 +73,11 @@ export function KnowledgePage() {
     const timer = setInterval(() => { void load(); }, 2000);
     return () => clearInterval(timer);
   }, [imports, load]);
+  const importFromPanel = async () => {
+    setImporting(true);
+    try { await api.importXboard(tenant); setStatus('Import from the panel started; its drafts appear below when it is done.'); setError(null); await load(); }
+    catch (err) { setError(err); } finally { setImporting(false); }
+  };
   const startImport = async (e: FormEvent) => {
     e.preventDefault();
     setImporting(true);
@@ -191,6 +196,7 @@ export function KnowledgePage() {
             <label>URL <input value={importUrl} onChange={e => setImportUrl(e.target.value)} placeholder="https://help.example.com/returns" size={40} disabled={!!importFile} /></label>
             <label>or a PDF <input type="file" accept="application/pdf,.pdf" onChange={e => setImportFile(e.target.files?.[0] ?? null)} /></label>
             <button className="primary" disabled={importing || (!importFile && !importUrl.trim())}>{importing ? 'Starting…' : 'Import'}</button>
+            <button type="button" disabled={importing} onClick={() => void importFromPanel()} title="The tenant's Xboard panel's knowledge articles; needs the connector's admin token and admin path">Import the panel's articles</button>
           </form>
           {imports && imports.length === 0 && <Empty>No imports yet.</Empty>}
           {imports && imports.length > 0 && (
