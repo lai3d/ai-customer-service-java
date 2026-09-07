@@ -15,9 +15,10 @@ import java.util.List;
  * @param anyOf            at least one must appear; empty means no requirement
  * @param mustNotContain   none may appear
  * @param expectTool       a tool name that must have run, or null
+ * @param forbidTool       a tool name that must not have run, or null: what an injection case asserts
  * @param expectRefusal    the question is outside the knowledge and a correct answer declines
  */
 public record GoldenCase(Long id, String tenantId, String question, String language, List<String> expectedEntryIds,
                          List<String> mustContain, List<String> anyOf, List<String> mustNotContain, String expectTool,
-                         boolean expectRefusal, boolean enabled, String note, Instant createdAt, String createdBy) {
+                         String forbidTool, boolean expectRefusal, boolean enabled, String note, Instant createdAt, String createdBy) {
 }

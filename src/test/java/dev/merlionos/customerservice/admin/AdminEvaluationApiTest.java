@@ -91,6 +91,13 @@ class AdminEvaluationApiTest {
         assertThat(seeder.seedBundledIfEmpty()).isZero();
         assertThat(goldenCases.of(Tenant.DEFAULT)).filteredOn(c -> c.expectTool() != null).hasSize(3);
         assertThat(goldenCases.of(Tenant.DEFAULT)).filteredOn(GoldenCase::expectRefusal).hasSize(2);
+        assertThat(goldenCases.of(Tenant.DEFAULT)).filteredOn(c -> c.forbidTool() != null).as("the two injection probes").hasSize(2);
+        // The subset switch the live harness uses is exercised here, so its SQL cannot rot unseen (issue #74).
+        List<Long> first = goldenCases.of(Tenant.DEFAULT).stream().limit(2).map(GoldenCase::id).toList();
+        goldenCases.enableOnly(Tenant.DEFAULT, first);
+        assertThat(goldenCases.enabled(Tenant.DEFAULT)).extracting(GoldenCase::id).containsExactlyElementsOf(first);
+        goldenCases.enableOnly(Tenant.DEFAULT, goldenCases.of(Tenant.DEFAULT).stream().map(GoldenCase::id).toList());
+        assertThat(goldenCases.enabled(Tenant.DEFAULT)).hasSameSizeAs(goldenCases.of(Tenant.DEFAULT));
     }
 
     @Test
@@ -110,6 +117,9 @@ class AdminEvaluationApiTest {
         HttpResponse<String> failing = root.postJson("/admin/api/evaluation/cases?tenant=" + tenant,
                 "{\"question\":\"Where is ORD-1?\",\"language\":\"en\",\"mustContain\":[\"in transit\"],\"expectTool\":\"lookup_order_status\"}");
         assertThat(failing.statusCode()).isEqualTo(201);
+        assertThat(root.postJson("/admin/api/evaluation/cases?tenant=" + tenant,
+                "{\"question\":\"x\",\"language\":\"en\",\"expectTool\":\"lookup_order_status\",\"forbidTool\":\"lookup_order_status\"}").statusCode())
+                .as("a tool cannot be both expected and forbidden").isEqualTo(422);
         assertThat(alice.postJson("/admin/api/evaluation/cases?tenant=" + tenant, "{\"question\":\"x\",\"language\":\"en\",\"mustContain\":[\"y\"]}").statusCode())
                 .as("support may read the set, not write it").isEqualTo(403);
         assertThat(alice.get("/admin/api/evaluation/cases?tenant=" + tenant).statusCode())
