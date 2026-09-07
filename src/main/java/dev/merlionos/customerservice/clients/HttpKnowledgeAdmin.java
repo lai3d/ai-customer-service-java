@@ -159,6 +159,12 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
+    public KnowledgeImport importXboard(String tenantId, String baseUrl, String adminPath, String adminToken, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/imports/xboard", tenantId)
+                .body(ImportRequest.xboard(actor, baseUrl, adminPath, adminToken)).retrieve().body(KnowledgeImport.class));
+    }
+
+    @Override
     public List<KnowledgeImport> imports(String tenantId) {
         List<KnowledgeImport> imports = client.get().uri(BASE + "/{t}/imports", tenantId).retrieve().body(IMPORTS);
         return imports == null ? List.of() : imports;

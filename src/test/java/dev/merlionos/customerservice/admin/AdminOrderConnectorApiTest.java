@@ -150,7 +150,12 @@ class AdminOrderConnectorApiTest {
 
         HttpResponse<String> configured = put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://Panel.Example.com/\"}");
         assertThat(configured.statusCode()).as(configured.body()).isEqualTo(200);
-        assertThat(configured.body()).contains("\"kind\":\"xboard\"", "\"baseUrl\":\"https://panel.example.com\"", "\"accessToken\":null");
+        assertThat(configured.body()).contains("\"kind\":\"xboard\"", "\"baseUrl\":\"https://panel.example.com\"", "\"accessToken\":null", "\"adminPath\":null");
+        assertThat(root.postJson("/admin/api/knowledge/imports/xboard?tenant=" + tenant, "{}").statusCode())
+                .as("no admin token and path yet").isEqualTo(422);
+        assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://panel.example.com\",\"accessToken\":\"" + FakeXboard.ADMIN_TOKEN
+                + "\",\"adminPath\":\"/" + FakeXboard.ADMIN_PATH + "/\"}").body()).contains("\"adminPath\":\"" + FakeXboard.ADMIN_PATH + "\"", "\"accessToken\":\"****0123\"");
+        assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://panel.example.com\",\"adminPath\":\"a b/c\"}").statusCode()).isEqualTo(422);
         assertThat(root.postJson(base + "/test", "{}").body()).contains("\"ok\":true", "\"shopName\":\"Northwind Cloud\"");
 
         AccountLookupResult mine = customerAccounts.lookup(tenant, FakeXboard.CUSTOMER_TOKEN);
@@ -162,6 +167,6 @@ class AdminOrderConnectorApiTest {
         assertThat(orders.lookup(tenant, "#1001").outcome()).as("orders live in the panel").isEqualTo(AccountLookupResult.UNAVAILABLE);
         assertThat(orders.lookup(tenant, "#1001").explanation()).contains("subscription lookup");
         assertThat(jdbc.queryForList("SELECT detail FROM admin_audit WHERE action = 'connector_changed' AND target = ? ORDER BY id", String.class, tenant))
-                .containsExactly("xboard https://panel.example.com v1");
+                .as("two configurations, the refused one not recorded as a change").containsExactly("xboard https://panel.example.com v1", "xboard https://panel.example.com v1");
     }
 }

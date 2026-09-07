@@ -25,8 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * The two numbers a customer pays for, as gauges next to cost on the dashboard.
  *
  * <p>Deflection is sampled from what happened: over the last {@link #WINDOW}, the share of
- * a tenant's customer conversations that ended without a ticket for a person. Escalation is
- * the complement; flagged is the share a member of staff marked as wrong or incomplete.
+ * a tenant's customer conversations that ended without a ticket for a person -- a ticket of
+ * ours, or one raised in the tenant's panel, which leaves no row here but a tool call that
+ * did. Escalation is the complement; flagged is the share a member of staff marked as wrong or incomplete.
  * Evaluation conversations never count. It is a gauge from the tables, not a counter,
  * because the denominator is conversations, which no counter sees.
  *
@@ -102,7 +103,9 @@ public class QualityMetrics {
     public Deflection deflection(String tenantId, Instant since) {
         Map<String, Object> row = jdbc.queryForMap("""
                 SELECT count(*) AS conversations,
-                       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM support_ticket s WHERE s.conversation_id = c.id)) AS escalated,
+                       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM support_ticket s WHERE s.conversation_id = c.id)
+                                          OR EXISTS (SELECT 1 FROM conversation_turn t2 JOIN turn_tool_call k ON k.turn_id = t2.turn_id
+                                                     WHERE t2.conversation_id = c.id AND k.tool = 'create_support_ticket' AND k.outcome = 'created')) AS escalated,
                        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM answer_feedback f WHERE f.conversation_id = c.id)) AS flagged
                 FROM conversation c
                 WHERE c.tenant_id = ? AND c.kind = 'customer'

@@ -93,7 +93,9 @@ context re-sent with every turn (system prompt, eight passages, the tool definit
 
 Deflection is what happened with real customers: over the last seven days, per tenant, the
 share of customer conversations with at least one turn that ended without a ticket for a
-person. `QualityMetrics` samples it every minute from the tables that already exist
+person -- a ticket of ours in `support_ticket`, or one raised in the tenant's panel, which
+leaves no row here but a `create_support_ticket` call with outcome `created` in
+`turn_tool_call`. `QualityMetrics` samples it every minute from the tables that already exist
 (`conversation`, `conversation_turn`, `support_ticket`, `answer_feedback`) into
 `chat_deflection_rate`, with the complement `chat_escalation_rate`, the share a member of
 staff flagged as wrong or incomplete `chat_flagged_rate`, and the denominator

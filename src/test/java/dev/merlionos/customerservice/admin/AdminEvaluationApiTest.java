@@ -160,16 +160,21 @@ class AdminEvaluationApiTest {
         }
         tickets.create(new TicketRequest(tenant, UUID.randomUUID().toString(), c2, "wants a person", "other", null));
         String eval = conversations.createEvaluation(tenant, "eval-x");
+        // A fourth customer whose ticket went to the tenant's panel: no row of ours, only the tool call that raised it.
+        String c4 = conversations.resolve(tenant, "web-4");
+        chatService.stream(tenant, c4, "please get me a person").blockLast();
+        String turn4 = jdbc.queryForObject("SELECT turn_id FROM conversation_turn WHERE conversation_id = ?", String.class, c4);
+        jdbc.update("INSERT INTO turn_tool_call (turn_id, tool, outcome, occurred_at) VALUES (?, 'create_support_ticket', 'created', now())", turn4);
         chatService.stream(tenant, eval, "how long do I have to return?").blockLast();
 
         String view = root.get("/admin/api/evaluation/deflection?tenant=" + tenant + "&days=7").body();
-        assertThat(view).contains("\"conversations\":3", "\"escalated\":1", "\"flagged\":0", "\"days\":7");
-        assertThat(view).matches("(?s).*\"deflectionRate\":0\\.6{5,}.*");
+        assertThat(view).contains("\"conversations\":4", "\"escalated\":2", "\"flagged\":0", "\"days\":7");
+        assertThat(view).contains("\"deflectionRate\":0.5");
         quality.sample();
         String exposition = rest.getForObject("/actuator/prometheus", String.class);
-        assertThat(gauge(exposition, "chat_window_conversations", tenant)).isEqualTo(3.0);
-        assertThat(gauge(exposition, "chat_escalation_rate", tenant)).isCloseTo(1.0 / 3, org.assertj.core.data.Offset.offset(1e-9));
-        assertThat(gauge(exposition, "chat_deflection_rate", tenant)).isCloseTo(2.0 / 3, org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(gauge(exposition, "chat_window_conversations", tenant)).isEqualTo(4.0);
+        assertThat(gauge(exposition, "chat_escalation_rate", tenant)).isEqualTo(0.5);
+        assertThat(gauge(exposition, "chat_deflection_rate", tenant)).isEqualTo(0.5);
         assertThat(gauge(exposition, "chat_deflection_rate", Tenant.DEFAULT)).as("the default tenant is pre-registered").isNotNull();
     }
 

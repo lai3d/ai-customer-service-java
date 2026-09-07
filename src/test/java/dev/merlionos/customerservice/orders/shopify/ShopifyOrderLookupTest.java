@@ -34,7 +34,7 @@ class ShopifyOrderLookupTest {
     }
 
     private static OrderConnector connector(String token) {
-        return new OrderConnector("acme", OrderConnector.SHOPIFY, "northwind-lamps.myshopify.com", null, token, "2025-07", Instant.now(), "root");
+        return new OrderConnector("acme", OrderConnector.SHOPIFY, "northwind-lamps.myshopify.com", null, token, "2025-07", null, Instant.now(), "root");
     }
 
     @Test

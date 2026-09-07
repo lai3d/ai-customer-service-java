@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -52,6 +53,7 @@ import java.util.Optional;
 public class KnowledgeImporter {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeImporter.class);
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
 
     static final String IMPORTED_CATEGORY = "imported";
     static final int MAX_REDIRECTS = 5;
@@ -63,8 +65,8 @@ public class KnowledgeImporter {
             rs.getTimestamp("requested_at").toInstant(),
             rs.getTimestamp("finished_at") == null ? null : rs.getTimestamp("finished_at").toInstant());
 
-    /** One chunk of a document, about to become a draft. */
-    record Chunk(String title, String text) {
+    /** One chunk of a document, about to become a draft; {@code key} is the stable tail of its entry id. */
+    record Chunk(String key, String title, String text) {
     }
 
     private final JdbcTemplate jdbc;
@@ -205,6 +207,71 @@ public class KnowledgeImporter {
         }
     }
 
+    // --- a panel's knowledge articles -------------------------------------------------------
+
+    public KnowledgeImport importXboard(String tenantId, String baseUrl, String adminPath, String adminToken, String actor) {
+        URI base = checked(baseUrl);
+        if (adminPath == null || adminPath.isBlank() || adminToken == null || adminToken.isBlank()) {
+            throw new KnowledgeRuleException("reading a panel's articles needs its admin path and an admin token");
+        }
+        KnowledgeImport started = start(tenantId, "xboard", base.getScheme() + "://" + base.getAuthority(), actor);
+        Thread.ofVirtual().name("knowledge-import-" + started.id()).start(() -> run(started, () -> readXboard(base, adminPath.strip(), adminToken.strip())));
+        return started;
+    }
+
+    /**
+     * {@code GET /api/v2/<adminPath>/knowledge/fetch} lists the articles (title, category,
+     * show) and one more call per article gives its body. Hidden articles are skipped; a long
+     * body is split like a page, under keys {@code <article id>} and {@code <article id>-<n>}.
+     */
+    List<Chunk> readXboard(URI base, String adminPath, String adminToken) throws IOException, InterruptedException {
+        String api = base.getScheme() + "://" + base.getAuthority() + "/api/v2/" + adminPath + "/knowledge/fetch";
+        Map<String, Object> list = json(fetchJson(api, adminToken));
+        List<Chunk> chunks = new ArrayList<>();
+        Object data = list.get("data");
+        if (!(data instanceof List<?> articles)) {
+            throw new KnowledgeRuleException("the panel's knowledge list did not have the shape expected (no data list); is the admin path right?");
+        }
+        for (Object item : articles) {
+            if (!(item instanceof Map<?, ?> article) || Boolean.FALSE.equals(article.get("show")) || article.get("id") == null) {
+                continue;
+            }
+            String id = String.valueOf(article.get("id"));
+            Map<String, Object> full = json(fetchJson(api + "?id=" + id, adminToken));
+            Object body = full.get("data") instanceof Map<?, ?> m ? m.get("body") : null;
+            String title = String.valueOf(article.get("title"));
+            String text = body == null ? "" : Jsoup.parse(String.valueOf(body)).wholeText();
+            if (text.isBlank()) {
+                continue;
+            }
+            List<Chunk> pieces = chunk(title, List.of(new Document(text)));
+            for (int i = 0; i < pieces.size(); i++) {
+                chunks.add(new Chunk(pieces.size() == 1 ? id : id + "-" + (i + 1), pieces.get(i).title(), pieces.get(i).text()));
+            }
+        }
+        return chunks;
+    }
+
+    private byte[] fetchJson(String url, String adminToken) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(properties.fetchTimeoutOrDefault())
+                .header("Accept", "application/json").header("Authorization", "Bearer " + adminToken).GET().build();
+        HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() == 401 || response.statusCode() == 403) {
+            response.body().close();
+            throw new KnowledgeRuleException("the panel refused the admin token (" + response.statusCode() + ")");
+        }
+        if (response.statusCode() != 200) {
+            response.body().close();
+            throw new KnowledgeRuleException("the panel answered " + response.statusCode() + " for " + url.replaceAll("\\?.*$", ""));
+        }
+        return readBounded(response.body(), (int) properties.maxDocumentSizeOrDefault().toBytes());
+    }
+
+    private static Map<String, Object> json(byte[] body) throws IOException {
+        return JSON.readValue(body, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {
+        });
+    }
+
     List<Chunk> readPdf(String fileName, byte[] content) {
         List<Document> pages = new PagePdfDocumentReader(new ByteArrayResource(content) {
             @Override
@@ -234,7 +301,7 @@ public class KnowledgeImporter {
             if (text.isEmpty()) {
                 continue;
             }
-            chunks.add(new Chunk(pieces.size() == 1 ? heading : heading + " (" + (i + 1) + "/" + pieces.size() + ")", text));
+            chunks.add(new Chunk(String.valueOf(i + 1), pieces.size() == 1 ? heading : heading + " (" + (i + 1) + "/" + pieces.size() + ")", text));
         }
         return chunks;
     }
@@ -258,9 +325,8 @@ public class KnowledgeImporter {
         String note = "imported from " + started.source();
         return transaction.execute(status -> {
             List<String> ids = new ArrayList<>();
-            for (int i = 0; i < chunks.size(); i++) {
-                Chunk chunk = chunks.get(i);
-                String entryId = prefix + (i + 1);
+            for (Chunk chunk : chunks) {
+                String entryId = prefix + chunk.key();
                 ids.add(entryId);
                 jdbc.update("""
                         INSERT INTO knowledge_entry (tenant_id, entry_id, category, retired, created_at, created_by, source_kind, source)

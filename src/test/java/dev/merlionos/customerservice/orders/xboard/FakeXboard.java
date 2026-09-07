@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -17,6 +18,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class FakeXboard implements AutoCloseable {
 
     public static final String CUSTOMER_TOKEN = "1|xboardSanctumTokenForAlice0123456789";
+    public static final String ADMIN_TOKEN = "9|xboardSanctumTokenForTheOperator0123";
+    public static final String ADMIN_PATH = "a1b2c3d4";
+    /** Tickets saved as the customer, newest first as the panel lists them. */
+    public final List<Map<String, Object>> tickets = new CopyOnWriteArrayList<>();
+    static final String ARTICLES = """
+            {"data":[{"id":7,"title":"How to configure Clash","category":"Clients","show":true,"updated_at":1788739200},
+                     {"id":8,"title":"Shadowrocket 使用教程","category":"客户端","show":true,"updated_at":1788739200},
+                     {"id":9,"title":"Hidden draft","category":"Clients","show":false,"updated_at":1788739200}]}""";
+    static final Map<String, String> BODIES = Map.of(
+            "7", "{\"data\":{\"id\":7,\"title\":\"How to configure Clash\",\"language\":\"en-US\",\"body\":\"<h2>Clash</h2><p>Download Clash Verge, open Profiles and paste your subscription URL from the panel. Click Update, then choose a proxy group.</p>\"}}",
+            "8", "{\"data\":{\"id\":8,\"title\":\"Shadowrocket 使用教程\",\"language\":\"zh-CN\",\"body\":\"在 App Store 下载 Shadowrocket，复制面板里的订阅链接，打开应用后点击右上角加号添加订阅。\"}}",
+            "9", "{\"data\":{\"id\":9,\"title\":\"Hidden draft\",\"body\":\"not published\"}}");
     /** expired_at 1792108800 = 2026-10-16 UTC; 200 GB allowance, 40 GB up, 61.5 GB down. */
     static final String SUBSCRIBE = """
             {"data":{"plan_id":2,"token":"subtoken","expired_at":1792108800,"u":42949672960,"d":66035122176,
@@ -37,6 +50,16 @@ public final class FakeXboard implements AutoCloseable {
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             requests.add(path);
+            String query = exchange.getRequestURI().getRawQuery();
+            if (path.startsWith("/api/v2/" + ADMIN_PATH + "/knowledge/fetch")) {
+                if (!("Bearer " + ADMIN_TOKEN).equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                    respond(exchange, 403, "{\"message\":\"Unauthorized\"}");
+                    return;
+                }
+                String id = query != null && query.startsWith("id=") ? query.substring(3) : null;
+                respond(exchange, 200, id == null ? ARTICLES : BODIES.getOrDefault(id, "{\"data\":null}"));
+                return;
+            }
             if (path.endsWith("/api/v1/guest/comm/config")) {
                 respond(exchange, 200, "{\"data\":{\"app_name\":\"Northwind Cloud\",\"is_email_verify\":1}}");
                 return;
@@ -46,7 +69,19 @@ public final class FakeXboard implements AutoCloseable {
                 respond(exchange, 403, "{\"message\":\"未登录或登陆已过期\"}");
                 return;
             }
-            if (path.endsWith("/api/v1/user/getSubscribe")) {
+            if (path.endsWith("/api/v1/user/ticket/save") && "POST".equals(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                tickets.addFirst(Map.of("id", 100 + tickets.size(), "body", body, "status", 0));
+                respond(exchange, 200, "{\"data\":true}");
+            }
+            else if (path.endsWith("/api/v1/user/ticket/fetch")) {
+                StringBuilder json = new StringBuilder("{\"data\":[");
+                for (int i = 0; i < tickets.size(); i++) {
+                    json.append(i == 0 ? "" : ",").append("{\"id\":").append(tickets.get(i).get("id")).append(",\"status\":0,\"subject\":\"x\"}");
+                }
+                respond(exchange, 200, json.append("]}").toString());
+            }
+            else if (path.endsWith("/api/v1/user/getSubscribe")) {
                 respond(exchange, 200, SUBSCRIBE);
             }
             else if (path.endsWith("/api/v1/user/info")) {

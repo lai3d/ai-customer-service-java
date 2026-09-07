@@ -65,7 +65,7 @@ class AdminOrderConnectorController {
      * @param kind       {@code shopify} (the default) with {@code shopDomain} and {@code accessToken}, or
      *                   {@code xboard} with {@code baseUrl} and an optional admin {@code accessToken}
      */
-    record ConnectorConfig(String kind, String shopDomain, String baseUrl, String accessToken, String apiVersion) {
+    record ConnectorConfig(String kind, String shopDomain, String baseUrl, String accessToken, String apiVersion, String adminPath) {
     }
 
     @PutMapping
@@ -74,7 +74,7 @@ class AdminOrderConnectorController {
         String kind = config.kind() == null || config.kind().isBlank() ? OrderConnector.SHOPIFY : config.kind().strip().toLowerCase(java.util.Locale.ROOT);
         OrderConnector stored = switch (kind) {
             case OrderConnector.SHOPIFY -> connectors.configureShopify(id, config.shopDomain(), config.accessToken(), config.apiVersion(), auth.getName());
-            case OrderConnector.XBOARD -> connectors.configureXboard(id, config.baseUrl(), config.accessToken(), auth.getName());
+            case OrderConnector.XBOARD -> connectors.configureXboard(id, config.baseUrl(), config.accessToken(), config.adminPath(), auth.getName());
             default -> throw new IllegalArgumentException("a connector kind is shopify or xboard");
         };
         audit.record(auth.getName(), AdminAudit.Action.CONNECTOR_CHANGED, id, stored.kind() + " "

@@ -478,8 +478,14 @@ customer owns the order. **The Xboard connector proves it differently**: `lookup
 (`AccountTools`) has no parameters and reads the account of whoever is signed in, with the
 customer's own panel token, forwarded by the widget as `X-Customer-Token`, carried in the
 tool context (`AccountTools.CUSTOMER_TOKEN_KEY`) for one turn and never stored. Four outcomes
-(`found`, `not_signed_in`, `not_connected`, `unavailable`). `XBOARD_BASE_URL` and the tests'
-`FakeXboard` stand in for a panel; `scripts/fake-xboard.py` for a demo. A panel URL is checked
+(`found`, `not_signed_in`, `not_connected`, `unavailable`). With the same token,
+`create_support_ticket` raises the ticket in the panel as the customer (`PanelTickets`,
+`XboardTickets`, number `PANEL-<id>`) and falls back to a ticket of ours when the customer
+is not signed in or the panel does not answer; deflection counts both, reading
+`turn_tool_call`. With the tenant's admin token and admin path on the connector, the panel's
+knowledge articles are an import source (`KnowledgeImporter.importXboard`, one draft per
+article keyed by its id). `XBOARD_BASE_URL` and the tests' `FakeXboard` stand in for a
+panel; `scripts/fake-xboard.py` for a demo. A panel URL is checked
 public by `PublicUrlGuard` (`internal/`, shared with the knowledge import;
 `CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop).
 

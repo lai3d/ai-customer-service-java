@@ -124,6 +124,11 @@ class KnowledgeAdminController {
         return admin.importPdf(tenant, request.fileName(), request.content(), request.actor());
     }
 
+    @PostMapping("/{tenant}/imports/xboard")
+    KnowledgeImport importXboard(@PathVariable String tenant, @RequestBody ImportRequest request) {
+        return admin.importXboard(tenant, request.baseUrl(), request.adminPath(), request.adminToken(), request.actor());
+    }
+
     @GetMapping("/{tenant}/imports")
     List<KnowledgeImport> imports(@PathVariable String tenant) {
         return admin.imports(tenant);
