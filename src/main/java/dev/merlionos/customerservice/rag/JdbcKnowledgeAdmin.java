@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.EntryFilter;
+import dev.merlionos.customerservice.rag.api.EntryPage;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
@@ -26,6 +28,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -101,6 +104,44 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
                     current.stream().filter(r -> r.entryId().equals(id)).toList(),
                     rs.getString("source_kind"), rs.getString("source"));
         }, tenantId);
+    }
+
+    @Override
+    public EntryPage entries(String tenantId, EntryFilter filter) {
+        List<String> where = new ArrayList<>(List.of("tenant_id = ?"));
+        List<Object> args = new ArrayList<>(List.of(tenantId));
+        if (filter.text() != null) {
+            where.add("(entry_id ILIKE ? OR category ILIKE ? OR coalesce(source, '') ILIKE ?)");
+            String like = "%" + filter.text().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+            args.add(like);
+            args.add(like);
+            args.add(like);
+        }
+        if (EntryFilter.TYPED.equals(filter.source())) {
+            where.add("source IS NULL");
+        }
+        else if (filter.source() != null) {
+            where.add("source = ?");
+            args.add(filter.source());
+        }
+        String clause = " WHERE " + String.join(" AND ", where);
+        long total = jdbc.queryForObject("SELECT count(*) FROM knowledge_entry" + clause, Long.class, args.toArray());
+        List<Object> pageArgs = new ArrayList<>(args);
+        pageArgs.add(filter.size());
+        pageArgs.add((long) filter.page() * filter.size());
+        List<KnowledgeEntry> bare = jdbc.query("SELECT * FROM knowledge_entry" + clause + " ORDER BY entry_id LIMIT ? OFFSET ?",
+                (rs, i) -> new KnowledgeEntry(rs.getString("entry_id"), rs.getString("category"), rs.getBoolean("retired"),
+                        rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"), List.of(),
+                        rs.getString("source_kind"), rs.getString("source")), pageArgs.toArray());
+        List<KnowledgeRevision> current = bare.isEmpty() ? List.of() : jdbc.query(
+                "SELECT * FROM knowledge_revision WHERE tenant_id = ? AND state IN ('draft', 'published') AND entry_id = ANY (?) "
+                        + "ORDER BY entry_id, language, state",
+                REVISION, tenantId, bare.stream().map(KnowledgeEntry::entryId).toArray(String[]::new));
+        List<KnowledgeEntry> entries = bare.stream().map(e -> new KnowledgeEntry(e.entryId(), e.category(), e.retired(), e.createdAt(),
+                e.createdBy(), current.stream().filter(r -> r.entryId().equals(e.entryId())).toList(), e.sourceKind(), e.source())).toList();
+        List<String> sources = jdbc.queryForList("SELECT DISTINCT source FROM knowledge_entry WHERE tenant_id = ? AND source IS NOT NULL "
+                + "ORDER BY source", String.class, tenantId);
+        return new EntryPage(entries, total, filter.page(), filter.size(), sources);
     }
 
     @Override

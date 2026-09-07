@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.rag.api.EntryFilter;
+import dev.merlionos.customerservice.rag.api.EntryPage;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
 import dev.merlionos.customerservice.rag.api.KnowledgeEntry;
@@ -77,8 +79,10 @@ class AdminKnowledgeController {
     }
 
     @GetMapping("/entries")
-    List<KnowledgeEntry> entries(@RequestParam(required = false) String tenant) {
-        return knowledge.entries(tenantOf(tenant));
+    EntryPage entries(@RequestParam(required = false) String tenant, @RequestParam(required = false) String text,
+                      @RequestParam(required = false) String source, @RequestParam(defaultValue = "0") int page,
+                      @RequestParam(defaultValue = "0") int size) {
+        return knowledge.entries(tenantOf(tenant), new EntryFilter(text, source, page, size));
     }
 
     @GetMapping("/entries/{id}")

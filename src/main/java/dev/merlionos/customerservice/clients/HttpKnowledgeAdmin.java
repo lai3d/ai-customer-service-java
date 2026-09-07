@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.merlionos.customerservice.rag.api.DraftText;
 import dev.merlionos.customerservice.rag.api.ImportRequest;
 import dev.merlionos.customerservice.rag.api.KnowledgeImport;
+import dev.merlionos.customerservice.rag.api.EntryFilter;
+import dev.merlionos.customerservice.rag.api.EntryPage;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeCommand;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
@@ -54,6 +56,20 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     public List<KnowledgeEntry> entries(String tenantId) {
         List<KnowledgeEntry> entries = client.get().uri(BASE + "/{t}/entries", tenantId).retrieve().body(ENTRIES);
         return entries == null ? List.of() : entries;
+    }
+
+    @Override
+    public EntryPage entries(String tenantId, EntryFilter filter) {
+        return client.get().uri(builder -> {
+            builder.path(BASE + "/{t}/entries/page").queryParam("page", filter.page()).queryParam("size", filter.size());
+            if (filter.text() != null) {
+                builder.queryParam("text", filter.text());
+            }
+            if (filter.source() != null) {
+                builder.queryParam("source", filter.source());
+            }
+            return builder.build(tenantId);
+        }).retrieve().body(EntryPage.class);
     }
 
     @Override

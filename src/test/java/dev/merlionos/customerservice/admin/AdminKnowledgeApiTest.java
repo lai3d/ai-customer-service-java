@@ -114,7 +114,14 @@ class AdminKnowledgeApiTest {
         assertThat(draft.statusCode()).isEqualTo(200);
         assertThat(draft.body()).contains("\"state\":\"draft\"", "\"createdBy\":\"alice\"");
         assertThat(alice.get("/admin/api/knowledge/entries/" + entry).body()).contains("\"revisions\":[{");
-        assertThat(alice.get("/admin/api/knowledge/entries").body()).contains("\"entryId\":\"shipping-cost\"");
+        assertThat(alice.get("/admin/api/knowledge/entries").body()).contains("\"entryId\":\"shipping-cost\"").contains("\"sources\":[]");
+        // The listing is a page, narrowed on the server: one document is hundreds of chunks.
+        HttpResponse<String> page = alice.get("/admin/api/knowledge/entries?size=2&page=1");
+        assertThat(page.body()).contains("\"page\":1,\"size\":2").contains("\"total\":19");
+        assertThat(page.body().split("\"category\"").length - 1).as("two entries on the page").isEqualTo(2);
+        assertThat(alice.get("/admin/api/knowledge/entries?text=shipping").body()).contains("\"total\":5").doesNotContain("returns-window");
+        assertThat(alice.get("/admin/api/knowledge/entries?source=typed").body()).contains("\"total\":19");
+        assertThat(alice.get("/admin/api/knowledge/entries?source=nope.pdf").body()).contains("\"total\":0");
 
         assertThat(alice.postJson("/admin/api/knowledge/publish", "{\"note\":\"x\",\"expectedActive\":null}").statusCode())
                 .as("publishing is an admin operation").isEqualTo(403);
@@ -187,7 +194,7 @@ class AdminKnowledgeApiTest {
         String tenant = "acme-" + UUID.randomUUID().toString().substring(0, 6);
         assertThat(root.postJson("/admin/api/tenants", "{\"id\":\"" + tenant + "\",\"name\":\"Acme\"}").statusCode()).isEqualTo(201);
 
-        assertThat(root.get("/admin/api/knowledge/entries?tenant=" + tenant).body()).as("empty, not the default tenant's").isEqualTo("[]");
+        assertThat(root.get("/admin/api/knowledge/entries?tenant=" + tenant).body()).as("empty, not the default tenant's").contains("\"total\":0");
         assertThat(root.get("/admin/api/knowledge/versions?tenant=" + tenant).body()).contains("\"active\":null", "\"tenant\":\"" + tenant + "\"");
         assertThat(root.get("/admin/api/knowledge/entries?tenant=no-such-tenant").statusCode()).isEqualTo(404);
 
