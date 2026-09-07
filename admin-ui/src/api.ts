@@ -46,6 +46,11 @@ export interface ConversationDetail { conversationId: string; turns: Turn[]; tic
 export interface Stat { key: string; label: string; value: number | null; definition: string }
 export interface Overview { from: string; to: string; turns: Stat[]; tickets: Stat[]; feedback: Stat[]; knowledge: Stat[]; staff: Stat[] }
 
+export interface Tenant { id: string; name: string; enabled: boolean; createdAt: string }
+export interface TenantKey { keyId: string; label: string; createdAt: string; revokedAt: string | null }
+export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
+/** The one response that carries a key: shown once, never readable back. */
+export interface IssuedKey { keyId: string; key: string; label: string }
 export interface StaffAccount { username: string; role: Role; enabled: boolean; createdAt: string; createdBy: string | null }
 
 export interface KnowledgeRevision {
@@ -139,5 +144,11 @@ export const api = {
   createStaff: (username: string, password: string, role: Role) => call<StaffAccount>('POST', '/staff', { username, password, role }),
   setStaffEnabled: (username: string, enabled: boolean) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/enabled`, { enabled }),
   setStaffRole: (username: string, role: Role) => call<StaffAccount>('POST', `/staff/${encodeURIComponent(username)}/role`, { role }),
+  tenants: () => call<Tenant[]>('GET', '/tenants'),
+  tenant: (id: string) => call<TenantDetail>('GET', `/tenants/${encodeURIComponent(id)}`),
+  createTenant: (id: string, name: string) => call<Tenant>('POST', '/tenants', { id, name }),
+  setTenantEnabled: (id: string, enabled: boolean) => call<Tenant>('POST', `/tenants/${encodeURIComponent(id)}/enabled`, { enabled }),
+  issueTenantKey: (id: string, label: string) => call<IssuedKey>('POST', `/tenants/${encodeURIComponent(id)}/keys`, { label }),
+  revokeTenantKey: (id: string, keyId: string) => call<void>('POST', `/tenants/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/revoke`),
   resetStaffPassword: (username: string, password: string) => call<void>('POST', `/staff/${encodeURIComponent(username)}/password`, { password }),
 };

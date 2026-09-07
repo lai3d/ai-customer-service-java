@@ -9,6 +9,7 @@ import { ConversationPage } from './pages/Conversation';
 import { FeedbackPage } from './pages/Feedback';
 import { KnowledgePage } from './pages/Knowledge';
 import { Staff } from './pages/Staff';
+import { TenantsPage } from './pages/Tenants';
 import { Account } from './pages/Account';
 
 export function App() {
@@ -28,6 +29,7 @@ export function App() {
           <NavLink to="/feedback">Feedback</NavLink>
           <NavLink to="/knowledge">Knowledge</NavLink>
           {admin && <NavLink to="/staff">Staff</NavLink>}
+          {admin && <NavLink to="/tenants">Tenants</NavLink>}
           <NavLink to="/account">Account</NavLink>
         </nav>
         <span className="who">{me.username} · {me.role}</span>
@@ -43,6 +45,8 @@ export function App() {
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/knowledge" element={<KnowledgePage />} />
           <Route path="/staff" element={admin ? <Staff /> : <Navigate to="/" replace />} />
+          <Route path="/tenants" element={admin ? <TenantsPage /> : <Navigate to="/" replace />} />
+          <Route path="/tenants/:id" element={admin ? <TenantsPage /> : <Navigate to="/" replace />} />
           <Route path="/account" element={<Account />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
