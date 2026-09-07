@@ -49,10 +49,12 @@ export interface Stat { key: string; label: string; value: number | null; defini
 export interface Overview { from: string; to: string; turns: Stat[]; tickets: Stat[]; feedback: Stat[]; knowledge: Stat[]; staff: Stat[] }
 
 export interface Tenant { id: string; name: string; enabled: boolean; createdAt: string }
-export interface TenantKey { keyId: string; label: string; createdAt: string; revokedAt: string | null }
+export type KeyKind = 'secret' | 'widget';
+/** A secret key is for a server the tenant controls; a widget key works only from browsers on its origins. */
+export interface TenantKey { keyId: string; label: string; kind: KeyKind; origins: string[]; createdAt: string; revokedAt: string | null }
 export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
 /** The one response that carries a key: shown once, never readable back. */
-export interface IssuedKey { keyId: string; key: string; label: string }
+export interface IssuedKey { keyId: string; key: string; label: string; kind: KeyKind; origins: string[] }
 export interface StaffAccount { username: string; role: Role; enabled: boolean; createdAt: string; createdBy: string | null; tenantId: string | null }
 
 export interface KnowledgeRevision {
@@ -152,7 +154,8 @@ export const api = {
   tenant: (id: string) => call<TenantDetail>('GET', `/tenants/${encodeURIComponent(id)}`),
   createTenant: (id: string, name: string) => call<Tenant>('POST', '/tenants', { id, name }),
   setTenantEnabled: (id: string, enabled: boolean) => call<Tenant>('POST', `/tenants/${encodeURIComponent(id)}/enabled`, { enabled }),
-  issueTenantKey: (id: string, label: string) => call<IssuedKey>('POST', `/tenants/${encodeURIComponent(id)}/keys`, { label }),
+  issueTenantKey: (id: string, label: string, kind: KeyKind = 'secret', origins: string[] = []) =>
+    call<IssuedKey>('POST', `/tenants/${encodeURIComponent(id)}/keys`, kind === 'widget' ? { label, kind, origins } : { label, kind }),
   revokeTenantKey: (id: string, keyId: string) => call<void>('POST', `/tenants/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/revoke`),
   resetStaffPassword: (username: string, password: string) => call<void>('POST', `/staff/${encodeURIComponent(username)}/password`, { password }),
 };
