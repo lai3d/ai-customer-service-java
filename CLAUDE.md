@@ -461,6 +461,21 @@ tests, which serve their pages locally; never facing tenants. Known limit: the a
 resolved by the guard and again by the client, so DNS rebinding between the two is not caught.
 Every part of ADR 002 is built; the record of what departed from its text is in its status line.
 
+### Order connectors
+
+`OrderLookup.lookup(tenantId, orderNumber)` is the seam behind `lookup_order_status`
+(`docs/connectors.md`); the tenant comes from the tool context, never a model argument.
+`ConnectorOrderLookup` routes to a tenant's connector (`order_connector`, one per tenant),
+to the bundled mock for the default tenant without one, and to an honest "no order system
+connected" for any other tenant without one. `ShopifyOrderLookup` is one Admin REST call
+per lookup; the shop domain must be `*.myshopify.com`. **A tool result now has three
+outcomes** (`found`, `not_found`, `unavailable`) and the tool description tells the model
+what each means; a refused or unreachable store is `unavailable`, never "not found". The
+store token is sealed by `ConnectorSecrets` with `ORDER_CONNECTOR_KEY` (AES-GCM) or stored
+`plain:` with a startup warning. `SHOPIFY_BASE_URL` points every store at one address: the
+tests' `FakeShopify` and the demo's `scripts/fake-shopify.py`. Not there: proving the
+customer owns the order.
+
 ### Evaluation and deflection
 
 `evaluation/` (chat side, `docs/evaluation.md`) holds a golden set per tenant (`golden_case`),

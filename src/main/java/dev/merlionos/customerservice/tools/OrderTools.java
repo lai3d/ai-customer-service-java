@@ -40,7 +40,7 @@ public class OrderTools {
         this.turnEventBus = turnEventBus;
         // Registered at zero so a dashboard shows 0 rather than "No data" before the first
         // call; a counter that only exists once something has happened looks like nothing is.
-        for (String outcome : List.of("found", "not_found")) {
+        for (String outcome : List.of("found", "not_found", "unavailable")) {
             meterRegistry.counter("chat.tool.invocations", "tool", TOOL_NAME, "outcome", outcome);
         }
     }
@@ -51,17 +51,21 @@ public class OrderTools {
             has shipped. Returns the status, estimated delivery date, and carrier tracking \
             details when they exist. Does not modify the order. If the order number cannot be \
             found the result says so, which means the customer should be asked to check it \
-            rather than told the order does not exist.
+            rather than told the order does not exist. If the result says the order system is \
+            unavailable, say that and offer to try again or to raise a ticket; never say the \
+            order does not exist.
             """,
             // What the model reads is a string, and the default converter writes
             // LocalDate as [2026,9,3]. See ReadableToolResultConverter.
             resultConverter = ReadableToolResultConverter.class)
     public OrderLookupResult lookupOrderStatus(
-            @ToolParam(description = "The order number, for example ORD-10042") String orderNumber,
+            @ToolParam(description = "The order number exactly as the customer wrote it, for example #1001 or ORD-10042; do not add or remove a prefix") String orderNumber,
             ToolContext toolContext) {
 
-        OrderLookupResult result = orders.lookup(orderNumber);
-        String outcome = result.found() ? "found" : "not_found";
+        // The tenant comes from the request's API key, through the tool context, never from
+        // the model: a tenant can only ever read its own orders.
+        OrderLookupResult result = orders.lookup(SupportTicketTools.tenantIdFrom(toolContext), orderNumber);
+        String outcome = result.outcome();
         report(toolContext, outcome);
         log.debug("Order lookup {} for {}", outcome, result.found() ? result.order().orderNumber() : orderNumber);
         return result;

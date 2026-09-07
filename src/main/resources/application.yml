@@ -314,6 +314,15 @@ app:
     # retrieval and understand where those spans end up.
     include-query-content: ${TRACE_INCLUDE_QUERY_CONTENT:false}
 
+  connectors:
+    # A tenant's order system behind the lookup_order_status tool (docs/connectors.md). The
+    # store's access token is encrypted at rest with this 32-byte base64 key; unset, it is
+    # stored as given and startup says so. openssl rand -base64 32
+    secret-key: ${ORDER_CONNECTOR_KEY:}
+    timeout: 8s
+    # Where Shopify is; blank means https://<shop domain>. A local stand-in for tests and a demo.
+    shopify-base-url: ${SHOPIFY_BASE_URL:}
+
   knowledge-import:
     # A tenant's own web pages and PDFs into draft entries (docs/adr/002-tenancy.md). A URL is
     # fetched by the knowledge role from inside the deployment's network, so by default it may

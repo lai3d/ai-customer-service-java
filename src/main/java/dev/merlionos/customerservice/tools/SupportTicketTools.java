@@ -93,6 +93,11 @@ public class SupportTicketTools {
         };
     }
 
+    /** Shared with {@link OrderTools}: whose orders and tickets these are. */
+    static String tenantIdFrom(ToolContext toolContext) {
+        return required(toolContext, TENANT_ID_KEY);
+    }
+
     /** Shared with {@link OrderTools}: every tool needs the conversation it is serving. */
     static String conversationIdFrom(ToolContext toolContext) {
         return required(toolContext, CONVERSATION_ID_KEY);

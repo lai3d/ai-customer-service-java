@@ -1,12 +1,13 @@
 # Tool calling
 
 
-The model can call two tools. Both are mock implementations: the point of Phase 1 is the
-calling contract, not an order system.
+The model can call two tools. The ticket is real (Postgres, see the operations admin); the
+order lookup reads a tenant's store through a [connector](connectors.md) when one is
+configured, and the bundled mock for the default tenant when none is.
 
 | Tool | What it does |
 | --- | --- |
-| `lookup_order_status` | Reads one order by number. Case- and whitespace-tolerant, because customers paste order numbers out of emails. |
+| `lookup_order_status` | Reads one order by number from the tenant's order system. Case- and whitespace-tolerant, because customers paste order numbers out of emails. Three outcomes, spelled out for the model: found, not found, unavailable. |
 | `create_support_ticket` | Raises a ticket for a human agent, attributed to the conversation it came from. |
 
 **Tool descriptions are prompt, not documentation.** They are the entire basis on which the
