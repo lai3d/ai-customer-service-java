@@ -30,6 +30,7 @@ COMPOSE_PROFILES=observability docker compose up -d   # plus Tempo, Prometheus, 
 ./mvnw test -Dexcluded.test.groups= -Dtest='VirtualThreadBenchmark*'   # opt-in benchmark
 
 scripts/verify-services.sh                      # the split as four containers; --down to remove
+scripts/verify-admin-ui.sh                      # the operations UI walked in Chromium against the built images; --down to remove
 k8s/kind/verify.sh [--roles [--fit]] [--keep]   # the manifests on a throwaway kind cluster; --fit for a laptop node
 ```
 
