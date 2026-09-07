@@ -2,6 +2,8 @@ package dev.merlionos.customerservice.clients;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.merlionos.customerservice.rag.api.DraftText;
+import dev.merlionos.customerservice.rag.api.ImportRequest;
+import dev.merlionos.customerservice.rag.api.KnowledgeImport;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeCommand;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
@@ -37,6 +39,8 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
     private static final ParameterizedTypeReference<List<Passage>> PASSAGES = new ParameterizedTypeReference<>() {
     };
     private static final ParameterizedTypeReference<Map<String, String>> MAP = new ParameterizedTypeReference<>() {
+    };
+    private static final ParameterizedTypeReference<List<KnowledgeImport>> IMPORTS = new ParameterizedTypeReference<>() {
     };
 
     private final RestClient client;
@@ -124,6 +128,34 @@ public class HttpKnowledgeAdmin implements KnowledgeAdmin {
         List<Passage> passages = translating(() -> client.post().uri(BASE + "/preview")
                 .body(new SearchQuery(query.tenantId(), query.text(), query.topK(), query.similarityThreshold(), version)).retrieve().body(PASSAGES));
         return passages == null ? List.of() : passages;
+    }
+
+    @Override
+    public KnowledgeImport importUrl(String tenantId, String url, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/imports/url", tenantId)
+                .body(ImportRequest.url(actor, url)).retrieve().body(KnowledgeImport.class));
+    }
+
+    @Override
+    public KnowledgeImport importPdf(String tenantId, String fileName, byte[] content, String actor) {
+        return translating(() -> client.post().uri(BASE + "/{t}/imports/pdf", tenantId)
+                .body(ImportRequest.pdf(actor, fileName, content)).retrieve().body(KnowledgeImport.class));
+    }
+
+    @Override
+    public List<KnowledgeImport> imports(String tenantId) {
+        List<KnowledgeImport> imports = client.get().uri(BASE + "/{t}/imports", tenantId).retrieve().body(IMPORTS);
+        return imports == null ? List.of() : imports;
+    }
+
+    @Override
+    public Optional<KnowledgeImport> importOf(String tenantId, long id) {
+        try {
+            return Optional.ofNullable(client.get().uri(BASE + "/{t}/imports/{id}", tenantId, id).retrieve().body(KnowledgeImport.class));
+        }
+        catch (HttpClientErrorException.NotFound e) {
+            return Optional.empty();
+        }
     }
 
     private <T> T translating(Supplier<T> call) {

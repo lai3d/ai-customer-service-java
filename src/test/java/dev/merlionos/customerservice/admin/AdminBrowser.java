@@ -80,6 +80,22 @@ class AdminBrowser {
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    /** One file field, the way a browser form posts it, with the CSRF header. */
+    HttpResponse<String> postFile(String path, String field, String fileName, String contentType, byte[] content)
+            throws IOException, InterruptedException {
+        String boundary = "----ai-cs-" + java.util.UUID.randomUUID();
+        java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+        body.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + field + "\"; filename=\"" + fileName
+                + "\"\r\nContent-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.writeBytes(content);
+        body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return client.send(HttpRequest.newBuilder(uri(path)).timeout(TIMEOUT)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Accept", "application/json")
+                .header("X-XSRF-TOKEN", csrf())
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     String csrf() {
         return cookie("XSRF-TOKEN").orElseThrow(() -> new AssertionError("no XSRF-TOKEN cookie yet"));
     }

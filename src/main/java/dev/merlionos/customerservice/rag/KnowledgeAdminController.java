@@ -1,6 +1,8 @@
 package dev.merlionos.customerservice.rag;
 
 import dev.merlionos.customerservice.rag.api.DraftText;
+import dev.merlionos.customerservice.rag.api.ImportRequest;
+import dev.merlionos.customerservice.rag.api.KnowledgeImport;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeCommand;
 import dev.merlionos.customerservice.rag.api.KnowledgeConflictException;
@@ -100,6 +102,26 @@ class KnowledgeAdminController {
     @PostMapping("/{tenant}/rollback")
     KnowledgeVersion rollback(@PathVariable String tenant, @RequestBody KnowledgeCommand command) {
         return admin.rollback(tenant, command.version(), command.expectedActive(), command.actor());
+    }
+
+    @PostMapping("/{tenant}/imports/url")
+    KnowledgeImport importUrl(@PathVariable String tenant, @RequestBody ImportRequest request) {
+        return admin.importUrl(tenant, request.url(), request.actor());
+    }
+
+    @PostMapping("/{tenant}/imports/pdf")
+    KnowledgeImport importPdf(@PathVariable String tenant, @RequestBody ImportRequest request) {
+        return admin.importPdf(tenant, request.fileName(), request.content(), request.actor());
+    }
+
+    @GetMapping("/{tenant}/imports")
+    List<KnowledgeImport> imports(@PathVariable String tenant) {
+        return admin.imports(tenant);
+    }
+
+    @GetMapping("/{tenant}/imports/{id}")
+    ResponseEntity<KnowledgeImport> importOf(@PathVariable String tenant, @PathVariable long id) {
+        return admin.importOf(tenant, id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/preview")

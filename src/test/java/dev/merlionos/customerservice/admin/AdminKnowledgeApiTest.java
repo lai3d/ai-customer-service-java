@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.admin;
 import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.chat.TurnRecorder;
+import dev.merlionos.customerservice.rag.TestPdf;
 import dev.merlionos.customerservice.rag.api.KnowledgeAdmin;
 import dev.merlionos.customerservice.rag.api.KnowledgeVersion;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static dev.merlionos.customerservice.rag.api.SearchQuery.DEFAULT_TENANT;
@@ -195,5 +197,68 @@ class AdminKnowledgeApiTest {
                 .doesNotContain("returns-damaged");
         assertThat(root.get("/admin/api/knowledge/entries/shipping-cost").body()).as("the default tenant's own is untouched")
                 .contains("\"state\":\"published\"");
+    }
+
+    @Test
+    @DisplayName("an admin imports a page and a PDF into a tenant's drafts; support cannot; a URL inside the deployment is refused and recorded")
+    void imports() throws Exception {
+        AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
+        AdminBrowser alice = AdminBrowser.signedIn(port, "alice", PASSWORD);
+        String tenant = "docs-" + UUID.randomUUID().toString().substring(0, 6);
+        root.postJson("/admin/api/tenants", "{\"id\":\"" + tenant + "\",\"name\":\"Docs\"}");
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/faq", exchange -> {
+            byte[] body = "<html><head><title>Docs FAQ</title></head><body><p>Gift wrapping costs 3 dollars per item and a note is free.</p></body></html>"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/html");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/faq";
+            assertThat(alice.postJson("/admin/api/knowledge/imports/url?tenant=" + tenant, "{\"url\":\"" + url + "\"}").statusCode())
+                    .as("importing is an admin operation").isEqualTo(403);
+
+            HttpResponse<String> started = root.postJson("/admin/api/knowledge/imports/url?tenant=" + tenant, "{\"url\":\"" + url + "\"}");
+            assertThat(started.statusCode()).isEqualTo(202);
+            assertThat(started.body()).contains("\"state\":\"running\"", "\"sourceKind\":\"url\"", "\"requestedBy\":\"root\"");
+            long id = Long.parseLong(started.body().replaceAll(".*?\"id\":(\\d+).*", "$1"));
+            String finished = awaitImport(root, tenant, id);
+            assertThat(finished).contains("\"state\":\"done\"", "\"entries\":1");
+            assertThat(root.get("/admin/api/knowledge/entries?tenant=" + tenant).body())
+                    .contains("\"sourceKind\":\"url\"", "\"source\":\"" + url + "\"", "Gift wrapping costs 3 dollars");
+            assertThat(root.get("/admin/api/knowledge/imports?tenant=" + tenant).body()).contains("\"id\":" + id);
+            assertThat(root.get("/admin/api/knowledge/imports/" + id).statusCode()).as("addressed under its tenant").isEqualTo(404);
+
+            byte[] pdf = TestPdf.of(List.of("Every lamp is covered for two years against defects."));
+            HttpResponse<String> upload = root.postFile("/admin/api/knowledge/imports/pdf?tenant=" + tenant, "file", "warranty.pdf", "application/pdf", pdf);
+            assertThat(upload.statusCode()).as(upload.body()).isEqualTo(202);
+            long pdfId = Long.parseLong(upload.body().replaceAll(".*?\"id\":(\\d+).*", "$1"));
+            assertThat(awaitImport(root, tenant, pdfId)).contains("\"state\":\"done\"", "\"source\":\"warranty.pdf\"");
+
+            HttpResponse<String> refused = root.postJson("/admin/api/knowledge/imports/url?tenant=" + tenant,
+                    "{\"url\":\"ftp://example.com/x\"}");
+            assertThat(refused.statusCode()).isEqualTo(422);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit WHERE action = 'imported' AND target = ?", Integer.class, tenant))
+                    .isEqualTo(2);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit WHERE action = 'refused' AND target = 'knowledge'", Integer.class))
+                    .isEqualTo(1);
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    private String awaitImport(AdminBrowser browser, String tenant, long id) throws Exception {
+        for (int i = 0; i < 120; i++) {
+            String body = browser.get("/admin/api/knowledge/imports/" + id + "?tenant=" + tenant).body();
+            if (!body.contains("\"state\":\"running\"")) {
+                return body;
+            }
+            Thread.sleep(250);
+        }
+        throw new AssertionError("import " + id + " still running after 30 s");
     }
 }

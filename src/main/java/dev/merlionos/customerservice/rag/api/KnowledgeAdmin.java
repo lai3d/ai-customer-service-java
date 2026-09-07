@@ -60,4 +60,16 @@ public interface KnowledgeAdmin {
 
     /** What retrieval would find in a given version, or in the active one when null. */
     List<Passage> preview(SearchQuery query, String version);
+
+    // --- a tenant's own documents (ADR 002, step 4) -------------------------------------------
+
+    /** Starts fetching a web page into draft entries; returns the running import to poll. */
+    KnowledgeImport importUrl(String tenantId, String url, String actor);
+
+    /** Starts parsing a PDF into draft entries; returns the running import to poll. */
+    KnowledgeImport importPdf(String tenantId, String fileName, byte[] content, String actor);
+
+    List<KnowledgeImport> imports(String tenantId);
+
+    Optional<KnowledgeImport> importOf(String tenantId, long id);
 }
