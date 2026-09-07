@@ -24,7 +24,8 @@ class OrderToolsTest {
             new OrderTools(new LocalOrderLookup(new MockOrderRepository()), meterRegistry, new TurnEventBus());
 
     private static final ToolContext CONTEXT = new ToolContext(
-            Map.of(SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1",
+            Map.of(SupportTicketTools.TENANT_ID_KEY, "default",
+                    SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1",
                     dev.merlionos.customerservice.chat.TurnEventBus.TURN_ID_KEY, "turn-1"));
 
     @Test

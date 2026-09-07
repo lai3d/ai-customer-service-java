@@ -1,8 +1,6 @@
 package dev.merlionos.customerservice.orders;
 
-import org.springframework.stereotype.Component;
-
-@Component
+/** The bundled mock orders: what the default tenant answers from until a connector is configured. */
 public class LocalOrderLookup implements OrderLookup {
 
     private final MockOrderRepository orders;
@@ -12,7 +10,7 @@ public class LocalOrderLookup implements OrderLookup {
     }
 
     @Override
-    public OrderLookupResult lookup(String orderNumber) {
+    public OrderLookupResult lookup(String tenantId, String orderNumber) {
         return orders.findByOrderNumber(orderNumber)
                 .map(OrderLookupResult::found)
                 .orElseGet(() -> OrderLookupResult.notFound(

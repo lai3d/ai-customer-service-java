@@ -1,15 +1,11 @@
 package dev.merlionos.customerservice.orders;
 
 /**
- * The seam between the {@code lookup_order_status} tool and whatever answers it.
- *
- * <p>Today the only implementation wraps {@link MockOrderRepository}; a real order system
- * plugs in behind this interface as an HTTP adapter without the tool, its description or its
- * event reporting changing. There is deliberately no separate mock order service: a service
- * whose only implementation is a fake proves nothing about the boundary.
+ * Where an order's status comes from: the seam between the {@code lookup_order_status} tool
+ * and whatever order system a tenant has. The tool passes the tenant from the request's
+ * API key, never from a model argument, so a tenant can only ever read its own orders.
  */
 public interface OrderLookup {
 
-    /** Never throws for a missing or malformed number; the result says so as a value. */
-    OrderLookupResult lookup(String orderNumber);
+    OrderLookupResult lookup(String tenantId, String orderNumber);
 }
