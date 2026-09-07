@@ -58,6 +58,6 @@ src/
 ├── format.ts         dates, durations, numbers
 ├── components/       Markdown.tsx (the subset), ui.tsx (ErrorNote, Pill, Pager, Empty, Notice), TenantPicker, OrderConnector, Telegram
 ├── pages/            Login, Overview, Tickets, TicketDetail, Conversations, Conversation,
-│                     Feedback, Knowledge, Evaluation, Staff, Tenants, Account
+│                     Feedback, Knowledge, Evaluation, Report, Staff, Tenants, Account
 └── *.test.ts         api, format, markdown, no-markup-sinks
 ```

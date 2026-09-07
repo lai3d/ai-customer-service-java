@@ -68,6 +68,14 @@ export interface EvaluationResult {
 export interface RunDetail { run: EvaluationRun; results: EvaluationResult[] }
 export interface Deflection { tenant: string; days: number; conversations: number; escalated: number; flagged: number; deflectionRate: number; definition: string }
 
+/** The pilot report: one tenant, one window, every number with its definition (docs/operations-admin.md). */
+export interface PilotEvaluation { runId: number; finishedAt: string | null; cases: number; passed: number; passRate: number | null; retrievalHitRate: number | null; answerPassRate: number | null }
+export interface PilotReport {
+  tenant: string; from: string; to: string; conversations: number; turns: number; escalated: number; flagged: number;
+  deflectionRate: number | null; evaluation: PilotEvaluation | null; inputTokens: number; outputTokens: number; unmeteredTurns: number;
+  costUsd: number; unpricedModels: string[]; costPerConversationUsd: number | null; definitions: Record<string, string>;
+}
+
 export interface Stat { key: string; label: string; value: number | null; definition: string }
 export interface Overview { from: string; to: string; turns: Stat[]; tickets: Stat[]; feedback: Stat[]; knowledge: Stat[]; staff: Stat[] }
 
@@ -201,6 +209,7 @@ export const api = {
   importPdf: (tenant: string, file: File) => { const form = new FormData(); form.append('file', file, file.name); return upload<KnowledgeImport>(`/knowledge/imports/pdf${query({ tenant })}`, form); },
   preview: (tenant: string, text: string, version: string | null, topK = 5) => call<Passage[]>('POST', `/knowledge/preview${query({ tenant })}`, { text, version, topK }),
 
+  pilotReport: (tenant: string, days: number) => call<PilotReport>('GET', `/reports/pilot${query({ tenant, days })}`),
   evaluationCases: (tenant: string) => call<GoldenCase[]>('GET', `/evaluation/cases${query({ tenant })}`),
   createCase: (tenant: string, input: CaseInput) => call<GoldenCase>('POST', `/evaluation/cases${query({ tenant })}`, input),
   updateCase: (tenant: string, id: number, input: CaseInput) => call<GoldenCase>('PUT', `/evaluation/cases/${id}${query({ tenant })}`, input),
