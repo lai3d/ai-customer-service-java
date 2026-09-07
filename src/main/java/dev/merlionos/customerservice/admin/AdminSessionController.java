@@ -48,13 +48,15 @@ class AdminSessionController {
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
     private final StaffSessionPolicy sessionPolicy;
+    private final AdminStaffController staff;
 
     AdminSessionController(AuthenticationManager authenticationManager, SecurityContextRepository securityContextRepository,
-                           CsrfTokenRepository csrfTokenRepository, StaffSessionPolicy sessionPolicy) {
+                           CsrfTokenRepository csrfTokenRepository, StaffSessionPolicy sessionPolicy, AdminStaffController staff) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
         this.sessionPolicy = sessionPolicy;
+        this.staff = staff;
     }
 
     /** Nothing but the CSRF cookie: what a fresh page asks for before it can post anything. */
@@ -67,8 +69,7 @@ class AdminSessionController {
     }
 
     /** Who signed in. A record, not a map, so the JSON is always in this order. */
-    record Session(String username, String role) {
-    }
+
 
     @PostMapping("/login")
     ResponseEntity<?> login(@RequestBody Credentials credentials, HttpServletRequest request,
@@ -103,7 +104,7 @@ class AdminSessionController {
         csrfTokenRepository.saveToken(null, request, response);
         CsrfToken fresh = csrfTokenRepository.generateToken(request);
         csrfTokenRepository.saveToken(fresh, request, response);
-        return ResponseEntity.ok(new Session(authentication.getName(), AdminStaffController.roleOf(authentication).value()));
+        return ResponseEntity.ok(staff.me(authentication));
     }
 
     @PostMapping("/logout")

@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.Set;
 
@@ -24,8 +25,12 @@ public class TurnRecords {
     public static final int DEFAULT_SIZE = 25;
 
     /** One conversation in the list: how many turns, when, and how the turns ended. */
+    /**
+     * @param tenantId   whose conversation it is
+     * @param externalId the id the customer's client used, from the {@code conversation} table
+     */
     public record Summary(String conversationId, int turns, Instant firstAt, Instant lastAt, String lastOutcome,
-                          int failed, int interrupted, int unknown) {
+                          int failed, int interrupted, int unknown, String tenantId, String externalId) {
     }
 
     /**
@@ -33,7 +38,12 @@ public class TurnRecords {
      * @param outcome        conversations with at least one turn that ended this way, or null
      * @param from           turns started at or after; @param to turns started before
      */
-    public record Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size) {
+    /** @param tenantId only this tenant's conversations, or null for every tenant's */
+    public record Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size, String tenantId) {
+
+        public Filter(String conversationId, String outcome, Instant from, Instant to, int page, int size) {
+            this(conversationId, outcome, from, to, page, size, null);
+        }
         public Filter {
             page = Math.max(page, 0);
             size = size < 1 ? DEFAULT_SIZE : Math.min(size, MAX_SIZE);
@@ -62,7 +72,8 @@ public class TurnRecords {
 
     private static final RowMapper<Summary> SUMMARY = (rs, i) -> new Summary(rs.getString("conversation_id"),
             rs.getInt("turns"), rs.getTimestamp("first_at").toInstant(), rs.getTimestamp("last_at").toInstant(),
-            rs.getString("last_outcome"), rs.getInt("failed"), rs.getInt("interrupted"), rs.getInt("unknown"));
+            rs.getString("last_outcome"), rs.getInt("failed"), rs.getInt("interrupted"), rs.getInt("unknown"),
+            rs.getString("tenant_id"), rs.getString("external_id"));
 
     private final JdbcTemplate jdbc;
 
@@ -74,8 +85,14 @@ public class TurnRecords {
         List<String> where = new ArrayList<>();
         List<Object> args = new ArrayList<>();
         if (filter.conversationId() != null) {
-            where.add("conversation_id = ?");
+            // Either id: the internal one the record keys on, or the one the customer's client used.
+            where.add("(t.conversation_id = ? OR c.external_id = ?)");
             args.add(filter.conversationId());
+            args.add(filter.conversationId());
+        }
+        if (filter.tenantId() != null) {
+            where.add("t.tenant_id = ?");
+            args.add(filter.tenantId());
         }
         if (filter.from() != null) {
             where.add("started_at >= ?");
@@ -91,20 +108,34 @@ public class TurnRecords {
             having = " HAVING bool_or(outcome = ?)";
             args.add(filter.outcome());
         }
-        String grouped = "SELECT conversation_id, count(*) AS turns, min(started_at) AS first_at, max(started_at) AS last_at, "
+        String grouped = "SELECT t.conversation_id, count(*) AS turns, min(started_at) AS first_at, max(started_at) AS last_at, "
                 + "(array_agg(outcome ORDER BY started_at DESC))[1] AS last_outcome, "
                 + "count(*) FILTER (WHERE outcome = 'failed') AS failed, "
                 + "count(*) FILTER (WHERE outcome = 'interrupted') AS interrupted, "
-                + "count(*) FILTER (WHERE outcome = 'unknown') AS unknown "
-                + "FROM conversation_turn" + clause + " GROUP BY conversation_id" + having;
+                + "count(*) FILTER (WHERE outcome = 'unknown') AS unknown, "
+                + "min(t.tenant_id) AS tenant_id, min(c.external_id) AS external_id "
+                + "FROM conversation_turn t LEFT JOIN conversation c ON c.id = t.conversation_id" + clause
+                + " GROUP BY t.conversation_id" + having;
 
         long total = jdbc.queryForObject("SELECT count(*) FROM (" + grouped + ") AS c", Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(filter.size());
         pageArgs.add((long) filter.page() * filter.size());
-        List<Summary> conversations = jdbc.query(grouped + " ORDER BY last_at DESC, conversation_id LIMIT ? OFFSET ?",
+        List<Summary> conversations = jdbc.query(grouped + " ORDER BY last_at DESC, t.conversation_id LIMIT ? OFFSET ?",
                 SUMMARY, pageArgs.toArray());
         return new Page(conversations, total, filter.page(), filter.size());
+    }
+
+    /** Whose turn a recorded one is; empty when no such turn was recorded. */
+    public Optional<String> tenantOfTurn(String turnId) {
+        return jdbc.queryForList("SELECT tenant_id FROM conversation_turn WHERE turn_id = ?", String.class, turnId)
+                .stream().findFirst();
+    }
+
+    /** Whose conversation a recorded one is; empty when nothing was recorded for it. */
+    public Optional<String> tenantOf(String conversationId) {
+        return jdbc.queryForList("SELECT tenant_id FROM conversation_turn WHERE conversation_id = ? LIMIT 1",
+                String.class, conversationId).stream().findFirst();
     }
 
     /** Every turn of a conversation, oldest first, each with what it retrieved and which tools it called. */

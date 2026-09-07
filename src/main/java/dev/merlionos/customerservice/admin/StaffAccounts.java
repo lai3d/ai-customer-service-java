@@ -1,5 +1,7 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -37,9 +39,11 @@ public class StaffAccounts {
     /** Bcrypt hashes the first 72 bytes; the floor is about guessability, not the algorithm. */
     static final int MIN_PASSWORD_LENGTH = 12;
 
+    private static final String ACCOUNT_COLUMNS = "username, role, enabled, created_at, created_by, tenant_id";
+
     private static final RowMapper<StaffAccount> ACCOUNT = (rs, i) -> new StaffAccount(
             rs.getString("username"), StaffRole.fromValue(rs.getString("role")), rs.getBoolean("enabled"),
-            rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"));
+            rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"), rs.getString("tenant_id"));
 
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwordEncoder;
@@ -52,13 +56,13 @@ public class StaffAccounts {
     }
 
     /** What the login needs and nothing else needs. */
-    public record Credential(String username, String passwordHash, StaffRole role, boolean enabled) {
+    public record Credential(String username, String passwordHash, StaffRole role, boolean enabled, String tenantId) {
     }
 
     public Optional<Credential> credential(String username) {
-        return jdbc.query("SELECT username, password_hash, role, enabled FROM staff_account WHERE username = ?",
+        return jdbc.query("SELECT username, password_hash, role, enabled, tenant_id FROM staff_account WHERE username = ?",
                         (rs, i) -> new Credential(rs.getString("username"), rs.getString("password_hash"),
-                                StaffRole.fromValue(rs.getString("role")), rs.getBoolean("enabled")),
+                                StaffRole.fromValue(rs.getString("role")), rs.getBoolean("enabled"), rs.getString("tenant_id")),
                         normalise(username))
                 .stream().findFirst();
     }
@@ -71,6 +75,15 @@ public class StaffAccounts {
      *                  {@code seed} for an account nobody created interactively
      */
     public StaffAccount create(String username, String rawPassword, StaffRole role, String createdBy) {
+        return create(username, rawPassword, role, role == StaffRole.ADMIN ? null : Tenant.DEFAULT, createdBy);
+    }
+
+    /**
+     * @param tenantId the tenant the account belongs to, or null for a platform account,
+     *                 which must be an admin: platform staff with nothing to administer would
+     *                 be an account that can sign in and do nothing
+     */
+    public StaffAccount create(String username, String rawPassword, StaffRole role, String tenantId, String createdBy) {
         String name = normalise(username);
         if (!USERNAME.matcher(name).matches()) {
             throw new IllegalArgumentException(
@@ -82,16 +95,23 @@ public class StaffAccounts {
         if (role == null) {
             throw new IllegalArgumentException("role is required: one of admin, support");
         }
-        StaffAccount account = new StaffAccount(name, role, true, Instant.now(), createdBy);
+        String tenant = tenantId == null || tenantId.isBlank() ? null : tenantId.strip();
+        if (tenant == null && role != StaffRole.ADMIN) {
+            throw new IllegalArgumentException("a support account belongs to a tenant; only admins can be platform staff");
+        }
+        StaffAccount account = new StaffAccount(name, role, true, Instant.now(), createdBy, tenant);
         try {
             jdbc.update("""
-                    INSERT INTO staff_account (username, password_hash, role, enabled, created_at, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO staff_account (username, password_hash, role, enabled, created_at, created_by, tenant_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, account.username(), passwordEncoder.encode(rawPassword), role.value(), true,
-                    Timestamp.from(account.createdAt()), createdBy);
+                    Timestamp.from(account.createdAt()), createdBy, tenant);
         }
         catch (DuplicateKeyException e) {
             throw new DuplicateStaffAccountException(name);
+        }
+        catch (DataIntegrityViolationException e) {
+            throw new IllegalArgumentException("No tenant '" + tenant + "'");
         }
         return account;
     }
@@ -109,10 +129,10 @@ public class StaffAccounts {
                 if (name.equals(normalise(actor))) {
                     throw new StaffRuleException(name, "You cannot disable your own account");
                 }
-                refuseIfLastAdmin(current, "disable");
+                refuseIfLastAdmin(current, "disable", actor);
             }
             jdbc.update("UPDATE staff_account SET enabled = ? WHERE username = ?", enabled, name);
-            return new StaffAccount(name, current.role(), enabled, current.createdAt(), current.createdBy());
+            return new StaffAccount(name, current.role(), enabled, current.createdAt(), current.createdBy(), current.tenantId());
         });
     }
 
@@ -132,10 +152,13 @@ public class StaffAccounts {
                 throw new StaffRuleException(name, "You cannot change your own role");
             }
             if (role != StaffRole.ADMIN) {
-                refuseIfLastAdmin(current, "demote");
+                if (current.platform()) {
+                    throw new StaffRuleException(name, "Platform staff are admins; give '" + name + "' a tenant instead");
+                }
+                refuseIfLastAdmin(current, "demote", actor);
             }
             jdbc.update("UPDATE staff_account SET role = ? WHERE username = ?", role.value(), name);
-            return new StaffAccount(name, role, current.enabled(), current.createdAt(), current.createdBy());
+            return new StaffAccount(name, role, current.enabled(), current.createdAt(), current.createdBy(), current.tenantId());
         });
     }
 
@@ -182,28 +205,48 @@ public class StaffAccounts {
     private StaffAccount lockedAccount(String name) {
         jdbc.queryForList("SELECT username FROM staff_account WHERE (role = 'admin' AND enabled) OR username = ? "
                 + "ORDER BY username FOR UPDATE", String.class, name);
-        return jdbc.query("SELECT username, role, enabled, created_at, created_by FROM staff_account WHERE username = ?",
-                        ACCOUNT, name).stream().findFirst()
+        return jdbc.query("SELECT " + ACCOUNT_COLUMNS + " FROM staff_account WHERE username = ?", ACCOUNT, name)
+                .stream().findFirst()
                 .orElseThrow(() -> new StaffAccountNotFoundException(name));
     }
 
-    private void refuseIfLastAdmin(StaffAccount account, String verb) {
-        if (account.role() == StaffRole.ADMIN && account.enabled()
-                && jdbc.queryForObject("SELECT count(*) FROM staff_account WHERE role = 'admin' AND enabled", Integer.class) == 1) {
-            throw new StaffRuleException(account.username(),
-                    "Cannot " + verb + " '" + account.username() + "': it is the only enabled admin");
+    /**
+     * The last enabled admin of a scope stays one: of a tenant, among that tenant's accounts;
+     * of platform, among platform accounts. A platform admin may remove a tenant's last admin,
+     * because the tenant still has platform above it to make another; nobody may remove the
+     * last platform admin, because nothing is above that.
+     */
+    private void refuseIfLastAdmin(StaffAccount account, String verb, String actor) {
+        if (account.role() != StaffRole.ADMIN || !account.enabled()) {
+            return;
         }
+        int admins = jdbc.queryForObject("SELECT count(*) FROM staff_account WHERE role = 'admin' AND enabled "
+                + "AND tenant_id IS NOT DISTINCT FROM ?", Integer.class, account.tenantId());
+        if (admins > 1) {
+            return;
+        }
+        boolean actorIsPlatform = find(actor).map(StaffAccount::platform).orElse(false);
+        if (!account.platform() && actorIsPlatform) {
+            return;
+        }
+        throw new StaffRuleException(account.username(), "Cannot " + verb + " '" + account.username() + "': it is the only enabled admin"
+                + (account.platform() ? " of the platform" : " of tenant '" + account.tenantId() + "'"));
     }
 
     public Optional<StaffAccount> find(String username) {
-        return jdbc.query("SELECT username, role, enabled, created_at, created_by FROM staff_account WHERE username = ?",
+        return jdbc.query("SELECT " + ACCOUNT_COLUMNS + " FROM staff_account WHERE username = ?",
                 ACCOUNT, normalise(username)).stream().findFirst();
     }
 
     /** Every account, oldest first. */
     public List<StaffAccount> list() {
-        return jdbc.query("SELECT username, role, enabled, created_at, created_by FROM staff_account "
-                + "ORDER BY created_at, username", ACCOUNT);
+        return jdbc.query("SELECT " + ACCOUNT_COLUMNS + " FROM staff_account ORDER BY created_at, username", ACCOUNT);
+    }
+
+    /** One tenant's accounts, oldest first; null for the platform accounts. */
+    public List<StaffAccount> list(String tenantId) {
+        return jdbc.query("SELECT " + ACCOUNT_COLUMNS + " FROM staff_account WHERE tenant_id IS NOT DISTINCT FROM ? "
+                + "ORDER BY created_at, username", ACCOUNT, tenantId);
     }
 
     public boolean isEmpty() {

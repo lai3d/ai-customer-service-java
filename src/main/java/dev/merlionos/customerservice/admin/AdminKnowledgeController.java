@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -69,7 +70,8 @@ class AdminKnowledgeController {
 
     /** The tenant a request is about; an unknown one is a 404 before anything is read or written. */
     private String tenantOf(String tenant) {
-        String id = tenant == null || tenant.isBlank() ? Tenant.DEFAULT : tenant.strip();
+        // The session's tenant wins: a tenant's staff name only their own, platform staff any, default when silent.
+        String id = StaffScope.of(SecurityContextHolder.getContext().getAuthentication()).oneTenant(tenant);
         tenants.find(id).orElseThrow(() -> new NotFound("No tenant '" + id + "'"));
         return id;
     }

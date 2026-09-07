@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, type Feedback, type FeedbackPage } from '../api';
 import { Empty, ErrorNote, Pager, Pill } from '../components/ui';
+import { TenantPicker } from '../components/TenantPicker';
+import { useAuth } from '../auth';
 import { when } from '../format';
 
 export function FeedbackPage() {
+  const { me } = useAuth();
+  const platform = me!.tenant === null;
   const [params, setParams] = useSearchParams();
+  const tenant = params.get('tenant') ?? '';
   const navigate = useNavigate();
   const state = params.get('state') ?? 'open';
   const page = Number(params.get('page') ?? '0');
@@ -13,7 +18,7 @@ export function FeedbackPage() {
   const [error, setError] = useState<unknown>(null);
   const [closing, setClosing] = useState<{ f: Feedback; state: 'handled' | 'dismissed' } | null>(null);
   const [conclusion, setConclusion] = useState('');
-  const load = useCallback(() => api.feedback({ state: state === 'all' ? undefined : state, page, size: 25 }).then(setData, setError), [state, page]);
+  const load = useCallback(() => api.feedback({ state: state === 'all' ? undefined : state, page, size: 25, tenant: tenant || undefined }).then(setData, setError), [state, page, tenant]);
   useEffect(() => { setData(null); void load(); }, [load]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -24,9 +29,10 @@ export function FeedbackPage() {
   return (
     <section>
       <h2>Answer feedback</h2>
+      <TenantPicker value={tenant} onChange={v => { const p = new URLSearchParams(params); if (v) p.set('tenant', v); else p.delete('tenant'); p.delete('page'); setParams(p); }} allowAll />
       <div className="toolbar">
         <label>State
-          <select value={state} onChange={e => { const p = new URLSearchParams(); p.set('state', e.target.value); setParams(p); }}>
+          <select value={state} onChange={e => { const p = new URLSearchParams(); p.set('state', e.target.value); if (tenant) p.set('tenant', tenant); setParams(p); }}>
             {['open', 'handled', 'dismissed', 'all'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
@@ -35,11 +41,12 @@ export function FeedbackPage() {
       {data && data.reports.length === 0 && <Empty>Nothing flagged.</Empty>}
       {data && data.reports.length > 0 && (
         <table>
-          <thead><tr><th>#</th><th>Issue</th><th>Note</th><th>Conversation</th><th>Reported</th><th>State</th><th></th></tr></thead>
+          <thead><tr><th>#</th>{platform && <th>Tenant</th>}<th>Issue</th><th>Note</th><th>Conversation</th><th>Reported</th><th>State</th><th></th></tr></thead>
           <tbody>
             {data.reports.map(f => (
               <tr key={f.id}>
                 <td>#{f.id}</td>
+                {platform && <td className="mono">{f.tenantId}</td>}
                 <td>{f.issue}</td>
                 <td>{f.note ?? ''}</td>
                 <td><button onClick={() => navigate(`/conversations/${f.conversationId}`)}>Open</button></td>

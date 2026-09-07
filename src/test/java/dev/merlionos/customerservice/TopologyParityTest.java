@@ -335,6 +335,12 @@ class TopologyParityTest {
         assertThat(remote.search(new TicketFilter(TicketState.RESOLVED, "alice", null, null, 0, 10)).total())
                 .isEqualTo(local.search(new TicketFilter(TicketState.RESOLVED, "alice", null, null, 0, 10)).total())
                 .isEqualTo(1);
+        // The tenant crosses the seam as a filter and comes back on every record.
+        assertThat(remote.search(new TicketFilter(null, null, null, null, 0, 10, "default")).total())
+                .isEqualTo(local.search(new TicketFilter(null, null, null, null, 0, 10, "default")).total())
+                .isPositive();
+        assertThat(remote.search(new TicketFilter(null, null, null, null, 0, 10, "nobody")).total()).isZero();
+        assertThat(resolved.tenantId()).isEqualTo("default");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Tenant;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
@@ -33,13 +34,38 @@ public class AdminOverview {
         this.jdbc = jdbc;
     }
 
+    /** Every tenant's numbers, with the default tenant's knowledge. */
     public Overview over(Instant from, Instant to) {
-        Timestamp start = Timestamp.from(from);
-        Timestamp end = Timestamp.from(to);
-        return new Overview(from, to, turns(start, end), tickets(start, end), feedback(start, end), knowledge(), staff(start, end));
+        return over(from, to, null);
     }
 
-    private List<Stat> turns(Timestamp from, Timestamp to) {
+    /**
+     * @param tenantId whose numbers: one tenant's, or null for every tenant's together, in
+     *                 which case the knowledge section is the default tenant's, since a sum
+     *                 over knowledge bases would be a number without a meaning
+     */
+    public Overview over(Instant from, Instant to, String tenantId) {
+        Timestamp start = Timestamp.from(from);
+        Timestamp end = Timestamp.from(to);
+        return new Overview(from, to, turns(start, end, tenantId), tickets(start, end, tenantId), feedback(start, end, tenantId),
+                knowledge(tenantId == null ? Tenant.DEFAULT : tenantId), staff(start, end, tenantId));
+    }
+
+    /** {@code AND <column> = ?} when a tenant is named, nothing otherwise; the caller adds the argument. */
+    private static String scoped(String column, String tenantId) {
+        return tenantId == null ? "" : " AND " + column + " = ?";
+    }
+
+    private static Object[] args(String tenantId, Object... fixed) {
+        if (tenantId == null) {
+            return fixed;
+        }
+        Object[] all = java.util.Arrays.copyOf(fixed, fixed.length + 1);
+        all[fixed.length] = tenantId;
+        return all;
+    }
+
+    private List<Stat> turns(Timestamp from, Timestamp to, String tenantId) {
         Map<String, Object> row = jdbc.queryForMap("""
                 SELECT count(*) AS turns,
                        count(DISTINCT conversation_id) AS conversations,
@@ -53,7 +79,7 @@ public class AdminOverview {
                        count(*) FILTER (WHERE input_tokens IS NULL AND outcome <> 'running') AS unmetered,
                        avg(extract(epoch FROM (ended_at - started_at)) * 1000) FILTER (WHERE outcome = 'completed') AS avg_ms
                 FROM conversation_turn WHERE started_at >= ? AND started_at < ?
-                """, from, to);
+                """ + scoped("tenant_id", tenantId), args(tenantId, from, to));
         long turns = number(row, "turns");
         long ended = turns - number(row, "running");
         return List.of(
@@ -70,28 +96,28 @@ public class AdminOverview {
                 stat("unmetered", "Turns without usage", number(row, "unmetered"), "Ended turns for which the provider reported no usage, typically interrupted or failed before the final chunk. Their cost is unknown, not zero."));
     }
 
-    private List<Stat> tickets(Timestamp from, Timestamp to) {
+    private List<Stat> tickets(Timestamp from, Timestamp to, String tenantId) {
         Map<String, Object> states = jdbc.queryForMap("""
                 SELECT count(*) FILTER (WHERE state = 'open') AS open,
                        count(*) FILTER (WHERE state = 'claimed') AS claimed,
                        count(*) FILTER (WHERE state = 'resolved') AS resolved,
                        count(*) FILTER (WHERE state = 'closed') AS closed,
                        count(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS created
-                FROM support_ticket
-                """, from, to);
+                FROM support_ticket WHERE true
+                """ + scoped("tenant_id", tenantId), args(tenantId, from, to));
         Map<String, Object> times = jdbc.queryForMap("""
                 SELECT avg(extract(epoch FROM (c.occurred_at - t.created_at)) / 60) AS minutes_to_claim,
                        count(*) AS claimed_in_window
                 FROM ticket_event c JOIN support_ticket t ON t.ticket_number = c.ticket_number
                 WHERE c.kind IN ('claimed', 'assigned') AND c.occurred_at >= ? AND c.occurred_at < ?
                   AND c.id = (SELECT min(id) FROM ticket_event f WHERE f.ticket_number = c.ticket_number AND f.kind IN ('claimed', 'assigned'))
-                """, from, to);
+                """ + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
         Map<String, Object> resolved = jdbc.queryForMap("""
                 SELECT avg(extract(epoch FROM (r.occurred_at - t.created_at)) / 60) AS minutes_to_resolve,
                        count(*) AS resolved_in_window
                 FROM ticket_event r JOIN support_ticket t ON t.ticket_number = r.ticket_number
                 WHERE r.kind = 'resolved' AND r.occurred_at >= ? AND r.occurred_at < ?
-                """, from, to);
+                """ + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
         return List.of(
                 stat("open", "Open", number(states, "open"), "Tickets nobody has claimed, right now."),
                 stat("claimed", "Claimed", number(states, "claimed"), "Tickets someone is working, right now."),
@@ -104,14 +130,14 @@ public class AdminOverview {
                 stat("minutesToResolve", "Minutes to resolve", round(resolved.get("minutes_to_resolve")), "Mean minutes from creation to resolution, over resolutions recorded in the window."));
     }
 
-    private List<Stat> feedback(Timestamp from, Timestamp to) {
+    private List<Stat> feedback(Timestamp from, Timestamp to, String tenantId) {
         Map<String, Object> row = jdbc.queryForMap("""
                 SELECT count(*) FILTER (WHERE state = 'open') AS open,
                        count(*) FILTER (WHERE reported_at >= ? AND reported_at < ?) AS reported,
                        count(*) FILTER (WHERE handled_at >= ? AND handled_at < ? AND state = 'handled') AS handled,
                        count(*) FILTER (WHERE handled_at >= ? AND handled_at < ? AND state = 'dismissed') AS dismissed
-                FROM answer_feedback
-                """, from, to, from, to, from, to);
+                FROM answer_feedback WHERE true
+                """ + scoped("tenant_id", tenantId), args(tenantId, from, to, from, to, from, to));
         return List.of(
                 stat("openFlags", "Open flags", number(row, "open"), "Answer flags nobody has handled, right now."),
                 stat("reported", "Flagged in window", number(row, "reported"), "Answers flagged in the window."),
@@ -119,20 +145,17 @@ public class AdminOverview {
                 stat("dismissed", "Dismissed in window", number(row, "dismissed"), "Flags closed as needing no change."));
     }
 
-    private List<Stat> knowledge() {
-        // The default tenant's knowledge: the overview is not per tenant yet (ADR 002, staff per
-        // tenant is the step after this one), and a sum over tenants would be a number
-        // without a meaning.
+    private List<Stat> knowledge(String tenantId) {
         Map<String, Object> row = jdbc.queryForMap("""
-                SELECT (SELECT version FROM knowledge_active WHERE tenant_id = 'default') AS active,
-                       (SELECT document_count FROM knowledge_version WHERE tenant_id = 'default' AND state = 'active') AS documents,
-                       (SELECT count(*) FROM knowledge_entry WHERE tenant_id = 'default' AND NOT retired) AS entries,
-                       (SELECT count(*) FROM knowledge_revision WHERE tenant_id = 'default' AND state = 'draft') AS drafts,
-                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = 'default' AND state = 'ready') AS retained,
-                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = 'default' AND state = 'failed') AS failed
-                """);
+                SELECT (SELECT version FROM knowledge_active WHERE tenant_id = ?) AS active,
+                       (SELECT document_count FROM knowledge_version WHERE tenant_id = ? AND state = 'active') AS documents,
+                       (SELECT count(*) FROM knowledge_entry WHERE tenant_id = ? AND NOT retired) AS entries,
+                       (SELECT count(*) FROM knowledge_revision WHERE tenant_id = ? AND state = 'draft') AS drafts,
+                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = ? AND state = 'ready') AS retained,
+                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = ? AND state = 'failed') AS failed
+                """, tenantId, tenantId, tenantId, tenantId, tenantId, tenantId);
         return List.of(
-                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads for the default tenant: " + row.get("active") + "."),
+                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads for tenant '" + tenantId + "': " + row.get("active") + "."),
                 stat("documents", "Documents", number(row, "documents"), "Documents in the active version, every language counted."),
                 stat("entries", "Entries", number(row, "entries"), "Managed entries not retired."),
                 stat("drafts", "Drafts", number(row, "drafts"), "Drafts waiting for a publication; none of them is live."),
@@ -140,13 +163,15 @@ public class AdminOverview {
                 stat("failedBuilds", "Failed publications", number(row, "failed"), "Publications whose build did not complete; the previous version kept serving each time."));
     }
 
-    private List<Stat> staff(Timestamp from, Timestamp to) {
+    private List<Stat> staff(Timestamp from, Timestamp to, String tenantId) {
+        // The audit row names the actor, not the tenant; a tenant's staff activity is its accounts' rows.
         Map<String, Object> row = jdbc.queryForMap("""
                 SELECT count(*) FILTER (WHERE action = 'viewed_conversation') AS views,
                        count(*) FILTER (WHERE action = 'refused') AS refused,
                        count(DISTINCT actor) AS actors
                 FROM admin_audit WHERE occurred_at >= ? AND occurred_at < ?
-                """, from, to);
+                """ + (tenantId == null ? "" : " AND actor IN (SELECT username FROM staff_account WHERE tenant_id = ?)"),
+                args(tenantId, from, to));
         return List.of(
                 stat("actors", "Staff active", number(row, "actors"), "Distinct accounts that opened a conversation or were refused something in the window."),
                 stat("views", "Conversations opened", number(row, "views"), "Times a customer conversation was opened in the admin in the window; every one is recorded."),

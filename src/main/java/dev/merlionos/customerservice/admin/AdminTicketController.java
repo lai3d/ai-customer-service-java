@@ -64,11 +64,19 @@ class AdminTicketController {
                     @RequestParam(required = false) String from,
                     @RequestParam(required = false) String to,
                     @RequestParam(defaultValue = "0") int page,
-                    @RequestParam(defaultValue = "0") int size) {
+                    @RequestParam(defaultValue = "0") int size,
+                    @RequestParam(required = false) String tenant, Authentication authentication) {
         // Parsed by hand: Spring's default conversion wants the enum's constant name, and the
         // page and the client both speak the lower-case wire form.
         return workflow.search(new TicketFilter(blank(state) ? null : TicketState.fromValue(state), owner,
-                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size));
+                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size,
+                StaffScope.of(authentication).listTenant(tenant)));
+    }
+
+    /** The ticket, if it is within the caller's tenant; otherwise it does not exist for them. */
+    private TicketRecord scoped(String number, Authentication authentication) {
+        return workflow.find(number).filter(ticket -> StaffScope.of(authentication).covers(ticket.tenantId()))
+                .orElseThrow(() -> new TicketNotFoundException(number));
     }
 
     private static boolean blank(String value) {
@@ -79,8 +87,8 @@ class AdminTicketController {
     }
 
     @GetMapping("/{number}")
-    TicketDetail detail(@PathVariable String number) {
-        TicketRecord ticket = workflow.find(number).orElseThrow(() -> new TicketNotFoundException(number));
+    TicketDetail detail(@PathVariable String number, Authentication authentication) {
+        TicketRecord ticket = scoped(number, authentication);
         return new TicketDetail(ticket, workflow.history(number));
     }
 
@@ -95,7 +103,7 @@ class AdminTicketController {
     /** Opening a conversation is recorded: this is the one page that shows customer text on purpose. */
     @GetMapping("/{number}/conversation")
     Conversation conversation(@PathVariable String number, Authentication authentication) {
-        TicketRecord ticket = workflow.find(number).orElseThrow(() -> new TicketNotFoundException(number));
+        TicketRecord ticket = scoped(number, authentication);
         audit.record(authentication.getName(), AdminAudit.Action.VIEWED_CONVERSATION, ticket.conversationId(),
                 "from ticket " + number);
         return new Conversation(ticket.conversationId(), transcripts.messages(ticket.conversationId()),
@@ -108,13 +116,17 @@ class AdminTicketController {
 
     @PostMapping("/{number}/claim")
     TicketRecord claim(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.claim(number, actor(auth), command.expectedVersion());
     }
 
     @PostMapping("/{number}/assign")
     TicketRecord assign(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        TicketRecord ticket = scoped(number, auth);
         String assignee = command.assignee() == null ? "" : command.assignee();
-        if (staff.find(assignee).filter(StaffAccount::enabled).isEmpty()) {
+        // The assignee must be able to see the ticket: the ticket's tenant's staff, or platform staff.
+        if (staff.find(assignee).filter(StaffAccount::enabled)
+                .filter(a -> a.platform() || a.tenantId().equals(ticket.tenantId())).isEmpty()) {
             throw new TicketRuleException(number, "cannot be assigned to '" + assignee.strip()
                     + "': no enabled staff account with that name");
         }
@@ -123,26 +135,31 @@ class AdminTicketController {
 
     @PostMapping("/{number}/release")
     TicketRecord release(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.release(number, actor(auth), command.expectedVersion());
     }
 
     @PostMapping("/{number}/resolve")
     TicketRecord resolve(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.resolve(number, command.text(), actor(auth), command.expectedVersion());
     }
 
     @PostMapping("/{number}/close")
     TicketRecord close(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.close(number, actor(auth), command.expectedVersion());
     }
 
     @PostMapping("/{number}/reopen")
     TicketRecord reopen(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.reopen(number, actor(auth), command.expectedVersion());
     }
 
     @PostMapping("/{number}/note")
     TicketRecord note(@PathVariable String number, @RequestBody Command command, Authentication auth) {
+        scoped(number, auth);
         return workflow.addNote(number, command.text(), actor(auth), command.expectedVersion());
     }
 

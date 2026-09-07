@@ -8,6 +8,7 @@ import java.time.Instant;
  * the wire format between roles should not change because the admin learnt a column.
  *
  * @param version bumped by every change; a mutation must present the version it read
+ * @param tenantId whose ticket it is; the admin answers a ticket outside the caller's tenant as missing
  */
 public record TicketRecord(
         String ticketNumber,
@@ -19,5 +20,6 @@ public record TicketRecord(
         String owner,
         Instant createdAt,
         Instant updatedAt,
-        int version) {
+        int version,
+        String tenantId) {
 }

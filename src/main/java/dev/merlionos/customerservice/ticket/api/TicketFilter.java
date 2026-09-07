@@ -11,7 +11,14 @@ import java.time.Instant;
  * @param page zero-based
  * @param size at most {@link #MAX_SIZE}; larger is clamped, smaller than one becomes one
  */
-public record TicketFilter(TicketState state, String owner, Instant from, Instant to, int page, int size) {
+/** @param tenantId only this tenant's tickets, or null for every tenant's (ADR 002 step 5) */
+public record TicketFilter(TicketState state, String owner, Instant from, Instant to, int page, int size, String tenantId) {
+
+    /** Every tenant's, for callers that scope elsewhere or not at all. */
+    public TicketFilter(TicketState state, String owner, Instant from, Instant to, int page, int size) {
+        this(state, owner, from, to, page, size, null);
+    }
+
 
     public static final String UNASSIGNED = "-";
     public static final int MAX_SIZE = 100;
@@ -21,6 +28,7 @@ public record TicketFilter(TicketState state, String owner, Instant from, Instan
         page = Math.max(page, 0);
         size = size < 1 ? DEFAULT_SIZE : Math.min(size, MAX_SIZE);
         owner = owner == null || owner.isBlank() ? null : owner.strip();
+        tenantId = tenantId == null || tenantId.isBlank() ? null : tenantId.strip();
     }
 
     public static TicketFilter all() {

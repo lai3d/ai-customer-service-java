@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.admin;
 
+import dev.merlionos.customerservice.tenancy.Conversations;
 import dev.merlionos.customerservice.chat.TurnRecords;
 import dev.merlionos.customerservice.ticket.api.SupportTicket;
 import dev.merlionos.customerservice.ticket.api.TicketOperations;
@@ -33,7 +34,11 @@ class AdminConversationController {
     private final AnswerFeedback feedback;
     private final AdminAudit audit;
 
-    AdminConversationController(TurnRecords records, TicketOperations tickets, AnswerFeedback feedback, AdminAudit audit) {
+    private final Conversations conversations;
+
+    AdminConversationController(TurnRecords records, TicketOperations tickets, AnswerFeedback feedback, AdminAudit audit,
+                                Conversations conversations) {
+        this.conversations = conversations;
         this.records = records;
         this.tickets = tickets;
         this.feedback = feedback;
@@ -46,14 +51,19 @@ class AdminConversationController {
                           @RequestParam(required = false) String from,
                           @RequestParam(required = false) String to,
                           @RequestParam(defaultValue = "0") int page,
-                          @RequestParam(defaultValue = "0") int size) {
+                          @RequestParam(defaultValue = "0") int size,
+                          @RequestParam(required = false) String tenant, Authentication authentication) {
         return records.conversations(new TurnRecords.Filter(conversationId, outcome,
-                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size));
+                blank(from) ? null : Instant.parse(from), blank(to) ? null : Instant.parse(to), page, size,
+                StaffScope.of(authentication).listTenant(tenant)));
     }
 
-    /** @param notPersisted what the record does not hold, so the turns are not read as everything */
-    record ConversationDetail(String conversationId, List<TurnRecords.Turn> turns, List<SupportTicket> tickets,
-                              List<AnswerFeedback.Report> feedback, String notPersisted) {
+    /**
+     * @param externalId   the id the customer's client used; the record keys on the internal one
+     * @param notPersisted what the record does not hold, so the turns are not read as everything
+     */
+    record ConversationDetail(String conversationId, String tenantId, String externalId, List<TurnRecords.Turn> turns,
+                              List<SupportTicket> tickets, List<AnswerFeedback.Report> feedback, String notPersisted) {
     }
 
     static final String NOT_PERSISTED = "Turns are recorded from the moment this record existed; earlier "
@@ -61,14 +71,15 @@ class AdminConversationController {
 
     @GetMapping("/{conversationId}")
     ConversationDetail detail(@PathVariable String conversationId, Authentication authentication) {
+        // A conversation outside the caller's tenant is answered as missing, not as forbidden.
+        String tenant = records.tenantOf(conversationId)
+                .filter(StaffScope.of(authentication)::covers)
+                .orElseThrow(() -> new NoSuchConversation(conversationId));
         List<TurnRecords.Turn> turns = records.turns(conversationId);
-        if (turns.isEmpty()) {
-            throw new NoSuchConversation(conversationId);
-        }
         audit.record(authentication.getName(), AdminAudit.Action.VIEWED_CONVERSATION, conversationId,
                 "from conversations");
-        return new ConversationDetail(conversationId, turns, tickets.ticketsFor(conversationId),
-                feedback.forConversation(conversationId), NOT_PERSISTED);
+        return new ConversationDetail(conversationId, tenant, conversations.externalIdOf(conversationId).orElse(null),
+                turns, tickets.ticketsFor(conversationId), feedback.forConversation(conversationId), NOT_PERSISTED);
     }
 
     static class NoSuchConversation extends RuntimeException {

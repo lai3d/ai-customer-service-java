@@ -117,13 +117,13 @@ class AdminLoginTest {
 
         HttpResponse<String> login = browser.login("Root", "first-admin-password");
         assertThat(login.statusCode()).isEqualTo(200);
-        assertThat(login.body()).isEqualTo("{\"username\":\"root\",\"role\":\"admin\"}");
+        assertThat(login.body()).as("platform staff have no tenant").isEqualTo("{\"username\":\"root\",\"role\":\"admin\",\"tenant\":null}");
         assertThat(browser.cookie("SESSION")).isPresent();
         assertThat(browser.csrf()).as("signing in rotates the CSRF token").isNotEqualTo(tokenBefore);
 
         HttpResponse<String> me = browser.get("/admin/api/me");
         assertThat(me.statusCode()).isEqualTo(200);
-        assertThat(me.body()).isEqualTo("{\"username\":\"root\",\"role\":\"admin\"}");
+        assertThat(me.body()).isEqualTo("{\"username\":\"root\",\"role\":\"admin\",\"tenant\":null}");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM spring_session WHERE principal_name = 'root'", Integer.class))
                 .as("the session is a row, so a second replica would honour it")
                 .isEqualTo(1);
@@ -158,7 +158,8 @@ class AdminLoginTest {
         assertThat(tooShort.statusCode()).isEqualTo(400);
 
         AdminBrowser support = AdminBrowser.signedIn(port, "sam", "support-password-1");
-        assertThat(support.get("/admin/api/me").body()).isEqualTo("{\"username\":\"sam\",\"role\":\"support\"}");
+        assertThat(support.get("/admin/api/me").body()).as("a support member created without a tenant joins the default one")
+                .isEqualTo("{\"username\":\"sam\",\"role\":\"support\",\"tenant\":{\"id\":\"default\",\"name\":\"Default tenant\"}}");
         assertThat(support.get("/admin/api/staff").statusCode()).as("listing accounts is an admin operation").isEqualTo(403);
         assertThat(jdbc.queryForMap("SELECT actor, action, target FROM admin_audit"))
                 .containsEntry("actor", "sam").containsEntry("action", "refused").containsEntry("target", "GET /admin/api/staff");

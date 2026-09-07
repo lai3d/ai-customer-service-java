@@ -361,8 +361,14 @@ chain would put a generated password in front of `/internal/**`. The first admin
 by `ADMIN_SEED_USERNAME`/`ADMIN_SEED_PASSWORD`, only into an empty table. Admins disable,
 re-role and reset accounts (`POST /admin/api/staff/{username}/...`); each change deletes the
 account's `spring_session` rows, since a session carries the authorities it was signed in
-with, and the rules (never your own access, never the last enabled admin) are decided under
-a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`. Besides the idle timeout a
+with, and the rules (never your own access, never the last enabled admin of a scope) are
+decided under a `FOR UPDATE` on every enabled admin's row in `StaffAccounts`. **Staff belong
+to a tenant** (`staff_account.tenant_id`, null for platform staff, who are admins by a CHECK):
+the tenant rides on the session principal (`StaffPrincipal`), and every admin controller
+scopes its reads and writes through `StaffScope`, never through a parameter; `?tenant=` only
+narrows what platform staff see, and a tenant member naming another tenant is a recorded
+`403`. A row outside the scope is a `404`. `AdminTenantScopeTest` writes as one tenant and
+reads as another on every endpoint. Besides the idle timeout a
 session has an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h, a filter
 in the admin chain) and an account a concurrent-session limit (`ADMIN_SESSION_LIMIT`, 3,
 applied at sign-in by ending the least recently used, newest wins); both in

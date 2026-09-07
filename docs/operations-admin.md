@@ -255,6 +255,7 @@ keep their documents in `vector_store`; retention removes them after the newest 
 | The knowledge version on every retrieval row: `turn_retrieval.corpus_version`, carried from the passage metadata through the `retrieval` event, shown on the conversation page; null on rows written before `V12` | `chat/TurnEvent`, `chat/TurnRecorder`, `chat/TurnRecords`, `V12` | [#43](https://github.com/lai3d/ai-customer-service-java/pull/43) |
 | Account management for admins: disable and enable, change the role, reset the password, each on `POST /admin/api/staff/{username}/...` and on the Staff page; every change ends the account's sessions in Postgres, so no replica keeps honouring them, except the caller's own when resetting their own password; changes recorded in `admin_audit` (`account_disabled`, `account_enabled`, `role_changed`, `password_reset`, `V11`) | `admin/StaffAccounts`, `admin/AdminStaffController` | [#42](https://github.com/lai3d/ai-customer-service-java/pull/42) |
 | Two bounds on a staff session besides the idle timeout: an absolute lifetime from sign-in (`ADMIN_SESSION_MAX_LIFETIME`, 12h), applied by a filter in the admin chain that invalidates the row and answers `401`; and a per-account limit on concurrent sessions (`ADMIN_SESSION_LIMIT`, 3), applied at sign-in by ending the least recently used, never the one signing in; both read from `spring_session`, so every replica applies them alike; zero, negative or a limit below one refuses to start | `admin/StaffSessionPolicy`, `admin/StaffSessionLifetimeFilter`, `admin/AdminProperties` | [#44](https://github.com/lai3d/ai-customer-service-java/pull/44) |
+| Staff belong to a tenant (ADR 002 step 5): `staff_account.tenant_id`, null for platform staff, who are admins by the schema (`V17`); the tenant rides on the session principal; every admin list and detail is scoped to the caller's tenant, platform staff see every tenant and narrow with `?tenant=`; a row outside the caller's tenant is missing, a tenant named in `?tenant=` that is not the caller's is refused and recorded; tenants and keys are platform's; the last-enabled-admin rule counts per tenant and per platform; `/admin/api/me` and the login reply carry `{username, role, tenant}`; the pages show a tenant column and a picker to platform staff, the conversation views the customer's own id beside ours | `admin/StaffScope`, `admin/StaffPrincipal`, `admin/StaffAccounts`, every `admin/*Controller`, `admin-ui/src/components/TenantPicker.tsx` | [#NN](https://github.com/lai3d/ai-customer-service-java/pull/NN) |
 | The Knowledge page names its tenant (ADR 002 step 3's `?tenant=`): a picker fed by the tenant list, the choice carried in the URL, every knowledge call and the preview sent for that tenant; a member of staff who may not list tenants sees the default one and is told why | `admin-ui/src/components/TenantPicker.tsx`, `admin-ui/src/pages/Knowledge.tsx` | [#54](https://github.com/lai3d/ai-customer-service-java/pull/54) |
 | Tenants in the admin (ADR 002 step 2's API, `/admin/api/tenants`): a Tenants page for admins that lists tenants, creates one, enables and disables it (never `default`), and issues and revokes API keys; an issued key is shown once with a copy button and dismissed by the admin, since the server keeps only its hash | `admin-ui/src/pages/Tenants.tsx` | [#52](https://github.com/lai3d/ai-customer-service-java/pull/52) |
 | Staff changing their own password, any role: `POST /admin/api/me/password` with the current and the new password, and an Account page every role can reach; a wrong current password is a `422` recorded as a refusal, a new password equal to the current one is refused too, and the length rule is creation's; success ends the account's other sessions, keeps the one it was done from, and is recorded as `password_changed` (`V13`) | `admin/StaffAccounts`, `admin/AdminStaffController`, `admin-ui/src/pages/Account.tsx` | [#45](https://github.com/lai3d/ai-customer-service-java/pull/45) |
@@ -266,6 +267,21 @@ keep their documents in `vector_store`; retention removes them after the newest 
   own role is refused (`422`, recorded as a refusal). An admin who could demote themselves by
   a mis-click would need another admin to undo it; the same admin can still reset their own
   password, and keeps the session they did it from.
+- **Whose rows: the session's tenant, never a parameter.** The tenant rides on the principal
+  Spring Security stores in the session at sign-in, and every scoped query reads it from
+  there. The one parameter, `?tenant=`, narrows what platform staff see; a tenant's own
+  member naming another tenant gets a `403` that is recorded, not a silent redirect, so a
+  wrong link is visible. A single row outside the caller's tenant is a `404`, because
+  "forbidden" would confirm it exists.
+- **Platform staff are admins by the schema, and the last one stays.** `staff_account`
+  has `CHECK (tenant_id IS NOT NULL OR role = 'admin')`: a platform account with nothing to
+  administer would be an account that can sign in and do nothing. The last-enabled-admin
+  rule counts within a scope; a platform admin may disable a tenant's last admin, because
+  the tenant still has platform above it to make another, and nobody may disable the last
+  platform admin. Every account that existed before `V17` is platform, since that is what
+  it effectively was; the seed still creates one platform admin into an empty table, and a
+  support member created without naming a tenant joins `default`, as the single-tenant
+  install did.
 - **A session is not proof of knowing the password.** Anyone changes their own password on
   the Account page, but only with the current one: a browser left signed in must not be
   enough to lock the owner out. A wrong current password is refused and recorded, and the

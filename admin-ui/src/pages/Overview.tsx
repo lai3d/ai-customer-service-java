@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type Overview, type Stat } from '../api';
 import { ErrorNote } from '../components/ui';
+import { TenantPicker } from '../components/TenantPicker';
 import { localToIso, when } from '../format';
 
 export function OverviewPage() {
@@ -8,13 +9,15 @@ export function OverviewPage() {
   const [error, setError] = useState<unknown>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const load = (f?: string, t?: string) => api.overview({ from: f, to: t }).then(setData, setError);
-  useEffect(() => { void load(); }, []);
-  const submit = (e: FormEvent) => { e.preventDefault(); void load(localToIso(from), localToIso(to)); };
+  const [tenant, setTenant] = useState('');
+  const load = (f?: string, t?: string, tenantId?: string) => api.overview({ from: f, to: t, tenant: tenantId || undefined }).then(setData, setError);
+  useEffect(() => { void load(undefined, undefined, tenant); }, [tenant]);
+  const submit = (e: FormEvent) => { e.preventDefault(); void load(localToIso(from), localToIso(to), tenant); };
   const groups: [string, Stat[]][] = data ? [['Turns', data.turns], ['Tickets', data.tickets], ['Feedback', data.feedback], ['Knowledge', data.knowledge], ['Staff', data.staff]] : [];
   return (
     <section>
       <h2>Overview</h2>
+      <TenantPicker value={tenant} onChange={setTenant} allowAll />
       <form className="row" onSubmit={submit}>
         <label>From <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} /></label>
         <label>To <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} /></label>

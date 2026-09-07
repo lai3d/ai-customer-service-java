@@ -65,6 +65,7 @@ export function ConversationPage() {
   return (
     <section>
       <h2>Conversation <span className="mono">{data.conversationId}</span></h2>
+      <p className="hint">Tenant <span className="mono">{data.tenantId}</span>{data.externalId && <> · the customer's id <span className="mono">{data.externalId}</span></>}</p>
       <Notice>Opening this conversation was recorded against your account. {data.notPersisted}</Notice>
       <p className="hint">{data.tickets.length === 0 ? 'No tickets in this conversation.' : <>Tickets raised in this conversation: {data.tickets.map((x, i) => <span key={x.ticketNumber}>{i > 0 && ', '}<Link to={`/tickets/${x.ticketNumber}`}>{x.ticketNumber}</Link></span>)}</>}</p>
       {data.turns.map(t => <TurnView key={t.turnId} t={t} flags={data.feedback} onFlagged={() => void load()} />)}

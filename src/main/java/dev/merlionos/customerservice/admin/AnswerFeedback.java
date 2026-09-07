@@ -29,7 +29,7 @@ public class AnswerFeedback {
     /** @param revisionId the knowledge revision that fixed it, when handling named one */
     public record Report(long id, String turnId, String conversationId, String issue, String note, String state,
                          String conclusion, String reportedBy, Instant reportedAt, String handledBy,
-                         Instant handledAt, int version, Long revisionId) {
+                         Instant handledAt, int version, Long revisionId, String tenantId) {
     }
 
     public record Page(List<Report> reports, long total, int page, int size) {
@@ -59,7 +59,7 @@ public class AnswerFeedback {
             rs.getString("conversation_id"), rs.getString("issue"), rs.getString("note"), rs.getString("state"),
             rs.getString("conclusion"), rs.getString("reported_by"), rs.getTimestamp("reported_at").toInstant(),
             rs.getString("handled_by"), rs.getTimestamp("handled_at") == null ? null : rs.getTimestamp("handled_at").toInstant(),
-            rs.getInt("version"), rs.getObject("revision_id", Long.class));
+            rs.getInt("version"), rs.getObject("revision_id", Long.class), rs.getString("tenant_id"));
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
@@ -104,6 +104,11 @@ public class AnswerFeedback {
 
     /** Newest first; {@code state} null means every state. */
     public Page list(String state, int page, int size) {
+        return list(null, state, page, size);
+    }
+
+    /** Newest first; {@code tenantId} null means every tenant's, {@code state} null every state. */
+    public Page list(String tenantId, String state, int page, int size) {
         String filter = state == null || state.isBlank() ? null : state.strip().toLowerCase(Locale.ROOT);
         if (filter != null && !STATES.contains(filter)) {
             throw new IllegalArgumentException("state must be one of " + STATES);
@@ -111,11 +116,16 @@ public class AnswerFeedback {
         int p = Math.max(page, 0);
         int s = size < 1 ? 25 : Math.min(size, MAX_SIZE);
         List<Object> args = new ArrayList<>();
-        String where = "";
+        List<String> clauses = new ArrayList<>();
+        if (tenantId != null) {
+            clauses.add("tenant_id = ?");
+            args.add(tenantId);
+        }
         if (filter != null) {
-            where = " WHERE state = ?";
+            clauses.add("state = ?");
             args.add(filter);
         }
+        String where = clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses);
         long total = jdbc.queryForObject("SELECT count(*) FROM answer_feedback" + where, Long.class, args.toArray());
         args.add(s);
         args.add((long) p * s);
