@@ -327,6 +327,13 @@ app:
     # A panel URL must be public (loopback, link-local and private ranges refused) unless this is on.
     allow-private-networks: ${CONNECTOR_ALLOW_PRIVATE_NETWORKS:false}
 
+  telegram:
+    # A tenant's Telegram bot (docs/channels.md). Polling needs nothing; webhook mode needs
+    # this deployment's public origin, which Telegram posts updates to.
+    api-base-url: ${TELEGRAM_API_BASE_URL:https://api.telegram.org}
+    public-url: ${PUBLIC_URL:}
+    poll-timeout: 25s
+
   knowledge-import:
     # A tenant's own web pages and PDFs into draft entries (docs/adr/002-tenancy.md). A URL is
     # fetched by the knowledge role from inside the deployment's network, so by default it may

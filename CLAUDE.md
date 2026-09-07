@@ -489,6 +489,18 @@ panel; `scripts/fake-xboard.py` for a demo. A panel URL is checked
 public by `PublicUrlGuard` (`internal/`, shared with the knowledge import;
 `CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop).
 
+### Channels: Telegram
+
+`channels/telegram/` (chat side, `docs/channels.md`): one bot per tenant (`telegram_bot`, the
+token sealed by `ConnectorSecrets`), `TelegramChannel` turning an update into one
+`ChatService.ask` on the conversation `tg-<chat>-<n>` and the answer into plain-text
+messages split at paragraphs; `TelegramPollers` long-polls per bot on a virtual thread
+(one process only); `TelegramWebhookController` at `/telegram/{tenant}/{secret}` for
+replicas, outside the API-key filter and the admin login, the secret being the credential.
+A bot token is checked against `getMe` before it is stored. `TELEGRAM_API_BASE_URL` and the
+tests' `FakeTelegram` stand in for the Bot API. The customer has no panel identity in
+Telegram yet; that is the next step for the reseller segment.
+
 ### Evaluation and deflection
 
 `evaluation/` (chat side, `docs/evaluation.md`) holds a golden set per tenant (`golden_case`),

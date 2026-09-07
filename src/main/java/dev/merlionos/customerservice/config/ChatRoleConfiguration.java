@@ -1,6 +1,7 @@
 package dev.merlionos.customerservice.config;
 
 import dev.merlionos.customerservice.admin.AdminSecurityConfiguration;
+import dev.merlionos.customerservice.channels.telegram.TelegramChannel;
 import dev.merlionos.customerservice.chat.ChatService;
 import dev.merlionos.customerservice.evaluation.Evaluator;
 import dev.merlionos.customerservice.clients.ServicesProperties;
@@ -30,13 +31,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ComponentScan(basePackageClasses = {
         AdminSecurityConfiguration.class, // admin: the operations admin and its staff login
         ChatService.class,          // chat
+        TelegramChannel.class,      // channels: Telegram, the same ChatService as the widget
         Evaluator.class,            // evaluation: the golden set, its runs, and the quality gauges
         ServicesProperties.class,   // clients: the HTTP adapters, present only when exactly chat
         ChatRoleConfiguration.class, // config
         ConversationBudget.class,   // cost
         OrderLookup.class,          // orders
         XaiChatConfig.class,        // provider
-        Tenants.class,              // tenancy: the tenant table, the API-key filter, the conversation mapping
         Tenants.class,              // tenancy: the tenant table, the API-key filter, the conversation mapping
         OrderTools.class            // tools
 })
