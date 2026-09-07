@@ -121,7 +121,7 @@ function TenantDetailPage({ id }: { id: string }) {
             </div>
             {issued.kind === 'widget' && (
               <div>
-                <div className="hint">The tag for the tenant's page; the host is this deployment's public address (see docs/widget.md):</div>
+                <div className="hint">The tag for the tenant's page; the host is this deployment's public address (see docs/widget.md). On a panel's own pages add <span className="mono">data-customer-token-key</span> (the localStorage key holding the signed-in customer's token) so the assistant can read that customer's account:</div>
                 <code className="mono">{`<script src="https://<this deployment>/widget.js" data-key="${issued.key}" async></script>`}</code>
               </div>
             )}

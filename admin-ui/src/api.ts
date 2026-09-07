@@ -77,7 +77,8 @@ export type KeyKind = 'secret' | 'widget';
 export interface TenantKey { keyId: string; label: string; kind: KeyKind; origins: string[]; createdAt: string; revokedAt: string | null }
 export interface TenantDetail { tenant: Tenant; keys: TenantKey[] }
 /** A tenant's order system; the token comes back masked to its last four characters. */
-export interface OrderConnector { tenantId: string; kind: 'shopify'; shopDomain: string; accessToken: string; apiVersion: string; configuredAt: string; configuredBy: string }
+export type ConnectorKind = 'shopify' | 'xboard';
+export interface OrderConnector { tenantId: string; kind: ConnectorKind; shopDomain: string | null; baseUrl: string | null; accessToken: string | null; apiVersion: string | null; configuredAt: string; configuredBy: string }
 export interface ConnectorTest { ok: boolean; shopDomain: string; shopName: string | null; error: string | null }
 /** The one response that carries a key: shown once, never readable back. */
 export interface IssuedKey { keyId: string; key: string; label: string; kind: KeyKind; origins: string[] }
@@ -212,8 +213,11 @@ export const api = {
   createTenant: (id: string, name: string) => call<Tenant>('POST', '/tenants', { id, name }),
   setTenantEnabled: (id: string, enabled: boolean) => call<Tenant>('POST', `/tenants/${encodeURIComponent(id)}/enabled`, { enabled }),
   orderConnector: (id: string) => call<OrderConnector | undefined>('GET', `/tenants/${encodeURIComponent(id)}/order-connector`),
-  saveOrderConnector: (id: string, shopDomain: string, accessToken: string, apiVersion?: string) =>
+  saveShopifyConnector: (id: string, shopDomain: string, accessToken: string, apiVersion?: string) =>
     call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'shopify', shopDomain, accessToken, apiVersion: apiVersion || undefined }),
+  /** An Xboard panel: the customer's own subscription, read with the customer's own token; the tenant's token is optional. */
+  saveXboardConnector: (id: string, baseUrl: string, accessToken?: string) =>
+    call<OrderConnector>('PUT', `/tenants/${encodeURIComponent(id)}/order-connector`, { kind: 'xboard', baseUrl, accessToken: accessToken || undefined }),
   deleteOrderConnector: (id: string) => call<void>('DELETE', `/tenants/${encodeURIComponent(id)}/order-connector`),
   testOrderConnector: (id: string) => call<ConnectorTest>('POST', `/tenants/${encodeURIComponent(id)}/order-connector/test`),
   issueTenantKey: (id: string, label: string, kind: KeyKind = 'secret', origins: string[] = []) =>
