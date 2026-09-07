@@ -26,6 +26,12 @@ public final class FakeXboard implements AutoCloseable {
             {"data":[{"id":7,"title":"How to configure Clash","category":"Clients","show":true,"updated_at":1788739200},
                      {"id":8,"title":"Shadowrocket 使用教程","category":"客户端","show":true,"updated_at":1788739200},
                      {"id":9,"title":"Hidden draft","category":"Clients","show":false,"updated_at":1788739200}]}""";
+    /** Alice as the admin API lists her: id 1, Telegram 424242 bound, balance already in units. */
+    static final String ADMIN_USERS_ALICE = """
+            {"data":[{"id":1,"email":"alice@example.com","telegram_id":424242,"plan_id":2,"expired_at":1792108800,"u":42949672960,
+                      "d":66035122176,"transfer_enable":214748364800,"balance":12.5,"plan":{"id":2,"name":"Pro 200G"}}],"total":1}""";
+    static final String ADMIN_ORDERS_ALICE = """
+            {"data":[{"trade_no":"2026090712345678","status":3,"total_amount":1990,"created_at":1788739200,"user_id":1,"plan":{"name":"Pro 200G"}}],"total":1}""";
     static final Map<String, String> BODIES = Map.of(
             "7", "{\"data\":{\"id\":7,\"title\":\"How to configure Clash\",\"language\":\"en-US\",\"body\":\"<h2>Clash</h2><p>Download Clash Verge, open Profiles and paste your subscription URL from the panel. Click Update, then choose a proxy group.</p>\"}}",
             "8", "{\"data\":{\"id\":8,\"title\":\"Shadowrocket 使用教程\",\"language\":\"zh-CN\",\"body\":\"在 App Store 下载 Shadowrocket，复制面板里的订阅链接，打开应用后点击右上角加号添加订阅。\"}}",
@@ -51,6 +57,18 @@ public final class FakeXboard implements AutoCloseable {
             String path = exchange.getRequestURI().getPath();
             requests.add(path);
             String query = exchange.getRequestURI().getRawQuery();
+            if (path.startsWith("/api/v2/" + ADMIN_PATH + "/user/fetch") || path.startsWith("/api/v2/" + ADMIN_PATH + "/order/fetch")) {
+                if (!("Bearer " + ADMIN_TOKEN).equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                    respond(exchange, 403, "{\"message\":\"Unauthorized\"}");
+                    return;
+                }
+                String decoded = java.net.URLDecoder.decode(query == null ? "" : query, StandardCharsets.UTF_8);
+                boolean alice = decoded.contains("filter[0][id]=telegram_id&filter[0][value]=eq:424242")
+                        || decoded.contains("filter[0][id]=id&filter[0][value]=eq:1")
+                        || decoded.contains("filter[0][id]=user_id&filter[0][value]=eq:1");
+                respond(exchange, 200, !alice ? "{\"data\":[],\"total\":0}" : path.contains("/order/") ? ADMIN_ORDERS_ALICE : ADMIN_USERS_ALICE);
+                return;
+            }
             if (path.startsWith("/api/v2/" + ADMIN_PATH + "/knowledge/fetch")) {
                 if (!("Bearer " + ADMIN_TOKEN).equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
                     respond(exchange, 403, "{\"message\":\"Unauthorized\"}");

@@ -45,11 +45,20 @@ would swallow a sentence), split at paragraphs when it is longer than one messag
 characters). A busy conversation, an exhausted budget and a failed turn are each a sentence
 in the chat, in Chinese when the customer wrote Chinese or their Telegram is set to it.
 
-The customer is not signed in to any panel in Telegram, so `lookup_my_subscription` answers
-"sign in to the panel and ask there", and a ticket is one of ours rather than the panel's.
-The next step for the reseller segment is identifying the Telegram user through the panel's
-own binding (Xboard keeps `telegram_id` on the user) with the tenant's admin token, which
-would make the subscription tool and panel tickets work from Telegram too.
+## Who the customer is
+
+Nobody is signed in to a panel in Telegram, but a panel of the V2board family lets a
+customer bind their Telegram account in its settings, and with the tenant's admin token and
+admin path on the [connector](connectors.md) the panel says which of its users a Telegram
+id belongs to (`TelegramIdentity`, `admin/user/fetch` filtered by `telegram_id`). From then
+on `lookup_my_subscription` reads that user's account through the admin API, so "how much
+traffic do I have left" works in Telegram exactly as it does on the panel's page. The
+binding is found once and remembered on the chat (`telegram_chat.panel_user_id`); `/new`
+forgets it, so an unbinding is noticed the next time the customer starts over. Unbound, or
+on a tenant without admin access to its panel, the tool tells the customer how to bind.
+
+A ticket from Telegram is still one of ours: the panel's admin API cannot raise a ticket
+on a user's behalf, only the user's own token can, and Telegram has none.
 
 ## Verified
 
@@ -60,12 +69,16 @@ webhooks registers the URL with the secret and an update posted there is answere
 secret or tenant is `404`; support staff see nothing; removal deletes the webhook and the
 row, and the audit trail reads connect, switch, remove.
 
+With the tenant's panel stood in as well (`FakeXboard`): a Telegram id the panel has bound
+is remembered as its panel user after the first message, forgotten by `/new` and found again;
+an unbound one stays unidentified. `XboardAccountLookupTest.throughTheBinding` covers the
+lookup by binding and the account read through the admin API.
+
 Not walked against Telegram itself: that needs a bot token from a Telegram account, which is
 the tenant's to create. The stand-in speaks the Bot API's shapes for the six methods used.
 
 ## Not here, deliberately
 
-- Identifying the customer (above).
 - Photos, voice, documents: "text only for now", in both languages.
 - Group chats: the bot answers in any chat it is in; a reseller's support group would need
   the bot to be addressed. Private chats are the case that matters.

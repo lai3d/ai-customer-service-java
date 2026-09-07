@@ -498,8 +498,13 @@ messages split at paragraphs; `TelegramPollers` long-polls per bot on a virtual 
 (one process only); `TelegramWebhookController` at `/telegram/{tenant}/{secret}` for
 replicas, outside the API-key filter and the admin login, the secret being the credential.
 A bot token is checked against `getMe` before it is stored. `TELEGRAM_API_BASE_URL` and the
-tests' `FakeTelegram` stand in for the Bot API. The customer has no panel identity in
-Telegram yet; that is the next step for the reseller segment.
+tests' `FakeTelegram` stand in for the Bot API. `TelegramIdentity` resolves a Telegram user
+to the tenant's panel user through the panel's binding (`admin/user/fetch` by `telegram_id`,
+with the connector's admin token and path), remembered on `telegram_chat` and forgotten by
+`/new`; the tools then see `CustomerRef.panelUser(id)` (`AccountTools.CUSTOMER_USER_KEY`)
+and the subscription is read through the admin API. `CustomerRef` (`orders/`) is the one
+type for "who the customer is to the panel": a token from the widget, a user id from
+Telegram, or none.
 
 ### Evaluation and deflection
 

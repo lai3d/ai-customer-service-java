@@ -117,10 +117,10 @@ class ChatEndpointIntegrationTest {
         headers.setBearerAuth(TestTenant.API_KEY);
         headers.set(ChatController.CUSTOMER_TOKEN_HEADER, "  panel-token-xyz ");
         rest.exchange("/api/v1/chat", HttpMethod.POST, new HttpEntity<>(new ChatRequest(null, "hi"), headers), ChatReply.class);
-        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hi"), eq("panel-token-xyz"));
+        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hi"), eq(dev.merlionos.customerservice.orders.CustomerRef.token("panel-token-xyz")));
 
         post("/api/v1/chat", new ChatRequest(null, "hello"), TestTenant.API_KEY, ChatReply.class);
-        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hello"), org.mockito.ArgumentMatchers.isNull());
+        verify(chatService).ask(eq(Tenant.DEFAULT), any(), eq("hello"), eq(dev.merlionos.customerservice.orders.CustomerRef.none()));
     }
 
     @Test

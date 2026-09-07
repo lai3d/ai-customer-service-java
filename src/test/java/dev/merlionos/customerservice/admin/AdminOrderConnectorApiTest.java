@@ -144,7 +144,7 @@ class AdminOrderConnectorApiTest {
         AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
         String base = "/admin/api/tenants/" + tenant + "/order-connector";
 
-        assertThat(customerAccounts.lookup(tenant, FakeXboard.CUSTOMER_TOKEN).outcome()).as("nothing configured").isEqualTo(AccountLookupResult.NOT_CONNECTED);
+        assertThat(customerAccounts.lookup(tenant, dev.merlionos.customerservice.orders.CustomerRef.token(FakeXboard.CUSTOMER_TOKEN)).outcome()).as("nothing configured").isEqualTo(AccountLookupResult.NOT_CONNECTED);
         assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"panel.example.com/user\"}").statusCode()).as("a URL with a scheme").isEqualTo(422);
         assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://panel.example.com/user\"}").statusCode()).as("no path").isEqualTo(422);
 
@@ -158,12 +158,12 @@ class AdminOrderConnectorApiTest {
         assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://panel.example.com\",\"adminPath\":\"a b/c\"}").statusCode()).isEqualTo(422);
         assertThat(root.postJson(base + "/test", "{}").body()).contains("\"ok\":true", "\"shopName\":\"Northwind Cloud\"");
 
-        AccountLookupResult mine = customerAccounts.lookup(tenant, FakeXboard.CUSTOMER_TOKEN);
+        AccountLookupResult mine = customerAccounts.lookup(tenant, dev.merlionos.customerservice.orders.CustomerRef.token(FakeXboard.CUSTOMER_TOKEN));
         assertThat(mine.found()).isTrue();
         assertThat(mine.account().plan()).isEqualTo("Pro 200G");
         assertThat(mine.account().trafficRemainingGb()).isEqualTo(98.5);
-        assertThat(customerAccounts.lookup(tenant, null).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
-        assertThat(customerAccounts.lookup(tenant, "2|someone-else").outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
+        assertThat(customerAccounts.lookup(tenant, dev.merlionos.customerservice.orders.CustomerRef.none()).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
+        assertThat(customerAccounts.lookup(tenant, dev.merlionos.customerservice.orders.CustomerRef.token("2|someone-else")).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
         assertThat(orders.lookup(tenant, "#1001").outcome()).as("orders live in the panel").isEqualTo(AccountLookupResult.UNAVAILABLE);
         assertThat(orders.lookup(tenant, "#1001").explanation()).contains("subscription lookup");
         assertThat(jdbc.queryForList("SELECT detail FROM admin_audit WHERE action = 'connector_changed' AND target = ? ORDER BY id", String.class, tenant))

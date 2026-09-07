@@ -78,7 +78,19 @@ public class TelegramBots {
 
     public String newConversation(String tenantId, long chatId) {
         jdbc.update("INSERT INTO telegram_chat (tenant_id, chat_id) VALUES (?, ?) ON CONFLICT DO NOTHING", tenantId, chatId);
-        jdbc.update("UPDATE telegram_chat SET conversations = conversations + 1 WHERE tenant_id = ? AND chat_id = ?", tenantId, chatId);
+        jdbc.update("UPDATE telegram_chat SET conversations = conversations + 1, panel_user_id = NULL WHERE tenant_id = ? AND chat_id = ?",
+                tenantId, chatId);
         return conversationOf(tenantId, chatId);
+    }
+
+    /** The panel user this chat was last identified as, if any. */
+    public Optional<Long> panelUserOf(String tenantId, long chatId) {
+        return jdbc.query("SELECT panel_user_id FROM telegram_chat WHERE tenant_id = ? AND chat_id = ?",
+                (rs, i) -> rs.getObject("panel_user_id", Long.class), tenantId, chatId).stream().filter(java.util.Objects::nonNull).findFirst();
+    }
+
+    public void rememberPanelUser(String tenantId, long chatId, long panelUserId) {
+        jdbc.update("INSERT INTO telegram_chat (tenant_id, chat_id) VALUES (?, ?) ON CONFLICT DO NOTHING", tenantId, chatId);
+        jdbc.update("UPDATE telegram_chat SET panel_user_id = ? WHERE tenant_id = ? AND chat_id = ?", panelUserId, tenantId, chatId);
     }
 }

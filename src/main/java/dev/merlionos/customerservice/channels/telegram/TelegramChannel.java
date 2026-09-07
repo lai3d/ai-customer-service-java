@@ -21,9 +21,9 @@ import java.util.Map;
  * at paragraphs when it is longer than one message. Every failure is a sentence in the chat,
  * in the language the customer wrote in as far as a first character can tell.
  *
- * <p>The customer is not signed in to any panel here, so the subscription tool answers
- * "sign in to the panel"; identifying a Telegram user through the panel's binding of their
- * Telegram id is the next step.
+ * <p>The customer is not signed in to any panel here; {@link TelegramIdentity} asks the
+ * tenant's panel which of its users the Telegram account is bound to, and the subscription
+ * tool reads that account. Unbound, the tool says how to bind.
  */
 @Component
 public class TelegramChannel {
@@ -34,12 +34,14 @@ public class TelegramChannel {
     private final Conversations conversations;
     private final TelegramBots bots;
     private final TelegramApi api;
+    private final TelegramIdentity identity;
 
-    public TelegramChannel(ChatService chat, Conversations conversations, TelegramBots bots, TelegramApi api) {
+    public TelegramChannel(ChatService chat, Conversations conversations, TelegramBots bots, TelegramApi api, TelegramIdentity identity) {
         this.chat = chat;
         this.conversations = conversations;
         this.bots = bots;
         this.api = api;
+        this.identity = identity;
     }
 
     /** Handles one update; anything that is not a text message in a chat is ignored. */
@@ -73,7 +75,9 @@ public class TelegramChannel {
             api.sendTyping(bot.botToken(), chatId);
             String external = bots.conversationOf(bot.tenantId(), chatId);
             String conversation = conversations.resolve(bot.tenantId(), external);
-            String answer = chat.ask(bot.tenantId(), conversation, text, null);
+            Map<String, Object> from = (Map<String, Object>) m.get("from");
+            Long telegramUser = from == null || from.get("id") == null ? null : ((Number) from.get("id")).longValue();
+            String answer = chat.ask(bot.tenantId(), conversation, text, identity.resolve(bot.tenantId(), chatId, telegramUser));
             for (String part : split(answer == null || answer.isBlank() ? (language.equals("zh") ? "抱歉，这次没有得到回复，请再问一次。"
                     : "Sorry, no answer came back this time; please ask again.") : answer)) {
                 api.sendMessage(bot.botToken(), chatId, part);

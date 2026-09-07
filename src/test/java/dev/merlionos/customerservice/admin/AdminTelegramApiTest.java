@@ -2,6 +2,8 @@ package dev.merlionos.customerservice.admin;
 
 import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.channels.telegram.FakeTelegram;
+import dev.merlionos.customerservice.orders.OrderConnectors;
+import dev.merlionos.customerservice.orders.xboard.FakeXboard;
 import dev.merlionos.customerservice.tenancy.Conversations;
 import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.tenancy.Tenants;
@@ -54,20 +56,24 @@ class AdminTelegramApiTest {
 
     static final String PASSWORD = "a-long-enough-password";
     static FakeTelegram telegram;
+    static FakeXboard panel;
 
     @BeforeAll
-    static void startTelegram() throws Exception {
+    static void startStandIns() throws Exception {
         telegram = new FakeTelegram();
+        panel = new FakeXboard();
     }
 
     @AfterAll
-    static void stopTelegram() {
+    static void stopStandIns() {
         telegram.close();
+        panel.close();
     }
 
     @DynamicPropertySource
-    static void telegramAddress(DynamicPropertyRegistry registry) {
+    static void standInAddresses(DynamicPropertyRegistry registry) {
         registry.add("app.telegram.api-base-url", () -> telegram.baseUrl());
+        registry.add("app.connectors.xboard-base-url", () -> panel.baseUrl());
     }
 
     @LocalServerPort int port;
@@ -75,6 +81,7 @@ class AdminTelegramApiTest {
     @Autowired StaffAccounts accounts;
     @Autowired Tenants tenants;
     @Autowired Conversations conversations;
+    @Autowired OrderConnectors connectors;
     @Autowired TestRestTemplate rest;
     @MockitoBean AnthropicChatModel chatModel;
 
@@ -108,6 +115,9 @@ class AdminTelegramApiTest {
                 .doesNotContain(FakeTelegram.TOKEN).doesNotContain("webhookSecret\":\"");
         assertThat(root.postJson(base + "/test", "{}").body()).contains("\"ok\":true", "northwind_support_bot");
 
+        // The tenant's panel, with admin access: Telegram 424242 is bound to Alice, 777 to nobody.
+        connectors.configureXboard(tenant, "https://panel.example.com", FakeXboard.ADMIN_TOKEN, FakeXboard.ADMIN_PATH, "root");
+
         long chat = 424242;
         telegram.textMessage(chat, "/start", "en");
         telegram.textMessage(chat, "How long do I have to return a lamp?", "en");
@@ -115,12 +125,16 @@ class AdminTelegramApiTest {
         assertThat(telegram.textsTo(chat).get(0)).contains("Ask me about orders");
         assertThat(telegram.textsTo(chat).get(1)).isEqualTo("You have 30 days to return it.");
         assertThat(conversations.find(tenant, "tg-" + chat + "-1")).as("the chat is a conversation of the tenant").isPresent();
+        assertThat(jdbc.queryForObject("SELECT panel_user_id FROM telegram_chat WHERE tenant_id = ? AND chat_id = ?", Long.class, tenant, chat))
+                .as("identified through the panel's binding and remembered").isEqualTo(1L);
 
         telegram.textMessage(chat, "/new", "zh-hans");
         telegram.textMessage(chat, "退货有时间限制吗", "zh-hans");
         awaitTexts(chat, 4);
         assertThat(telegram.textsTo(chat).get(2)).isEqualTo("好的，我们重新开始。");
         assertThat(conversations.find(tenant, "tg-" + chat + "-2")).as("/new started another").isPresent();
+        assertThat(jdbc.queryForObject("SELECT panel_user_id FROM telegram_chat WHERE tenant_id = ? AND chat_id = ?", Long.class, tenant, chat))
+                .as("/new forgets the binding and the next message finds it again").isEqualTo(1L);
 
         HttpResponse<String> webhook = put(root, base, "{\"botToken\":\"" + FakeTelegram.TOKEN + "\",\"mode\":\"webhook\"}");
         assertThat(webhook.statusCode()).as(webhook.body()).isEqualTo(200);
@@ -139,6 +153,8 @@ class AdminTelegramApiTest {
                 .isEqualTo(HttpStatus.OK);
         awaitTexts(777, 1);
         assertThat(telegram.textsTo(777).getFirst()).isEqualTo("You have 30 days to return it.");
+        assertThat(jdbc.queryForObject("SELECT panel_user_id FROM telegram_chat WHERE tenant_id = ? AND chat_id = ?", Long.class, tenant, 777L))
+                .as("an unbound Telegram account stays unidentified").isNull();
         assertThat(rest.postForEntity("/telegram/" + tenant + "/wrong-secret", new HttpEntity<>(update, headers), Void.class).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(rest.postForEntity("/telegram/no-such-tenant/" + secret, new HttpEntity<>(update, headers), Void.class).getStatusCode())

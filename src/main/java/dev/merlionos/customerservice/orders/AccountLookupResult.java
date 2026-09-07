@@ -40,8 +40,9 @@ public record AccountLookupResult(boolean found, String outcome, Account account
     }
 
     public static AccountLookupResult notSignedIn() {
-        return new AccountLookupResult(false, NOT_SIGNED_IN, null, "The customer is not signed in to the panel, so their account "
-                + "cannot be read. Ask them to sign in to the panel and ask again from there.");
+        return new AccountLookupResult(false, NOT_SIGNED_IN, null, "The customer is not identified to the panel, so their account "
+                + "cannot be read. Ask them to sign in to the panel and ask again from there, or, if they are on Telegram, to bind "
+                + "their Telegram account in the panel's settings and ask again.");
     }
 
     public static AccountLookupResult notConnected() {

@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.chat;
 
+import dev.merlionos.customerservice.orders.CustomerRef;
 import dev.merlionos.customerservice.tenancy.Conversations;
 import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.tenancy.TenantContext;
@@ -114,9 +115,8 @@ class ChatController {
                 Flux.merge(shared, heartbeats.takeUntilOther(shared.ignoreElements())));
     }
 
-    private static String customerToken(HttpServletRequest http) {
-        String token = http.getHeader(CUSTOMER_TOKEN_HEADER);
-        return token == null || token.isBlank() ? null : token.strip();
+    private static CustomerRef customerToken(HttpServletRequest http) {
+        return CustomerRef.token(http.getHeader(CUSTOMER_TOKEN_HEADER));
     }
 
     /** The client's id and ours. The client's is echoed; ours is what every table keys on. */

@@ -16,10 +16,12 @@ public class ConnectorAccountLookup implements AccountLookup {
     }
 
     @Override
-    public AccountLookupResult lookup(String tenantId, String customerToken) {
+    public AccountLookupResult lookup(String tenantId, CustomerRef customer) {
         return connectors.of(tenantId)
                 .filter(c -> OrderConnector.XBOARD.equals(c.kind()))
-                .map(c -> xboard.lookup(c, customerToken))
+                .map(c -> customer.panelToken() != null ? xboard.lookup(c, customer.panelToken())
+                        : customer.panelUserId() != null ? xboard.lookupByPanelUser(c, customer.panelUserId())
+                        : AccountLookupResult.notSignedIn())
                 .orElseGet(AccountLookupResult::notConnected);
     }
 }
