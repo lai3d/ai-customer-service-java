@@ -80,8 +80,16 @@ class ChatServiceToolContextTest {
     @Test
     @DisplayName("the customer's panel token rides in the tool context when the request carried one, and is absent when it did not")
     void customerTokenInContext() {
-        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "How much traffic do I have left?", "panel-token-abc");
+        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "How much traffic do I have left?", dev.merlionos.customerservice.orders.CustomerRef.token("panel-token-abc"));
         assertThat(capturedToolContext()).containsEntry(dev.merlionos.customerservice.tools.AccountTools.CUSTOMER_TOKEN_KEY, "panel-token-abc");
+    }
+
+    @Test
+    @DisplayName("a customer identified by the panel's user id rides as that id")
+    void customerUserInContext() {
+        chatService.ask(Tenant.DEFAULT, CONVERSATION_ID, "How much traffic do I have left?", dev.merlionos.customerservice.orders.CustomerRef.panelUser(7L));
+        assertThat(capturedToolContext()).containsEntry(dev.merlionos.customerservice.tools.AccountTools.CUSTOMER_USER_KEY, 7L)
+                .doesNotContainKey(dev.merlionos.customerservice.tools.AccountTools.CUSTOMER_TOKEN_KEY);
     }
 
     @Test

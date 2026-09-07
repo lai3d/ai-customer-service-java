@@ -19,6 +19,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A customer's account on the tenant's Xboard panel (a V2board-family subscription system),
@@ -73,6 +74,80 @@ public class XboardAccountLookup {
             return AccountLookupResult.unavailable("The panel could not be reached right now; ask the customer to try again in a "
                     + "few minutes, and do not guess at their subscription.");
         }
+    }
+
+    /**
+     * The same account, read with the tenant's admin token for a customer the panel has
+     * identified by their Telegram binding: {@code admin/user/fetch} filtered by id, then
+     * {@code admin/order/fetch} filtered by user. Amounts on the admin API are already in
+     * units where the user API gives cents.
+     */
+    public AccountLookupResult lookupByPanelUser(OrderConnector connector, long userId) {
+        if (connector.accessToken() == null || connector.adminPath() == null) {
+            return AccountLookupResult.unavailable("The panel connector has no admin token and path, so a Telegram-bound customer "
+                    + "cannot be read; the tenant's admin can add them in the operations admin.");
+        }
+        try {
+            RestClient client = client(connector, connector.accessToken());
+            String prefix = "/api/v2/" + connector.adminPath();
+            List<Map<String, Object>> users = rows(client.get().uri(uri -> uri.path(prefix + "/user/fetch")
+                    .queryParam("filter[0][id]", "id").queryParam("filter[0][value]", "eq:" + userId).queryParam("pageSize", 1).build())
+                    .retrieve().body(MAP));
+            if (users.isEmpty()) {
+                return AccountLookupResult.notSignedIn();
+            }
+            Map<String, Object> user = users.getFirst();
+            List<Map<String, Object>> orders = rows(client.get().uri(uri -> uri.path(prefix + "/order/fetch")
+                    .queryParam("filter[0][id]", "user_id").queryParam("filter[0][value]", "eq:" + userId).queryParam("pageSize", 5).build())
+                    .retrieve().body(MAP));
+            Map<String, Object> subscribe = new java.util.HashMap<>(user);
+            Map<String, Object> info = new java.util.HashMap<>(user);
+            // The admin API's balance is in units; the folding below expects cents.
+            if (user.get("balance") != null) {
+                info.put("balance", number(user.get("balance")) * 100);
+            }
+            return AccountLookupResult.found(toAccount(subscribe, info, orders));
+        }
+        catch (HttpClientErrorException e) {
+            log.warn("Xboard admin API refused a lookup for tenant {} ({}): {}", connector.tenantId(), connector.baseUrl(), e.getStatusCode());
+            return AccountLookupResult.unavailable("The panel refused the admin request (" + e.getStatusCode().value()
+                    + "); the connector's admin token needs attention. Do not guess at the customer's subscription.");
+        }
+        catch (RuntimeException e) {
+            log.warn("Xboard admin lookup failed for tenant {} ({}): {}", connector.tenantId(), connector.baseUrl(), e.toString());
+            return AccountLookupResult.unavailable("The panel could not be reached right now; ask the customer to try again in a "
+                    + "few minutes, and do not guess at their subscription.");
+        }
+    }
+
+    /** The panel user a Telegram account is bound to, if the panel knows one; empty otherwise or without admin access. */
+    public Optional<Long> panelUserByTelegram(OrderConnector connector, long telegramId) {
+        if (connector.accessToken() == null || connector.adminPath() == null) {
+            return Optional.empty();
+        }
+        try {
+            List<Map<String, Object>> users = rows(client(connector, connector.accessToken()).get()
+                    .uri(uri -> uri.path("/api/v2/" + connector.adminPath() + "/user/fetch")
+                            .queryParam("filter[0][id]", "telegram_id").queryParam("filter[0][value]", "eq:" + telegramId)
+                            .queryParam("pageSize", 1).build())
+                    .retrieve().body(MAP));
+            return users.stream().filter(u -> u.get("id") != null && telegramId == (long) number(u.get("telegram_id")))
+                    .map(u -> (long) number(u.get("id"))).findFirst();
+        }
+        catch (RuntimeException e) {
+            log.warn("Xboard Telegram binding lookup failed for tenant {} ({}): {}", connector.tenantId(), connector.baseUrl(), e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /** The admin API paginates: {@code {"data":[...],"total":n}}; be tolerant of a plain list too. */
+    @SuppressWarnings("unchecked")
+    static List<Map<String, Object>> rows(Map<String, Object> body) {
+        Object data = body == null ? null : body.get("data");
+        if (data instanceof Map<?, ?> m && m.get("data") instanceof List<?>) {
+            data = m.get("data");
+        }
+        return data instanceof List<?> l ? l.stream().filter(Map.class::isInstance).map(o -> (Map<String, Object>) o).toList() : List.of();
     }
 
     /** The panel's public configuration, for the admin's "test connection": no token needed. */

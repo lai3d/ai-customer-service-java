@@ -4,6 +4,7 @@ import dev.merlionos.customerservice.chat.TurnEvent;
 import dev.merlionos.customerservice.chat.TurnEventBus;
 import dev.merlionos.customerservice.orders.AccountLookup;
 import dev.merlionos.customerservice.orders.AccountLookupResult;
+import dev.merlionos.customerservice.orders.CustomerRef;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
@@ -14,14 +15,16 @@ import java.util.List;
 /**
  * The customer's own subscription, for tenants whose customers sign in to a panel. The
  * adapter: the tenant and the customer's panel token come from the tool context (the
- * request's API key and the {@code X-Customer-Token} header the widget forwards), never
- * from a model argument -- the tool has no parameters at all, so the model cannot ask
+ * request's API key, and the {@code X-Customer-Token} header the widget forwards or the panel
+ * user a Telegram binding resolved to), never from a model argument -- the tool has no parameters at all, so the model cannot ask
  * about anyone else.
  */
 @Component
 public class AccountTools {
 
     public static final String CUSTOMER_TOKEN_KEY = "customerToken";
+    /** The panel's user id for a customer the panel identified another way (a Telegram binding). */
+    public static final String CUSTOMER_USER_KEY = "customerUserId";
     private static final String TOOL_NAME = "lookup_my_subscription";
 
     private final AccountLookup accounts;
@@ -53,7 +56,10 @@ public class AccountTools {
     public AccountLookupResult lookupMySubscription(ToolContext toolContext) {
         String tenantId = SupportTicketTools.tenantIdFrom(toolContext);
         Object token = toolContext.getContext().get(CUSTOMER_TOKEN_KEY);
-        AccountLookupResult result = accounts.lookup(tenantId, token == null ? null : String.valueOf(token));
+        Object userId = toolContext.getContext().get(CUSTOMER_USER_KEY);
+        CustomerRef customer = token != null ? CustomerRef.token(String.valueOf(token))
+                : userId instanceof Number n ? CustomerRef.panelUser(n.longValue()) : CustomerRef.none();
+        AccountLookupResult result = accounts.lookup(tenantId, customer);
         meterRegistry.counter("chat.tool.invocations", "tool", TOOL_NAME, "outcome", result.outcome()).increment();
         turnEventBus.publish(SupportTicketTools.turnIdFrom(toolContext), new TurnEvent.ToolCall(TOOL_NAME, result.outcome()));
         return result;

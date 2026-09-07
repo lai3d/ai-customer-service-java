@@ -123,9 +123,11 @@ the panel refused with 401/403: ask the customer to sign in to the panel and ask
 there); `not_connected` (this tenant has no panel); `unavailable` (the panel did not
 answer). Configured with `{"kind":"xboard","baseUrl":"https://panel.example.com"}`: the URL is
 the panel's origin, checked to be public by the same guard the knowledge import uses
-(`CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop), and an admin token is optional, kept for
-what the customer's own token cannot do -- tickets into the panel and its knowledge base
-articles, the next two steps. "Test" reads `guest/comm/config`, which needs no token, and
+(`CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop), and an admin token with the panel's admin
+path is optional, for what the customer's own token cannot do: the panel's knowledge
+articles as an import source, and identifying a Telegram user through the panel's binding
+([channels](channels.md)), whose account is then read through the admin API
+(`XboardAccountLookup.lookupByPanelUser`). "Test" reads `guest/comm/config`, which needs no token, and
 answers with the panel's name. A tenant on Xboard asking about an order number is told the
 orders live in its panel.
 

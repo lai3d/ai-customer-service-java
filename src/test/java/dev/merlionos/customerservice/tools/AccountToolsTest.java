@@ -18,9 +18,9 @@ class AccountToolsTest {
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final List<String> seen = new java.util.ArrayList<>();
-    private final AccountTools tools = new AccountTools((tenant, token) -> {
-        seen.add(tenant + "/" + token);
-        return token == null ? AccountLookupResult.notSignedIn()
+    private final AccountTools tools = new AccountTools((tenant, customer) -> {
+        seen.add(tenant + "/" + (customer.panelToken() != null ? customer.panelToken() : customer.panelUserId()));
+        return !customer.known() ? AccountLookupResult.notSignedIn()
                 : AccountLookupResult.found(new AccountLookupResult.Account("al***@x.io", "Pro", null, false, 200.0, 1.0, 199.0, 9, 0.0, List.of()));
     }, meterRegistry, new TurnEventBus());
 
@@ -43,6 +43,11 @@ class AccountToolsTest {
 
         assertThat(tools.lookupMySubscription(context(null)).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
         assertThat(seen).containsExactly("cloud/tok", "cloud/null");
+
+        java.util.Map<String, Object> byUser = new HashMap<>(Map.of(SupportTicketTools.TENANT_ID_KEY, "cloud",
+                SupportTicketTools.CONVERSATION_ID_KEY, "conversation-1", TurnEventBus.TURN_ID_KEY, "turn-1", AccountTools.CUSTOMER_USER_KEY, 7L));
+        assertThat(tools.lookupMySubscription(new ToolContext(byUser)).found()).as("a panel user id identifies the customer too").isTrue();
+        assertThat(seen.getLast()).isEqualTo("cloud/7");
         assertThat(meterRegistry.counter("chat.tool.invocations", "tool", "lookup_my_subscription", "outcome", "unavailable").count())
                 .as("registered at zero").isZero();
     }

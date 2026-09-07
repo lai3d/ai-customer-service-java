@@ -36,6 +36,29 @@ class XboardAccountLookupTest {
         return new OrderConnector("cloud", OrderConnector.XBOARD, null, "https://panel.example.com", null, "v1", null, Instant.now(), "root");
     }
 
+    private static OrderConnector withAdmin() {
+        return new OrderConnector("cloud", OrderConnector.XBOARD, null, "https://panel.example.com", FakeXboard.ADMIN_TOKEN, "v1",
+                FakeXboard.ADMIN_PATH, Instant.now(), "root");
+    }
+
+    @Test
+    @DisplayName("a Telegram account the panel has bound resolves to a panel user, whose account the admin API then reads")
+    void throughTheBinding() {
+        assertThat(lookup.panelUserByTelegram(withAdmin(), 424242)).contains(1L);
+        assertThat(lookup.panelUserByTelegram(withAdmin(), 999)).isEmpty();
+        assertThat(lookup.panelUserByTelegram(connector(), 424242)).as("no admin access, no answer").isEmpty();
+
+        AccountLookupResult mine = lookup.lookupByPanelUser(withAdmin(), 1);
+        assertThat(mine.outcome()).isEqualTo(AccountLookupResult.FOUND);
+        assertThat(mine.account().plan()).isEqualTo("Pro 200G");
+        assertThat(mine.account().trafficRemainingGb()).isEqualTo(98.5);
+        assertThat(mine.account().balance()).isEqualTo(12.5);
+        assertThat(mine.account().email()).isEqualTo("al***@example.com");
+        assertThat(mine.account().recentOrders()).hasSize(1);
+        assertThat(lookup.lookupByPanelUser(withAdmin(), 2).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
+        assertThat(lookup.lookupByPanelUser(connector(), 1).outcome()).isEqualTo(AccountLookupResult.UNAVAILABLE);
+    }
+
     @Test
     @DisplayName("plan, expiry, traffic in gigabytes, balance and the recent orders, the email masked, read with the customer's token")
     void found() {
