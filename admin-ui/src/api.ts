@@ -138,7 +138,7 @@ export const api = {
   ticketAction: (n: string, action: string, expectedVersion: number, extra: { assignee?: string; text?: string } = {}) =>
     call<Ticket>('POST', `/tickets/${encodeURIComponent(n)}/${action}`, { expectedVersion, ...extra }),
 
-  conversations: (f: { conversationId?: string; outcome?: string; from?: string; to?: string; page?: number; size?: number; tenant?: string }) =>
+  conversations: (f: { conversationId?: string; outcome?: string; from?: string; to?: string; page?: number; size?: number; tenant?: string; kind?: string }) =>
     call<ConversationPage>('GET', '/conversations' + query(f)),
   conversation: (id: string) => call<ConversationDetail>('GET', `/conversations/${encodeURIComponent(id)}`),
 

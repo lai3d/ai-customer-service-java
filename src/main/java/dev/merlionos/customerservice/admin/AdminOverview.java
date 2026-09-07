@@ -51,6 +51,9 @@ public class AdminOverview {
                 knowledge(tenantId == null ? Tenant.DEFAULT : tenantId), staff(start, end, tenantId));
     }
 
+    /** An evaluation run's conversations are not a customer's; nothing here counts them. */
+    private static final String CUSTOMER_ONLY = " AND " + "conversation_id NOT IN (SELECT id FROM conversation WHERE kind = 'evaluation')";
+
     /** {@code AND <column> = ?} when a tenant is named, nothing otherwise; the caller adds the argument. */
     private static String scoped(String column, String tenantId) {
         return tenantId == null ? "" : " AND " + column + " = ?";
@@ -79,7 +82,7 @@ public class AdminOverview {
                        count(*) FILTER (WHERE input_tokens IS NULL AND outcome <> 'running') AS unmetered,
                        avg(extract(epoch FROM (ended_at - started_at)) * 1000) FILTER (WHERE outcome = 'completed') AS avg_ms
                 FROM conversation_turn WHERE started_at >= ? AND started_at < ?
-                """ + scoped("tenant_id", tenantId), args(tenantId, from, to));
+                """ + CUSTOMER_ONLY + scoped("tenant_id", tenantId), args(tenantId, from, to));
         long turns = number(row, "turns");
         long ended = turns - number(row, "running");
         return List.of(
@@ -104,20 +107,20 @@ public class AdminOverview {
                        count(*) FILTER (WHERE state = 'closed') AS closed,
                        count(*) FILTER (WHERE created_at >= ? AND created_at < ?) AS created
                 FROM support_ticket WHERE true
-                """ + scoped("tenant_id", tenantId), args(tenantId, from, to));
+                """ + CUSTOMER_ONLY + scoped("tenant_id", tenantId), args(tenantId, from, to));
         Map<String, Object> times = jdbc.queryForMap("""
                 SELECT avg(extract(epoch FROM (c.occurred_at - t.created_at)) / 60) AS minutes_to_claim,
                        count(*) AS claimed_in_window
                 FROM ticket_event c JOIN support_ticket t ON t.ticket_number = c.ticket_number
                 WHERE c.kind IN ('claimed', 'assigned') AND c.occurred_at >= ? AND c.occurred_at < ?
                   AND c.id = (SELECT min(id) FROM ticket_event f WHERE f.ticket_number = c.ticket_number AND f.kind IN ('claimed', 'assigned'))
-                """ + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
+                """ + CUSTOMER_ONLY.replace("conversation_id", "t.conversation_id") + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
         Map<String, Object> resolved = jdbc.queryForMap("""
                 SELECT avg(extract(epoch FROM (r.occurred_at - t.created_at)) / 60) AS minutes_to_resolve,
                        count(*) AS resolved_in_window
                 FROM ticket_event r JOIN support_ticket t ON t.ticket_number = r.ticket_number
                 WHERE r.kind = 'resolved' AND r.occurred_at >= ? AND r.occurred_at < ?
-                """ + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
+                """ + CUSTOMER_ONLY.replace("conversation_id", "t.conversation_id") + scoped("t.tenant_id", tenantId), args(tenantId, from, to));
         return List.of(
                 stat("open", "Open", number(states, "open"), "Tickets nobody has claimed, right now."),
                 stat("claimed", "Claimed", number(states, "claimed"), "Tickets someone is working, right now."),
@@ -137,7 +140,7 @@ public class AdminOverview {
                        count(*) FILTER (WHERE handled_at >= ? AND handled_at < ? AND state = 'handled') AS handled,
                        count(*) FILTER (WHERE handled_at >= ? AND handled_at < ? AND state = 'dismissed') AS dismissed
                 FROM answer_feedback WHERE true
-                """ + scoped("tenant_id", tenantId), args(tenantId, from, to, from, to, from, to));
+                """ + CUSTOMER_ONLY + scoped("tenant_id", tenantId), args(tenantId, from, to, from, to, from, to));
         return List.of(
                 stat("openFlags", "Open flags", number(row, "open"), "Answer flags nobody has handled, right now."),
                 stat("reported", "Flagged in window", number(row, "reported"), "Answers flagged in the window."),

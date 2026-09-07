@@ -105,7 +105,10 @@ public class JdbcTicketWorkflow implements TicketWorkflow {
             where.add("tenant_id = ?");
             args.add(filter.tenantId());
         }
-        String clause = where.isEmpty() ? "" : " WHERE " + String.join(" AND ", where);
+        // A ticket an evaluation run's conversation raised is a rehearsal, not a customer's
+        // request: it stays out of the queue. Found by number it still exists, for the run's record.
+        where.add("conversation_id NOT IN (SELECT id FROM conversation WHERE kind = 'evaluation')");
+        String clause = " WHERE " + String.join(" AND ", where);
 
         long total = jdbc.queryForObject("SELECT count(*) FROM support_ticket" + clause, Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);

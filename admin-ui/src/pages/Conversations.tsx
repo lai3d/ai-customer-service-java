@@ -14,6 +14,7 @@ export function Conversations() {
   const page = Number(params.get('page') ?? '0');
   const [id, setId] = useState(params.get('conversationId') ?? '');
   const [outcome, setOutcome] = useState(params.get('outcome') ?? '');
+  const [kind, setKind] = useState(params.get('kind') ?? '');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [data, setData] = useState<ConversationPage | null>(null);
@@ -21,13 +22,14 @@ export function Conversations() {
   useEffect(() => {
     setData(null);
     api.conversations({ conversationId: params.get('conversationId') ?? undefined, outcome: params.get('outcome') ?? undefined,
-      from: params.get('from') ?? undefined, to: params.get('to') ?? undefined, page, size: 25, tenant: params.get('tenant') ?? undefined }).then(setData, setError);
+      from: params.get('from') ?? undefined, to: params.get('to') ?? undefined, page, size: 25, tenant: params.get('tenant') ?? undefined, kind: params.get('kind') ?? undefined }).then(setData, setError);
   }, [params, page]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const p = new URLSearchParams();
     if (id.trim()) p.set('conversationId', id.trim());
     if (outcome) p.set('outcome', outcome);
+    if (kind) p.set('kind', kind);
     if (localToIso(from)) p.set('from', localToIso(from));
     if (localToIso(to)) p.set('to', localToIso(to));
     if (params.get('tenant')) p.set('tenant', params.get('tenant')!);
@@ -44,6 +46,12 @@ export function Conversations() {
           <select value={outcome} onChange={e => setOutcome(e.target.value)}>
             <option value="">any</option>
             {['completed', 'failed', 'interrupted', 'unknown', 'running'].map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label>Kind
+          <select value={kind} onChange={e => setKind(e.target.value)} title="An evaluation run's conversations are rehearsals, not customers'; they stay out unless asked for">
+            <option value="">customers</option>
+            <option value="evaluation">evaluation runs</option>
           </select>
         </label>
         <label>From <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} /></label>

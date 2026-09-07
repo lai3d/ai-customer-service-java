@@ -177,6 +177,30 @@ class AdminTenantScopeTest {
     }
 
     @Test
+    @DisplayName("an evaluation run's conversation, its ticket and its flag are a rehearsal: out of the list, the queue and the overview unless asked for by kind")
+    void evaluationConversationsAreNotCustomers() throws Exception {
+        String rehearsal = conversations.createEvaluation(Tenant.DEFAULT, "eval-" + UUID.randomUUID().toString().substring(0, 8));
+        String turn = UUID.randomUUID().toString();
+        recorder.start(turn, Tenant.DEFAULT, rehearsal, TurnRecorder.Path.BLOCKING, "rehearsal question");
+        recorder.finish(turn, TurnRecorder.Outcome.COMPLETED, "rehearsal answer", "claude-opus-5", 10, 5, null, null);
+        String rehearsalTicket = tickets.create(new TicketRequest(Tenant.DEFAULT, UUID.randomUUID().toString(), rehearsal,
+                "Rehearsal parcel", "returns", "ORD-9")).ticket().ticketNumber();
+        feedback.report(turn, "incorrect", "rehearsal", "alice");
+
+        AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
+        assertThat(root.get("/admin/api/conversations").body()).contains("\"total\":2").doesNotContain(rehearsal);
+        assertThat(root.get("/admin/api/conversations?kind=evaluation").body()).contains("\"total\":1").contains(rehearsal);
+        assertThat(root.get("/admin/api/conversations?kind=bogus").statusCode()).isEqualTo(400);
+        assertThat(root.get("/admin/api/conversations/" + rehearsal).statusCode()).as("openable by id, for the run's record").isEqualTo(200);
+        assertThat(root.get("/admin/api/tickets").body()).contains("\"total\":2").doesNotContain(rehearsalTicket);
+        assertThat(root.get("/admin/api/tickets/" + rehearsalTicket).statusCode()).isEqualTo(200);
+        String overview = root.get("/admin/api/overview?tenant=default").body();
+        assertThat(overview).contains("\"key\":\"turns\",\"label\":\"Turns\",\"value\":1")
+                .contains("\"key\":\"open\",\"label\":\"Open\",\"value\":1")
+                .contains("\"key\":\"openFlags\",\"label\":\"Open flags\",\"value\":1");
+    }
+
+    @Test
     @DisplayName("platform staff see every tenant, narrow with ?tenant=, and the default tenant's support sees default only")
     void platformSeesAllAndSupportSeesTheirOwn() throws Exception {
         AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
