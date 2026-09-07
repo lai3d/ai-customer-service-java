@@ -414,8 +414,24 @@ The default tenant's first key comes from `DEFAULT_TENANT_API_KEY`, seeded once 
 empty `tenant_api_key` table (like the first admin); every later key is issued and revoked by
 an admin at `/admin/api/tenants/{id}/keys`, returned once and recorded in `admin_audit`. The
 spend meters carry a `tenant` label up to `app.tenancy.metrics-label-limit` tenants, then
-`other`. Not yet per tenant: knowledge (every tenant retrieves from the one active version)
-and staff (every admin is a platform admin); both are the next PRs of the ADR.
+`other`.
+
+**Knowledge is per tenant.** `knowledge_entry`, `knowledge_revision` and `knowledge_version`
+carry `tenant_id` (an entry id is unique within its tenant), and `knowledge_active` is one
+row per tenant. The tenant reaches the vector store the one way `QuestionAnswerAdvisor`
+allows anything per request: `ChatService` puts `tenant == '<id>'` in the advisor context
+as its filter expression (`TenantFilter`, in `rag/api`), `ActiveVersionVectorStore` reads
+the tenant out of the filter, resolves that tenant's active version and searches it; the
+remote store in a `chat` process carries it as the `tenantId` of `SearchQuery`. A request
+that names no tenant is the default tenant's, which is what the bundled corpus, every
+pre-tenancy caller and every direct test of the store are; the customer path always names
+one, and `KnowledgeAdminIntegrationTest.tenantsRetrieveOnlyTheirOwn` fails if it stops
+(it runs a turn through the whole advisor chain for two tenants). A new tenant starts with
+nothing active and retrieves nothing until it publishes; readiness is the default
+tenant's corpus. `KnowledgeAdmin` takes the tenant first on every method, the internal
+knowledge-admin seam has it as a path segment, and the admin's `/admin/api/knowledge/**`
+takes it as `?tenant=` (`default` when absent), which every member of staff may set today.
+Not yet per tenant: staff (every admin is a platform admin); that is the next PR of the ADR.
 
 ## Scope
 

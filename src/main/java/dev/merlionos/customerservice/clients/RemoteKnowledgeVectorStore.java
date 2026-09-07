@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.clients;
 import dev.merlionos.customerservice.rag.api.KnowledgeSearch;
 import dev.merlionos.customerservice.rag.api.Passage;
 import dev.merlionos.customerservice.rag.api.SearchQuery;
+import dev.merlionos.customerservice.rag.api.TenantFilter;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -26,10 +27,13 @@ public class RemoteKnowledgeVectorStore implements VectorStore {
 
     @Override
     public List<Document> similaritySearch(SearchRequest request) {
-        if (request.getFilterExpression() != null) {
-            throw new UnsupportedOperationException("The knowledge seam carries no filter expression");
+        // The tenant is the one filter the seam carries, as the tenant field of the query;
+        // anything else in the expression is a wiring mistake worth failing loudly on.
+        String tenant = TenantFilter.tenantOf(request.getFilterExpression()).orElse(SearchQuery.DEFAULT_TENANT);
+        if (TenantFilter.without(request.getFilterExpression()) != null) {
+            throw new UnsupportedOperationException("The knowledge seam carries no filter expression besides the tenant");
         }
-        return search.search(new SearchQuery(request.getQuery(), request.getTopK(), request.getSimilarityThreshold()))
+        return search.search(new SearchQuery(tenant, request.getQuery(), request.getTopK(), request.getSimilarityThreshold()))
                 .stream()
                 .map(RemoteKnowledgeVectorStore::toDocument)
                 .toList();

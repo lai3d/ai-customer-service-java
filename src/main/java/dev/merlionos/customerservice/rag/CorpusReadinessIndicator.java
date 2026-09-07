@@ -25,14 +25,15 @@ class CorpusReadinessIndicator implements HealthIndicator {
     }
 
     /**
-     * UP when a knowledge version is active and has documents. On a fresh database that is
+     * UP when the default tenant has an active knowledge version with documents; other
+     * tenants start empty and publish their own, which readiness does not wait for. On a fresh database that is
      * the bundled corpus once the importer has recorded it and the bootstrap adopted it;
      * afterwards it is whatever was last published or rolled back to.
      */
     @Override
     public Health health() {
         return jdbc.query("SELECT a.version, v.document_count FROM knowledge_active a "
-                        + "JOIN knowledge_version v ON v.version = a.version WHERE a.id = 1",
+                        + "JOIN knowledge_version v ON v.version = a.version WHERE a.tenant_id = 'default'",
                         (rs, i) -> Map.entry(rs.getString(1), rs.getInt(2)))
                 .stream().findFirst()
                 .filter(active -> active.getValue() > 0)

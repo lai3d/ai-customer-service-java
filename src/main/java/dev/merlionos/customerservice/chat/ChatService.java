@@ -2,6 +2,7 @@ package dev.merlionos.customerservice.chat;
 
 import dev.merlionos.customerservice.clients.HttpKnowledgeSearch;
 import dev.merlionos.customerservice.cost.ConversationBudget;
+import dev.merlionos.customerservice.rag.api.TenantFilter;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -10,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -114,7 +116,8 @@ public class ChatService {
                 .user(message)
                 .advisors(advisor -> advisor
                         .param(ChatMemory.CONVERSATION_ID, conversationId)
-                        .param(TurnEventBus.TURN_ID_KEY, turnId))
+                        .param(TurnEventBus.TURN_ID_KEY, turnId)
+                        .param(QuestionAnswerAdvisor.FILTER_EXPRESSION, TenantFilter.text(tenantId)))
                 .toolContext(toolContext(tenantId, conversationId, turnId))
                 .call()
                 .chatResponse();
@@ -256,7 +259,9 @@ public class ChatService {
                 .user(message)
                 .advisors(advisor -> advisor
                         .param(ChatMemory.CONVERSATION_ID, conversationId)
-                        .param(TurnEventBus.TURN_ID_KEY, turnId))
+                        .param(TurnEventBus.TURN_ID_KEY, turnId)
+                        // Retrieval reads this tenant's knowledge and no other's (ADR 002).
+                        .param(QuestionAnswerAdvisor.FILTER_EXPRESSION, TenantFilter.text(tenantId)))
                 .toolContext(toolContext(tenantId, conversationId, turnId))
                 .stream()
                 .chatClientResponse()

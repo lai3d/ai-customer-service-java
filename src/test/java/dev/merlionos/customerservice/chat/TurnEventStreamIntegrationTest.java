@@ -119,7 +119,7 @@ class TurnEventStreamIntegrationTest {
         assertThat(jdbc.queryForList("SELECT DISTINCT corpus_version FROM turn_retrieval WHERE turn_id = ?",
                 String.class, turn.get("turn_id")))
                 .as("every passage is tied to the version that was active for the turn")
-                .containsExactly(jdbc.queryForObject("SELECT version FROM knowledge_active", String.class));
+                .containsExactly(jdbc.queryForObject("SELECT version FROM knowledge_active WHERE tenant_id = 'default'", String.class));
     }
 
     @Test

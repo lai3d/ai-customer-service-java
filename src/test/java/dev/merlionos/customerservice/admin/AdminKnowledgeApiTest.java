@@ -22,6 +22,7 @@ import java.net.http.HttpResponse;
 import java.util.Optional;
 import java.util.UUID;
 
+import static dev.merlionos.customerservice.rag.api.SearchQuery.DEFAULT_TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -70,7 +71,7 @@ class AdminKnowledgeApiTest {
     }
 
     private String activeVersion() {
-        return knowledge.activeVersion().orElseThrow();
+        return knowledge.activeVersion(DEFAULT_TENANT).orElseThrow();
     }
 
     /**
@@ -82,7 +83,7 @@ class AdminKnowledgeApiTest {
      */
     private KnowledgeVersion awaitPublication(String createdBy, String note) throws InterruptedException {
         for (int i = 0; i < 240; i++) {
-            Optional<KnowledgeVersion> version = knowledge.versions().stream()
+            Optional<KnowledgeVersion> version = knowledge.versions(DEFAULT_TENANT).stream()
                     .filter(v -> createdBy.equals(v.createdBy()) && note.equals(v.note()))
                     .filter(v -> v.state().equals("active") || v.state().equals("failed")
                             || (v.state().equals("ready") && jdbc.queryForObject(
@@ -93,7 +94,7 @@ class AdminKnowledgeApiTest {
             }
             Thread.sleep(250);
         }
-        throw new AssertionError("no finished publication by " + createdBy + " after 60 s: " + knowledge.versions());
+        throw new AssertionError("no finished publication by " + createdBy + " after 60 s: " + knowledge.versions(DEFAULT_TENANT));
     }
 
     @Test
@@ -175,5 +176,24 @@ class AdminKnowledgeApiTest {
                 "{\"state\":\"handled\",\"conclusion\":\"x\",\"revisionId\":999999,\"expectedVersion\":1}").statusCode()).isEqualTo(422);
         alice.client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/admin/api/knowledge/entries/shipping-cost/drafts/en"))
                 .header("X-XSRF-TOKEN", alice.csrf()).DELETE().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    @DisplayName("the tenant parameter scopes what is read and written; an unknown tenant is 404")
+    void tenantParameter() throws Exception {
+        AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
+        String tenant = "acme-" + UUID.randomUUID().toString().substring(0, 6);
+        assertThat(root.postJson("/admin/api/tenants", "{\"id\":\"" + tenant + "\",\"name\":\"Acme\"}").statusCode()).isEqualTo(201);
+
+        assertThat(root.get("/admin/api/knowledge/entries?tenant=" + tenant).body()).as("empty, not the default tenant's").isEqualTo("[]");
+        assertThat(root.get("/admin/api/knowledge/versions?tenant=" + tenant).body()).contains("\"active\":null", "\"tenant\":\"" + tenant + "\"");
+        assertThat(root.get("/admin/api/knowledge/entries?tenant=no-such-tenant").statusCode()).isEqualTo(404);
+
+        assertThat(root.postJson("/admin/api/knowledge/entries/shipping-cost?tenant=" + tenant, "{\"category\":\"orders\"}").statusCode())
+                .as("the default tenant's entry id is free under another tenant").isEqualTo(201);
+        assertThat(root.get("/admin/api/knowledge/entries?tenant=" + tenant).body()).contains("\"entryId\":\"shipping-cost\"")
+                .doesNotContain("returns-damaged");
+        assertThat(root.get("/admin/api/knowledge/entries/shipping-cost").body()).as("the default tenant's own is untouched")
+                .contains("\"state\":\"published\"");
     }
 }

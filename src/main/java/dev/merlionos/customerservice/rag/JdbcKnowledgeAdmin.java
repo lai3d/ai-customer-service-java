@@ -87,24 +87,25 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
     // --- entries and drafts ---------------------------------------------------------------
 
     @Override
-    public List<KnowledgeEntry> entries() {
+    public List<KnowledgeEntry> entries(String tenantId) {
         List<KnowledgeRevision> current = jdbc.query(
-                "SELECT * FROM knowledge_revision WHERE state IN ('draft', 'published') ORDER BY entry_id, language, state", REVISION);
-        return jdbc.query("SELECT * FROM knowledge_entry ORDER BY entry_id", (rs, i) -> {
+                "SELECT * FROM knowledge_revision WHERE tenant_id = ? AND state IN ('draft', 'published') ORDER BY entry_id, language, state",
+                REVISION, tenantId);
+        return jdbc.query("SELECT * FROM knowledge_entry WHERE tenant_id = ? ORDER BY entry_id", (rs, i) -> {
             String id = rs.getString("entry_id");
             return new KnowledgeEntry(id, rs.getString("category"), rs.getBoolean("retired"),
                     rs.getTimestamp("created_at").toInstant(), rs.getString("created_by"),
                     current.stream().filter(r -> r.entryId().equals(id)).toList());
-        });
+        }, tenantId);
     }
 
     @Override
-    public Optional<KnowledgeEntry> entry(String entryId) {
-        return entries().stream().filter(e -> e.entryId().equals(entryId)).findFirst();
+    public Optional<KnowledgeEntry> entry(String tenantId, String entryId) {
+        return entries(tenantId).stream().filter(e -> e.entryId().equals(entryId)).findFirst();
     }
 
     @Override
-    public KnowledgeEntry createEntry(String entryId, String category, String actor) {
+    public KnowledgeEntry createEntry(String tenantId, String entryId, String category, String actor) {
         String id = entryId == null ? "" : entryId.strip().toLowerCase(Locale.ROOT);
         if (!ENTRY_ID.matcher(id).matches()) {
             throw new KnowledgeRuleException("an entry id is 2-63 characters of a-z, 0-9 and '-', starting with a letter or digit");
@@ -114,17 +115,18 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
             throw new KnowledgeRuleException("a category is required, at most 32 characters");
         }
         try {
-            jdbc.update("INSERT INTO knowledge_entry (entry_id, category, created_at, created_by) VALUES (?, ?, ?, ?)",
-                    id, kind, Timestamp.from(Instant.now()), actor);
+            jdbc.update("INSERT INTO knowledge_entry (tenant_id, entry_id, category, created_at, created_by) VALUES (?, ?, ?, ?, ?)",
+                    tenantId, id, kind, Timestamp.from(Instant.now()), actor);
         }
         catch (DuplicateKeyException e) {
             throw new KnowledgeRuleException("an entry '" + id + "' already exists");
         }
-        return entry(id).orElseThrow();
+        return entry(tenantId, id).orElseThrow();
     }
 
     @Override
-    public KnowledgeRevision saveDraft(String entryId, String language, String question, String answer, String note, String actor) {
+    public KnowledgeRevision saveDraft(String tenantId, String entryId, String language, String question, String answer,
+                                       String note, String actor) {
         String lang = language == null ? "" : language.strip();
         if (!LANGUAGE.matcher(lang).matches()) {
             throw new KnowledgeRuleException("a language is a BCP 47 tag such as en or zh");
@@ -132,49 +134,52 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
         if (question == null || question.isBlank() || answer == null || answer.isBlank()) {
             throw new KnowledgeRuleException("a draft needs both a question and an answer");
         }
-        if (jdbc.queryForObject("SELECT count(*) FROM knowledge_entry WHERE entry_id = ?", Integer.class, entryId) == 0) {
+        if (jdbc.queryForObject("SELECT count(*) FROM knowledge_entry WHERE tenant_id = ? AND entry_id = ?", Integer.class,
+                tenantId, entryId) == 0) {
             throw new KnowledgeRuleException("no entry '" + entryId + "'");
         }
         return transaction.execute(status -> {
-            jdbc.update("DELETE FROM knowledge_revision WHERE entry_id = ? AND language = ? AND state = 'draft' "
-                    + "AND id NOT IN (SELECT revision_id FROM knowledge_version_document)", entryId, lang);
-            Long id = jdbc.queryForObject("INSERT INTO knowledge_revision (entry_id, language, question, answer, state, created_at, "
-                            + "created_by, note) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id", Long.class,
-                    entryId, lang, question.strip(), answer.strip(), Timestamp.from(Instant.now()), actor,
+            jdbc.update("DELETE FROM knowledge_revision WHERE tenant_id = ? AND entry_id = ? AND language = ? AND state = 'draft' "
+                    + "AND id NOT IN (SELECT revision_id FROM knowledge_version_document)", tenantId, entryId, lang);
+            Long id = jdbc.queryForObject("INSERT INTO knowledge_revision (tenant_id, entry_id, language, question, answer, state, "
+                            + "created_at, created_by, note) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id", Long.class,
+                    tenantId, entryId, lang, question.strip(), answer.strip(), Timestamp.from(Instant.now()), actor,
                     note == null || note.isBlank() ? null : note.strip());
             return jdbc.queryForObject("SELECT * FROM knowledge_revision WHERE id = ?", REVISION, id);
         });
     }
 
     @Override
-    public void discardDraft(String entryId, String language) {
-        jdbc.update("DELETE FROM knowledge_revision WHERE entry_id = ? AND language = ? AND state = 'draft' "
-                + "AND id NOT IN (SELECT revision_id FROM knowledge_version_document)", entryId, language);
+    public void discardDraft(String tenantId, String entryId, String language) {
+        jdbc.update("DELETE FROM knowledge_revision WHERE tenant_id = ? AND entry_id = ? AND language = ? AND state = 'draft' "
+                + "AND id NOT IN (SELECT revision_id FROM knowledge_version_document)", tenantId, entryId, language);
     }
 
     @Override
-    public KnowledgeEntry retire(String entryId, boolean retired, String actor) {
-        if (jdbc.update("UPDATE knowledge_entry SET retired = ? WHERE entry_id = ?", retired, entryId) == 0) {
+    public KnowledgeEntry retire(String tenantId, String entryId, boolean retired, String actor) {
+        if (jdbc.update("UPDATE knowledge_entry SET retired = ? WHERE tenant_id = ? AND entry_id = ?", retired, tenantId, entryId) == 0) {
             throw new KnowledgeRuleException("no entry '" + entryId + "'");
         }
-        return entry(entryId).orElseThrow();
+        return entry(tenantId, entryId).orElseThrow();
     }
 
     // --- versions ---------------------------------------------------------------------------
 
     @Override
-    public List<KnowledgeVersion> versions() {
-        return jdbc.query("SELECT * FROM knowledge_version ORDER BY created_at DESC, version DESC", VERSION);
+    public List<KnowledgeVersion> versions(String tenantId) {
+        return jdbc.query("SELECT * FROM knowledge_version WHERE tenant_id = ? ORDER BY created_at DESC, version DESC", VERSION, tenantId);
+    }
+
+    /** A version is addressed under its tenant: another tenant's version name is "no such version". */
+    @Override
+    public Optional<KnowledgeVersion> version(String tenantId, String version) {
+        return jdbc.query("SELECT * FROM knowledge_version WHERE tenant_id = ? AND version = ?", VERSION, tenantId, version)
+                .stream().findFirst();
     }
 
     @Override
-    public Optional<KnowledgeVersion> version(String version) {
-        return jdbc.query("SELECT * FROM knowledge_version WHERE version = ?", VERSION, version).stream().findFirst();
-    }
-
-    @Override
-    public Optional<String> activeVersion() {
-        return jdbc.query("SELECT version FROM knowledge_active WHERE id = 1", (rs, i) -> rs.getString(1))
+    public Optional<String> activeVersion(String tenantId) {
+        return jdbc.query("SELECT version FROM knowledge_active WHERE tenant_id = ?", (rs, i) -> rs.getString(1), tenantId)
                 .stream().filter(Objects::nonNull).findFirst();
     }
 
@@ -183,34 +188,35 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
     }
 
     @Override
-    public KnowledgeVersion publish(String note, String actor, String expectedActive) {
-        if (expectedActive != null && !expectedActive.equals(activeVersion().orElse(null))) {
-            throw new KnowledgeConflictException("The active version is " + activeVersion().orElse("none")
+    public KnowledgeVersion publish(String tenantId, String note, String actor, String expectedActive) {
+        if (expectedActive != null && !expectedActive.equals(activeVersion(tenantId).orElse(null))) {
+            throw new KnowledgeConflictException("The active version is " + activeVersion(tenantId).orElse("none")
                     + ", not " + expectedActive + "; reload and look again");
         }
         Snapshot snapshot = transaction.execute(status -> {
             List<KnowledgeRevision> revisions = jdbc.query("""
                     SELECT r.* FROM knowledge_revision r
-                    JOIN knowledge_entry e ON e.entry_id = r.entry_id AND NOT e.retired
-                    WHERE r.state = 'draft'
+                    JOIN knowledge_entry e ON e.tenant_id = r.tenant_id AND e.entry_id = r.entry_id AND NOT e.retired
+                    WHERE r.tenant_id = ?
+                      AND (r.state = 'draft'
                        OR (r.state = 'published' AND NOT EXISTS (SELECT 1 FROM knowledge_revision d
-                           WHERE d.entry_id = r.entry_id AND d.language = r.language AND d.state = 'draft'))
+                           WHERE d.tenant_id = r.tenant_id AND d.entry_id = r.entry_id AND d.language = r.language AND d.state = 'draft')))
                     ORDER BY r.entry_id, r.language
-                    """, REVISION);
+                    """, REVISION, tenantId);
             if (revisions.isEmpty()) {
                 throw new KnowledgeRuleException("nothing to publish: no entry has any text");
             }
             String version = "v" + VERSION_STAMP.format(Instant.now()) + "-" + UUID.randomUUID().toString().substring(0, 6);
             Timestamp now = Timestamp.from(Instant.now());
-            jdbc.update("INSERT INTO knowledge_version (version, state, created_at, created_by, note) VALUES (?, 'building', ?, ?, ?)",
-                    version, now, actor, note == null || note.isBlank() ? null : note.strip());
+            jdbc.update("INSERT INTO knowledge_version (version, tenant_id, state, created_at, created_by, note) VALUES (?, ?, 'building', ?, ?, ?)",
+                    version, tenantId, now, actor, note == null || note.isBlank() ? null : note.strip());
             for (KnowledgeRevision revision : revisions) {
                 jdbc.update("INSERT INTO knowledge_version_document (version, revision_id) VALUES (?, ?)", version, revision.id());
             }
             Map<String, String> categories = new java.util.HashMap<>();
-            jdbc.query("SELECT entry_id, category FROM knowledge_entry", rs -> {
+            jdbc.query("SELECT entry_id, category FROM knowledge_entry WHERE tenant_id = ?", rs -> {
                 categories.put(rs.getString(1), rs.getString(2));
-            });
+            }, tenantId);
             return new Snapshot(version, revisions, categories);
         });
 
@@ -222,77 +228,85 @@ public class JdbcKnowledgeAdmin implements KnowledgeAdmin {
                     documents.size(), snapshot.version());
         }
         catch (RuntimeException e) {
-            log.error("Building knowledge version {} failed; the previous version keeps serving", snapshot.version(), e);
+            log.error("Building knowledge version {} for tenant {} failed; the previous version keeps serving",
+                    snapshot.version(), tenantId, e);
             jdbc.update("UPDATE knowledge_version SET state = 'failed', error = ? WHERE version = ?",
                     describe(e), snapshot.version());
             failed.increment();
-            return version(snapshot.version()).orElseThrow();
+            return version(tenantId, snapshot.version()).orElseThrow();
         }
 
-        KnowledgeVersion activated = activate(snapshot.version(), expectedActive, actor, snapshot.revisions());
+        KnowledgeVersion activated = activate(tenantId, snapshot.version(), expectedActive, actor, snapshot.revisions());
         succeeded.increment();
-        retireOld();
+        retireOld(tenantId);
         return activated;
     }
 
     @Override
-    public KnowledgeVersion rollback(String version, String expectedActive, String actor) {
-        KnowledgeVersion target = version(version).orElseThrow(() -> new KnowledgeRuleException("no version '" + version + "'"));
+    public KnowledgeVersion rollback(String tenantId, String version, String expectedActive, String actor) {
+        KnowledgeVersion target = version(tenantId, version)
+                .orElseThrow(() -> new KnowledgeRuleException("no version '" + version + "'"));
         if (!target.state().equals("ready")) {
             throw new KnowledgeRuleException("version " + version + " is " + target.state() + " and cannot be activated");
         }
-        return activate(version, expectedActive, actor, List.of());
+        return activate(tenantId, version, expectedActive, actor, List.of());
     }
 
     /**
-     * The switch: one row, under a lock, with the expected-version check. Revisions the
-     * version was built from become published and what they replace superseded; a rollback
-     * passes none and leaves revision states alone, since the drafts people are working on
-     * describe the latest text, not the version that happens to be serving.
+     * The switch: the tenant's one row, under a lock, with the expected-version check.
+     * Revisions the version was built from become published and what they replace
+     * superseded; a rollback passes none and leaves revision states alone, since the drafts
+     * people are working on describe the latest text, not the version that happens to be
+     * serving.
      */
-    private KnowledgeVersion activate(String version, String expectedActive, String actor, List<KnowledgeRevision> built) {
+    private KnowledgeVersion activate(String tenantId, String version, String expectedActive, String actor, List<KnowledgeRevision> built) {
         return transaction.execute(status -> {
-            String current = jdbc.queryForObject("SELECT version FROM knowledge_active WHERE id = 1 FOR UPDATE", String.class);
+            // A tenant created before its pointer row existed still gets one to lock.
+            jdbc.update("INSERT INTO knowledge_active (tenant_id) VALUES (?) ON CONFLICT (tenant_id) DO NOTHING", tenantId);
+            String current = jdbc.queryForObject("SELECT version FROM knowledge_active WHERE tenant_id = ? FOR UPDATE", String.class, tenantId);
             if (expectedActive != null && !expectedActive.equals(current)) {
                 throw new KnowledgeConflictException("The active version changed to " + current + " while " + version
                         + " was being built; it is ready and can be activated by hand");
             }
             Timestamp now = Timestamp.from(Instant.now());
-            jdbc.update("UPDATE knowledge_active SET version = ?, switched_at = ?, switched_by = ? WHERE id = 1", version, now, actor);
+            jdbc.update("UPDATE knowledge_active SET version = ?, switched_at = ?, switched_by = ? WHERE tenant_id = ?",
+                    version, now, actor, tenantId);
             if (current != null && !current.equals(version)) {
                 jdbc.update("UPDATE knowledge_version SET state = 'ready' WHERE version = ? AND state = 'active'", current);
             }
             jdbc.update("UPDATE knowledge_version SET state = 'active', activated_at = ? WHERE version = ?", now, version);
             for (KnowledgeRevision revision : built) {
                 if (revision.state().equals("draft")) {
-                    jdbc.update("UPDATE knowledge_revision SET state = 'superseded' WHERE entry_id = ? AND language = ? AND state = 'published'",
-                            revision.entryId(), revision.language());
+                    jdbc.update("UPDATE knowledge_revision SET state = 'superseded' WHERE tenant_id = ? AND entry_id = ? AND language = ? "
+                            + "AND state = 'published'", tenantId, revision.entryId(), revision.language());
                     jdbc.update("UPDATE knowledge_revision SET state = 'published' WHERE id = ?", revision.id());
                 }
             }
             vectorStore.activeVersion().refresh();
-            log.info("Knowledge version {} activated by {}{}", version, actor, current == null ? "" : ", replacing " + current);
-            return version(version).orElseThrow();
+            log.info("Knowledge version {} of tenant {} activated by {}{}", version, tenantId, actor,
+                    current == null ? "" : ", replacing " + current);
+            return version(tenantId, version).orElseThrow();
         });
     }
 
-    /** Keeps the newest {@link #RETAINED_VERSIONS} ready versions; older ones lose their documents. */
-    private void retireOld() {
-        List<String> old = jdbc.query("SELECT version FROM knowledge_version WHERE state IN ('ready', 'failed') "
-                        + "ORDER BY created_at DESC OFFSET ?", (rs, i) -> rs.getString(1), RETAINED_VERSIONS);
+    /** Keeps the tenant's newest {@link #RETAINED_VERSIONS} ready versions; older ones lose their documents. */
+    private void retireOld(String tenantId) {
+        List<String> old = jdbc.query("SELECT version FROM knowledge_version WHERE tenant_id = ? AND state IN ('ready', 'failed') "
+                        + "ORDER BY created_at DESC OFFSET ?", (rs, i) -> rs.getString(1), tenantId, RETAINED_VERSIONS);
         FilterExpressionBuilder filter = new FilterExpressionBuilder();
         for (String version : old) {
             vectorStore.delete(filter.eq(ActiveVersionVectorStore.VERSION_KEY, version).build());
             jdbc.update("UPDATE knowledge_version SET state = 'retired' WHERE version = ?", version);
-            log.info("Retired knowledge version {} and deleted its documents", version);
+            log.info("Retired knowledge version {} of tenant {} and deleted its documents", version, tenantId);
         }
     }
 
     @Override
     public List<Passage> preview(SearchQuery query, String version) {
-        String target = version != null ? version : activeVersion()
+        String tenantId = query.tenantId();
+        String target = version != null ? version : activeVersion(tenantId)
                 .orElseThrow(() -> new KnowledgeRuleException("no active knowledge version to search"));
-        if (version(target).isEmpty()) {
+        if (version(tenantId, target).isEmpty()) {
             throw new KnowledgeRuleException("no version '" + target + "'");
         }
         SearchRequest request = SearchRequest.builder().query(query.text()).topK(query.topK())

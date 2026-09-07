@@ -17,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
 
+import static dev.merlionos.customerservice.rag.api.SearchQuery.DEFAULT_TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -45,7 +46,7 @@ class LocalKnowledgeSearchTest {
                 .similarityThreshold(ragProperties.similarityThreshold())
                 .build());
         List<Passage> viaSeam = knowledgeSearch.search(
-                new SearchQuery(question, ragProperties.topK(), ragProperties.similarityThreshold()));
+                new SearchQuery(DEFAULT_TENANT, question, ragProperties.topK(), ragProperties.similarityThreshold()));
 
         assertThat(viaSeam).hasSize(direct.size()).hasSize(ragProperties.topK());
         assertThat(viaSeam).extracting(Passage::id).containsExactlyElementsOf(direct.stream().map(Document::getId).toList());
@@ -59,7 +60,7 @@ class LocalKnowledgeSearchTest {
     void crossLanguageParity() {
         String question = "包裹到了但是摔坏了";
 
-        List<Passage> viaSeam = knowledgeSearch.search(new SearchQuery(question, 3, 0));
+        List<Passage> viaSeam = knowledgeSearch.search(new SearchQuery(DEFAULT_TENANT, question, 3, 0));
 
         assertThat(viaSeam).hasSize(3);
         assertThat(viaSeam.getFirst().metadata()).containsEntry(FaqDocumentReader.METADATA_ENTRY_ID, "returns-damaged");

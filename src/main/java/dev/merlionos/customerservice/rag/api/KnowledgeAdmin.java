@@ -23,28 +23,28 @@ import java.util.Optional;
  */
 public interface KnowledgeAdmin {
 
-    List<KnowledgeEntry> entries();
+    List<KnowledgeEntry> entries(String tenantId);
 
-    Optional<KnowledgeEntry> entry(String entryId);
+    Optional<KnowledgeEntry> entry(String tenantId, String entryId);
 
     /** Creates an entry with no text yet; drafts follow per language. */
-    KnowledgeEntry createEntry(String entryId, String category, String actor);
+    KnowledgeEntry createEntry(String tenantId, String entryId, String category, String actor);
 
     /** Saves the draft for an entry and language, replacing the previous draft if there was one. */
-    KnowledgeRevision saveDraft(String entryId, String language, String question, String answer, String note, String actor);
+    KnowledgeRevision saveDraft(String tenantId, String entryId, String language, String question, String answer, String note, String actor);
 
     /** Drops the draft for an entry and language; the published text stays as it is. */
-    void discardDraft(String entryId, String language);
+    void discardDraft(String tenantId, String entryId, String language);
 
     /** Marks an entry retired; the next publication leaves it out. Reversible until then. */
-    KnowledgeEntry retire(String entryId, boolean retired, String actor);
+    KnowledgeEntry retire(String tenantId, String entryId, boolean retired, String actor);
 
-    List<KnowledgeVersion> versions();
+    List<KnowledgeVersion> versions(String tenantId);
 
-    Optional<KnowledgeVersion> version(String version);
+    Optional<KnowledgeVersion> version(String tenantId, String version);
 
     /** The active version's id, or empty on a knowledge base nothing has been published to. */
-    Optional<String> activeVersion();
+    Optional<String> activeVersion(String tenantId);
 
     /**
      * Builds and activates a new version. Synchronous: embedding a few dozen entries takes
@@ -53,10 +53,10 @@ public interface KnowledgeAdmin {
      *
      * @param expectedActive the active version the caller saw, or null to skip the check
      */
-    KnowledgeVersion publish(String note, String actor, String expectedActive);
+    KnowledgeVersion publish(String tenantId, String note, String actor, String expectedActive);
 
     /** Activates a retained version. */
-    KnowledgeVersion rollback(String version, String expectedActive, String actor);
+    KnowledgeVersion rollback(String tenantId, String version, String expectedActive, String actor);
 
     /** What retrieval would find in a given version, or in the active one when null. */
     List<Passage> preview(SearchQuery query, String version);

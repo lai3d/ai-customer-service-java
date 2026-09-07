@@ -1,5 +1,6 @@
 package dev.merlionos.customerservice.rag;
 
+import dev.merlionos.customerservice.rag.api.SearchQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -65,29 +66,32 @@ public class KnowledgeBootstrap {
                 log.info("Bundled corpus {} not imported yet; nothing to adopt", version);
                 return false;
             }
-            boolean nothingActive = jdbc.queryForObject("SELECT version IS NULL FROM knowledge_active WHERE id = 1", Boolean.class);
+            // The bundled corpus is the default tenant's; every other tenant starts empty (ADR 002).
+            String tenant = SearchQuery.DEFAULT_TENANT;
+            boolean nothingActive = jdbc.queryForObject("SELECT version IS NULL FROM knowledge_active WHERE tenant_id = ?", Boolean.class, tenant);
             Timestamp now = Timestamp.from(Instant.now());
-            jdbc.update("INSERT INTO knowledge_version (version, state, document_count, created_at, created_by, activated_at, note) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    version, nothingActive ? "active" : "ready", documents, now, BUNDLED_ACTOR,
+            jdbc.update("INSERT INTO knowledge_version (version, tenant_id, state, document_count, created_at, created_by, activated_at, note) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    version, tenant, nothingActive ? "active" : "ready", documents, now, BUNDLED_ACTOR,
                     nothingActive ? now : null, "the bundled corpus, adopted at startup");
             for (FaqEntry entry : ingestion.bundledEntries()) {
-                jdbc.update("INSERT INTO knowledge_entry (entry_id, category, created_at, created_by) VALUES (?, ?, ?, ?) "
-                        + "ON CONFLICT (entry_id) DO NOTHING", entry.id(), entry.category(), now, BUNDLED_ACTOR);
+                jdbc.update("INSERT INTO knowledge_entry (tenant_id, entry_id, category, created_at, created_by) VALUES (?, ?, ?, ?, ?) "
+                        + "ON CONFLICT (tenant_id, entry_id) DO NOTHING", tenant, entry.id(), entry.category(), now, BUNDLED_ACTOR);
                 for (LocalizedFaq localized : entry.localized()) {
                     // Only where there is no managed text yet: an upgrade never overwrites what
                     // operators published or are drafting.
-                    boolean managed = jdbc.queryForObject("SELECT count(*) FROM knowledge_revision WHERE entry_id = ? AND language = ?",
-                            Integer.class, entry.id(), localized.language()) > 0;
+                    boolean managed = jdbc.queryForObject("SELECT count(*) FROM knowledge_revision WHERE tenant_id = ? AND entry_id = ? AND language = ?",
+                            Integer.class, tenant, entry.id(), localized.language()) > 0;
                     Long revisionId;
                     if (managed) {
-                        revisionId = jdbc.queryForObject("SELECT id FROM knowledge_revision WHERE entry_id = ? AND language = ? "
-                                + "AND state = 'published'", Long.class, entry.id(), localized.language());
+                        revisionId = jdbc.query("SELECT id FROM knowledge_revision WHERE tenant_id = ? AND entry_id = ? AND language = ? "
+                                + "AND state = 'published'", (rs, i) -> rs.getLong(1), tenant, entry.id(), localized.language())
+                                .stream().findFirst().orElse(null);
                     }
                     else {
-                        revisionId = jdbc.queryForObject("INSERT INTO knowledge_revision (entry_id, language, question, answer, state, "
-                                        + "created_at, created_by, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id", Long.class,
-                                entry.id(), localized.language(), localized.question(), localized.answer(),
+                        revisionId = jdbc.queryForObject("INSERT INTO knowledge_revision (tenant_id, entry_id, language, question, answer, state, "
+                                        + "created_at, created_by, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id", Long.class,
+                                tenant, entry.id(), localized.language(), localized.question(), localized.answer(),
                                 nothingActive ? "published" : "superseded", now, BUNDLED_ACTOR, "bundled corpus " + version);
                     }
                     if (revisionId != null) {
@@ -97,8 +101,8 @@ public class KnowledgeBootstrap {
                 }
             }
             if (nothingActive) {
-                jdbc.update("UPDATE knowledge_active SET version = ?, switched_at = ?, switched_by = ? WHERE id = 1",
-                        version, now, BUNDLED_ACTOR);
+                jdbc.update("UPDATE knowledge_active SET version = ?, switched_at = ?, switched_by = ? WHERE tenant_id = ?",
+                        version, now, BUNDLED_ACTOR, tenant);
             }
             log.info("Adopted the bundled corpus {} as a managed knowledge version ({})", version,
                     nothingActive ? "active" : "ready, something else is active");

@@ -120,16 +120,19 @@ public class AdminOverview {
     }
 
     private List<Stat> knowledge() {
+        // The default tenant's knowledge: the overview is not per tenant yet (ADR 002, staff per
+        // tenant is the step after this one), and a sum over tenants would be a number
+        // without a meaning.
         Map<String, Object> row = jdbc.queryForMap("""
-                SELECT (SELECT version FROM knowledge_active WHERE id = 1) AS active,
-                       (SELECT document_count FROM knowledge_version WHERE state = 'active') AS documents,
-                       (SELECT count(*) FROM knowledge_entry WHERE NOT retired) AS entries,
-                       (SELECT count(*) FROM knowledge_revision WHERE state = 'draft') AS drafts,
-                       (SELECT count(*) FROM knowledge_version WHERE state = 'ready') AS retained,
-                       (SELECT count(*) FROM knowledge_version WHERE state = 'failed') AS failed
+                SELECT (SELECT version FROM knowledge_active WHERE tenant_id = 'default') AS active,
+                       (SELECT document_count FROM knowledge_version WHERE tenant_id = 'default' AND state = 'active') AS documents,
+                       (SELECT count(*) FROM knowledge_entry WHERE tenant_id = 'default' AND NOT retired) AS entries,
+                       (SELECT count(*) FROM knowledge_revision WHERE tenant_id = 'default' AND state = 'draft') AS drafts,
+                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = 'default' AND state = 'ready') AS retained,
+                       (SELECT count(*) FROM knowledge_version WHERE tenant_id = 'default' AND state = 'failed') AS failed
                 """);
         return List.of(
-                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads: " + row.get("active") + "."),
+                new Stat("activeVersion", "Active version", null, "The knowledge version retrieval reads for the default tenant: " + row.get("active") + "."),
                 stat("documents", "Documents", number(row, "documents"), "Documents in the active version, every language counted."),
                 stat("entries", "Entries", number(row, "entries"), "Managed entries not retired."),
                 stat("drafts", "Drafts", number(row, "drafts"), "Drafts waiting for a publication; none of them is live."),
