@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { api, type IssuedKey, type Tenant, type TenantDetail } from '../api';
+import { api, type IssuedKey, type KeyKind, type Tenant, type TenantDetail } from '../api';
 import { Empty, ErrorNote, Pill } from '../components/ui';
 import { when } from '../format';
 
@@ -63,6 +63,8 @@ function TenantDetailPage({ id }: { id: string }) {
   const [data, setData] = useState<TenantDetail | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [label, setLabel] = useState('');
+  const [kind, setKind] = useState<KeyKind>('secret');
+  const [origins, setOrigins] = useState('');
   const [issued, setIssued] = useState<IssuedKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState('');
@@ -74,8 +76,9 @@ function TenantDetailPage({ id }: { id: string }) {
   const issue = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const key = await api.issueTenantKey(id, label.trim());
-      setIssued(key); setCopied(false); setLabel(''); setStatus(''); setError(null);
+      const list = origins.split(/[\s,]+/).map(o => o.trim()).filter(Boolean);
+      const key = await api.issueTenantKey(id, label.trim(), kind, list);
+      setIssued(key); setCopied(false); setLabel(''); setOrigins(''); setStatus(''); setError(null);
       await load();
     } catch (err) { setError(err); }
   };
@@ -106,25 +109,33 @@ function TenantDetailPage({ id }: { id: string }) {
       </section>
       <section>
         <h3>API keys</h3>
-        <p className="hint">A key is the tenant's identity on <span className="mono">/api/v1/**</span> (<span className="mono">Authorization: Bearer</span>). It is shown once, when issued; the server keeps only its hash. Revoking takes effect on the next request.</p>
+        <p className="hint">A key is the tenant's identity on <span className="mono">/api/v1/**</span>. A <b>secret</b> key is for a server the tenant controls (<span className="mono">Authorization: Bearer</span>); a <b>widget</b> key is pasted into the tenant's web page and works only from browsers on the origins it was issued for. Either is shown once, when issued; the server keeps only its hash. Revoking takes effect on the next request.</p>
         {issued && (
           <div className="notice">
-            <div>New key for <span className="mono">{id}</span> ({issued.label}). Copy it now; it will not be shown again.</div>
+            <div>New {issued.kind} key for <span className="mono">{id}</span> ({issued.label}){issued.kind === 'widget' && <> for {issued.origins.join(', ')}</>}. Copy it now; it will not be shown again.</div>
             <div className="row">
               <code className="mono">{issued.key}</code>
               <button type="button" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
               <button type="button" onClick={() => setIssued(null)}>I have saved it</button>
             </div>
+            {issued.kind === 'widget' && (
+              <div>
+                <div className="hint">The tag for the tenant's page; the host is this deployment's public address (see docs/widget.md):</div>
+                <code className="mono">{`<script src="https://<this deployment>/widget.js" data-key="${issued.key}" async></script>`}</code>
+              </div>
+            )}
           </div>
         )}
         {live.length === 0 ? <p className="hint">No live keys; this tenant cannot talk to the public API.</p> : (
           <table>
-            <thead><tr><th>Key id</th><th>Label</th><th>Issued</th><th></th></tr></thead>
+            <thead><tr><th>Key id</th><th>Kind</th><th>Label</th><th>Origins</th><th>Issued</th><th></th></tr></thead>
             <tbody>
               {live.map(k => (
                 <tr key={k.keyId}>
                   <td className="mono">{k.keyId}</td>
+                  <td><Pill kind={k.kind}>{k.kind}</Pill></td>
                   <td>{k.label}</td>
+                  <td className="mono">{k.kind === 'widget' ? k.origins.join(' ') : '—'}</td>
                   <td>{when(k.createdAt)}</td>
                   <td><button className="danger" onClick={() => void run(() => api.revokeTenantKey(id, k.keyId), `Revoked ${k.keyId}.`)}>Revoke</button></td>
                 </tr>
@@ -133,15 +144,22 @@ function TenantDetailPage({ id }: { id: string }) {
           </table>
         )}
         <form className="row" onSubmit={issue}>
+          <label>Kind
+            <select value={kind} onChange={e => setKind(e.target.value as KeyKind)}>
+              <option value="secret">secret (a server)</option>
+              <option value="widget">widget (a web page)</option>
+            </select>
+          </label>
           <label>Label <input value={label} onChange={e => setLabel(e.target.value)} placeholder="what this key is for" maxLength={200} autoComplete="off" /></label>
-          <button className="primary">Issue a key</button>
+          {kind === 'widget' && <label>Origins <input value={origins} onChange={e => setOrigins(e.target.value)} placeholder="https://shop.example.com https://www.example.com" size={48} required autoComplete="off" /></label>}
+          <button className="primary">Issue a {kind} key</button>
         </form>
         {revoked.length > 0 && (
           <>
             <h4>Revoked</h4>
             <table>
-              <thead><tr><th>Key id</th><th>Label</th><th>Issued</th><th>Revoked</th></tr></thead>
-              <tbody>{revoked.map(k => <tr key={k.keyId}><td className="mono">{k.keyId}</td><td>{k.label}</td><td>{when(k.createdAt)}</td><td>{when(k.revokedAt!)}</td></tr>)}</tbody>
+              <thead><tr><th>Key id</th><th>Kind</th><th>Label</th><th>Issued</th><th>Revoked</th></tr></thead>
+              <tbody>{revoked.map(k => <tr key={k.keyId}><td className="mono">{k.keyId}</td><td>{k.kind}</td><td>{k.label}</td><td>{when(k.createdAt)}</td><td>{when(k.revokedAt!)}</td></tr>)}</tbody>
             </table>
           </>
         )}
