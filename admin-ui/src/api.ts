@@ -48,12 +48,12 @@ export interface ConversationDetail { conversationId: string; tenantId: string; 
 /** A golden case: a question and what a correct answer must satisfy (docs/evaluation.md). */
 export interface GoldenCase {
   id: number; tenantId: string; question: string; language: string; expectedEntryIds: string[]; mustContain: string[];
-  anyOf: string[]; mustNotContain: string[]; expectTool: string | null; expectRefusal: boolean; enabled: boolean;
+  anyOf: string[]; mustNotContain: string[]; expectTool: string | null; forbidTool: string | null; expectRefusal: boolean; enabled: boolean;
   note: string | null; createdAt: string; createdBy: string;
 }
 export interface CaseInput {
   question: string; language: string; expectedEntryIds: string[]; mustContain: string[]; anyOf: string[]; mustNotContain: string[];
-  expectTool: string | null; expectRefusal: boolean; enabled: boolean; note: string | null;
+  expectTool: string | null; forbidTool: string | null; expectRefusal: boolean; enabled: boolean; note: string | null;
 }
 export interface EvaluationRun {
   id: number; tenantId: string; state: 'running' | 'done' | 'failed'; cases: number; passed: number; retrievalHits: number;
