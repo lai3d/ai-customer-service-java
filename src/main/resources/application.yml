@@ -322,6 +322,10 @@ app:
     timeout: 8s
     # Where Shopify is; blank means https://<shop domain>. A local stand-in for tests and a demo.
     shopify-base-url: ${SHOPIFY_BASE_URL:}
+    # Where every tenant's Xboard panel is; blank means the connector's own URL. A stand-in likewise.
+    xboard-base-url: ${XBOARD_BASE_URL:}
+    # A panel URL must be public (loopback, link-local and private ranges refused) unless this is on.
+    allow-private-networks: ${CONNECTOR_ALLOW_PRIVATE_NETWORKS:false}
 
   knowledge-import:
     # A tenant's own web pages and PDFs into draft entries (docs/adr/002-tenancy.md). A URL is

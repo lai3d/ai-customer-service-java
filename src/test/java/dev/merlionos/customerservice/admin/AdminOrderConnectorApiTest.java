@@ -4,7 +4,10 @@ import dev.merlionos.customerservice.PostgresTestcontainer;
 import dev.merlionos.customerservice.orders.OrderLookup;
 import dev.merlionos.customerservice.orders.OrderLookupResult;
 import dev.merlionos.customerservice.orders.OrderStatus;
+import dev.merlionos.customerservice.orders.AccountLookup;
+import dev.merlionos.customerservice.orders.AccountLookupResult;
 import dev.merlionos.customerservice.orders.shopify.FakeShopify;
+import dev.merlionos.customerservice.orders.xboard.FakeXboard;
 import dev.merlionos.customerservice.tenancy.Tenant;
 import dev.merlionos.customerservice.tenancy.Tenants;
 import org.junit.jupiter.api.AfterAll;
@@ -39,20 +42,24 @@ class AdminOrderConnectorApiTest {
 
     static final String PASSWORD = "a-long-enough-password";
     static FakeShopify shopify;
+    static FakeXboard xboard;
 
     @BeforeAll
-    static void startShopify() throws Exception {
+    static void startStandIns() throws Exception {
         shopify = new FakeShopify();
+        xboard = new FakeXboard();
     }
 
     @AfterAll
-    static void stopShopify() {
+    static void stopStandIns() {
         shopify.close();
+        xboard.close();
     }
 
     @DynamicPropertySource
-    static void shopifyAddress(DynamicPropertyRegistry registry) {
+    static void standInAddresses(DynamicPropertyRegistry registry) {
         registry.add("app.connectors.shopify-base-url", () -> shopify.baseUrl());
+        registry.add("app.connectors.xboard-base-url", () -> xboard.baseUrl());
         registry.add("app.connectors.secret-key", () -> java.util.Base64.getEncoder().encodeToString(new byte[32]));
     }
 
@@ -61,6 +68,7 @@ class AdminOrderConnectorApiTest {
     @Autowired StaffAccounts accounts;
     @Autowired Tenants tenants;
     @Autowired OrderLookup orders;
+    @Autowired AccountLookup customerAccounts;
 
     @BeforeEach
     void staff() {
@@ -126,5 +134,34 @@ class AdminOrderConnectorApiTest {
     private static HttpResponse<String> delete(AdminBrowser browser, String path) throws Exception {
         return browser.client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + browser.port + path))
                 .header("X-XSRF-TOKEN", browser.csrf()).DELETE().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    @DisplayName("an Xboard panel: configured by URL, tested without a token, the customer's own account read with theirs")
+    void xboardPanel() throws Exception {
+        String tenant = "cloud-" + UUID.randomUUID().toString().substring(0, 6);
+        tenants.create(tenant, "Northwind Cloud");
+        AdminBrowser root = AdminBrowser.signedIn(port, "root", PASSWORD);
+        String base = "/admin/api/tenants/" + tenant + "/order-connector";
+
+        assertThat(customerAccounts.lookup(tenant, FakeXboard.CUSTOMER_TOKEN).outcome()).as("nothing configured").isEqualTo(AccountLookupResult.NOT_CONNECTED);
+        assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"panel.example.com/user\"}").statusCode()).as("a URL with a scheme").isEqualTo(422);
+        assertThat(put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://panel.example.com/user\"}").statusCode()).as("no path").isEqualTo(422);
+
+        HttpResponse<String> configured = put(root, base, "{\"kind\":\"xboard\",\"baseUrl\":\"https://Panel.Example.com/\"}");
+        assertThat(configured.statusCode()).as(configured.body()).isEqualTo(200);
+        assertThat(configured.body()).contains("\"kind\":\"xboard\"", "\"baseUrl\":\"https://panel.example.com\"", "\"accessToken\":null");
+        assertThat(root.postJson(base + "/test", "{}").body()).contains("\"ok\":true", "\"shopName\":\"Northwind Cloud\"");
+
+        AccountLookupResult mine = customerAccounts.lookup(tenant, FakeXboard.CUSTOMER_TOKEN);
+        assertThat(mine.found()).isTrue();
+        assertThat(mine.account().plan()).isEqualTo("Pro 200G");
+        assertThat(mine.account().trafficRemainingGb()).isEqualTo(98.5);
+        assertThat(customerAccounts.lookup(tenant, null).outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
+        assertThat(customerAccounts.lookup(tenant, "2|someone-else").outcome()).isEqualTo(AccountLookupResult.NOT_SIGNED_IN);
+        assertThat(orders.lookup(tenant, "#1001").outcome()).as("orders live in the panel").isEqualTo(AccountLookupResult.UNAVAILABLE);
+        assertThat(orders.lookup(tenant, "#1001").explanation()).contains("subscription lookup");
+        assertThat(jdbc.queryForList("SELECT detail FROM admin_audit WHERE action = 'connector_changed' AND target = ? ORDER BY id", String.class, tenant))
+                .containsExactly("xboard https://panel.example.com v1");
     }
 }

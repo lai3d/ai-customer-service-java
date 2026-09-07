@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.chat;
 import dev.merlionos.customerservice.clients.HttpKnowledgeSearch;
 import dev.merlionos.customerservice.cost.ConversationBudget;
 import dev.merlionos.customerservice.rag.api.TenantFilter;
+import dev.merlionos.customerservice.tools.AccountTools;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -73,6 +74,15 @@ public class ChatService {
      * tests that would otherwise have to parse an event stream.
      */
     public String ask(String tenantId, String conversationId, String message) {
+        return ask(tenantId, conversationId, message, null);
+    }
+
+    /**
+     * @param customerToken the customer's own credential to the tenant's panel, from the
+     *                      widget on the panel's page; carried into the tool context for this
+     *                      turn and nowhere else. Null when the client sent none
+     */
+    public String ask(String tenantId, String conversationId, String message, String customerToken) {
         budget.checkRemaining(conversationId);
 
         // No client stream is listening, but the record is: the channel is opened so the
@@ -81,21 +91,21 @@ public class ChatService {
         String turnId = UUID.randomUUID().toString();
         lease.acquire(conversationId, turnId);
         try {
-            return askHoldingLease(tenantId, conversationId, turnId, message);
+            return askHoldingLease(tenantId, conversationId, turnId, message, customerToken);
         }
         finally {
             lease.release(conversationId, turnId);
         }
     }
 
-    private String askHoldingLease(String tenantId, String conversationId, String turnId, String message) {
+    private String askHoldingLease(String tenantId, String conversationId, String turnId, String message, String customerToken) {
         // The first row, before the model. If this throws, the model is never called.
         recorder.start(turnId, tenantId, conversationId, TurnRecorder.Path.BLOCKING, message);
         TurnEventBus.Channel channel = turnEventBus.open(turnId);
         channel.events().subscribe(event -> recordEvent(turnId, event));
         String traceId = currentTraceId();
         try {
-            String answer = callHoldingLease(tenantId, conversationId, turnId, message);
+            String answer = callHoldingLease(tenantId, conversationId, turnId, message, customerToken);
             return answer;
         }
         catch (RuntimeException e) {
@@ -107,7 +117,7 @@ public class ChatService {
         }
     }
 
-    private String callHoldingLease(String tenantId, String conversationId, String turnId, String message) {
+    private String callHoldingLease(String tenantId, String conversationId, String turnId, String message, String customerToken) {
         // Deliberately not `.content()`. That discards the response metadata, and with it the
         // token usage -- so this path would spend money that the budget and the cost meters
         // never saw. Found by a test asserting the second request over budget was refused; it
@@ -118,7 +128,7 @@ public class ChatService {
                         .param(ChatMemory.CONVERSATION_ID, conversationId)
                         .param(TurnEventBus.TURN_ID_KEY, turnId)
                         .param(QuestionAnswerAdvisor.FILTER_EXPRESSION, TenantFilter.text(tenantId)))
-                .toolContext(toolContext(tenantId, conversationId, turnId))
+                .toolContext(toolContext(tenantId, conversationId, turnId, customerToken))
                 .call()
                 .chatResponse();
 
@@ -164,6 +174,10 @@ public class ChatService {
      * the merge cannot complete until the tool flux does.
      */
     public Flux<TurnEvent> stream(String tenantId, String conversationId, String message) {
+        return stream(tenantId, conversationId, message, null);
+    }
+
+    public Flux<TurnEvent> stream(String tenantId, String conversationId, String message, String customerToken) {
         // Checked before the Flux is built, so an exhausted budget is an HTTP status rather
         // than an error event buried in a stream that has already been committed as 200.
         budget.checkRemaining(conversationId);
@@ -196,7 +210,7 @@ public class ChatService {
             // The channel is per turn. Closing by conversation id used to complete whichever
             // turn registered last and orphan the other one's stream forever.
             TurnEventBus.Channel channel = turnEventBus.open(turnId);
-            Flux<TurnEvent> modelEvents = modelEvents(tenantId, conversationId, channel.turnId(), traceId, message, recording)
+            Flux<TurnEvent> modelEvents = modelEvents(tenantId, conversationId, channel.turnId(), traceId, message, recording, customerToken)
                     .doFinally(signal -> turnEventBus.close(channel.turnId()));
 
             // Finished on the signal itself, not in doFinally: doFinally runs after the terminal
@@ -250,7 +264,7 @@ public class ChatService {
     }
 
     private Flux<TurnEvent> modelEvents(String tenantId, String conversationId, String turnId, String traceId,
-                                        String message, Recording recording) {
+                                        String message, Recording recording, String customerToken) {
         long started = System.currentTimeMillis();
         TurnUsage usage = recording.usage;
         AtomicReference<String> model = recording.model;
@@ -262,7 +276,7 @@ public class ChatService {
                         .param(TurnEventBus.TURN_ID_KEY, turnId)
                         // Retrieval reads this tenant's knowledge and no other's (ADR 002).
                         .param(QuestionAnswerAdvisor.FILTER_EXPRESSION, TenantFilter.text(tenantId)))
-                .toolContext(toolContext(tenantId, conversationId, turnId))
+                .toolContext(toolContext(tenantId, conversationId, turnId, customerToken))
                 .stream()
                 .chatClientResponse()
                 // Retrieval is reported by RetrievalReportingAdvisor, which publishes to the
@@ -399,9 +413,14 @@ public class ChatService {
      * Every path that reaches the model therefore has to supply this, which is what
      * {@code ChatServiceToolContextTest} checks.
      */
-    private static Map<String, Object> toolContext(String tenantId, String conversationId, String turnId) {
-        return Map.of(SupportTicketTools.TENANT_ID_KEY, tenantId,
-                SupportTicketTools.CONVERSATION_ID_KEY, conversationId,
-                TurnEventBus.TURN_ID_KEY, turnId);
+    private static Map<String, Object> toolContext(String tenantId, String conversationId, String turnId, String customerToken) {
+        Map<String, Object> context = new java.util.HashMap<>();
+        context.put(SupportTicketTools.TENANT_ID_KEY, tenantId);
+        context.put(SupportTicketTools.CONVERSATION_ID_KEY, conversationId);
+        context.put(TurnEventBus.TURN_ID_KEY, turnId);
+        if (customerToken != null && !customerToken.isBlank()) {
+            context.put(AccountTools.CUSTOMER_TOKEN_KEY, customerToken);
+        }
+        return Map.copyOf(context);
     }
 }

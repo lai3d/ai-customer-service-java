@@ -30,15 +30,24 @@ class ToolDefinitionTest {
 
     private final Map<String, ToolCallback> callbacks = Arrays.stream(ToolCallbacks.from(
                     new OrderTools(new LocalOrderLookup(new MockOrderRepository()), new SimpleMeterRegistry(), new TurnEventBus()),
-                    new SupportTicketTools(new FakeTicketOperations(), new SimpleMeterRegistry(), new TurnEventBus())))
+                    new SupportTicketTools(new FakeTicketOperations(), new SimpleMeterRegistry(), new TurnEventBus()),
+                    new AccountTools((tenant, token) -> dev.merlionos.customerservice.orders.AccountLookupResult.notConnected(),
+                            new SimpleMeterRegistry(), new TurnEventBus())))
             .collect(Collectors.toMap(callback -> callback.getToolDefinition().name(), Function.identity()));
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    @DisplayName("both tools are exposed under their intended names")
-    void exposesBothTools() {
-        assertThat(callbacks).containsOnlyKeys("lookup_order_status", "create_support_ticket");
+    @DisplayName("the three tools are exposed under their intended names")
+    void exposesTheTools() {
+        assertThat(callbacks).containsOnlyKeys("lookup_order_status", "create_support_ticket", "lookup_my_subscription");
+    }
+
+    @Test
+    @DisplayName("the subscription lookup has no parameters: the model cannot ask about anyone but the signed-in customer")
+    void subscriptionLookupTakesNothing() throws Exception {
+        assertThat(properties("lookup_my_subscription").size()).isZero();
+        assertThat(schema("lookup_my_subscription").toString()).doesNotContain("customerToken").doesNotContain("toolContext");
     }
 
     @Test

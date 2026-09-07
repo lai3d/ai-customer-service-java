@@ -24,6 +24,8 @@ import java.time.Duration;
 class ChatController {
 
     static final String CONVERSATION_ID_HEADER = "X-Conversation-Id";
+    /** The customer's own credential to the tenant's panel, forwarded by the widget; read per turn, never stored or logged. */
+    static final String CUSTOMER_TOKEN_HEADER = "X-Customer-Token";
     static final String TOKEN_EVENT = "message";
     static final String ERROR_EVENT = "error";
     static final String RETRIEVAL_EVENT = "retrieval";
@@ -55,7 +57,7 @@ class ChatController {
         return ResponseEntity.ok()
                 .header(CONVERSATION_ID_HEADER, conversation.external())
                 .body(new ChatReply(conversation.external(),
-                        chatService.ask(tenant.id(), conversation.internal(), request.message())));
+                        chatService.ask(tenant.id(), conversation.internal(), request.message(), customerToken(http))));
     }
 
     /**
@@ -80,7 +82,7 @@ class ChatController {
         Resolved conversation = resolveConversation(tenant, request);
         String conversationId = conversation.internal();
 
-        Flux<ServerSentEvent<TurnEvent>> events = chatService.stream(tenant.id(), conversationId, request.message())
+        Flux<ServerSentEvent<TurnEvent>> events = chatService.stream(tenant.id(), conversationId, request.message(), customerToken(http))
                 .map(ChatController::toServerSentEvent)
                 .onErrorResume(error -> {
                     log.error("Streamed chat failed for conversation {}", conversationId, error);
@@ -110,6 +112,11 @@ class ChatController {
 
         return events.publish(shared ->
                 Flux.merge(shared, heartbeats.takeUntilOther(shared.ignoreElements())));
+    }
+
+    private static String customerToken(HttpServletRequest http) {
+        String token = http.getHeader(CUSTOMER_TOKEN_HEADER);
+        return token == null || token.isBlank() ? null : token.strip();
     }
 
     /** The client's id and ours. The client's is echoed; ours is what every table keys on. */

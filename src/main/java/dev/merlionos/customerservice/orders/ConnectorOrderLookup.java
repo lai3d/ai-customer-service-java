@@ -26,9 +26,13 @@ public class ConnectorOrderLookup implements OrderLookup {
 
     @Override
     public OrderLookupResult lookup(String tenantId, String orderNumber) {
-        Optional<OrderConnector> connector = connectors.of(tenantId);
+        Optional<OrderConnector> connector = connectors.of(tenantId).filter(c -> OrderConnector.SHOPIFY.equals(c.kind()));
         if (connector.isPresent()) {
             return shopify.lookup(connector.get(), orderNumber);
+        }
+        if (connectors.of(tenantId).isPresent()) {
+            return OrderLookupResult.unavailable("This service's orders live in its subscription panel; use the customer's "
+                    + "subscription lookup instead of an order number.");
         }
         if (Tenant.DEFAULT.equals(tenantId)) {
             return mock.lookup(tenantId, orderNumber);

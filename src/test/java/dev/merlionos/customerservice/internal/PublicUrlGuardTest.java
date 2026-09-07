@@ -1,6 +1,5 @@
-package dev.merlionos.customerservice.rag;
+package dev.merlionos.customerservice.internal;
 
-import dev.merlionos.customerservice.rag.api.KnowledgeRuleException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,9 +12,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** What a URL import may not fetch: every address inside the deployment, on every hop. */
-class SourceGuardTest {
+class PublicUrlGuardTest {
 
-    private final SourceGuard guard = new SourceGuard(false);
+    private final PublicUrlGuard guard = new PublicUrlGuard(false);
 
     @ParameterizedTest
     @ValueSource(strings = {
@@ -26,7 +25,7 @@ class SourceGuardTest {
             "http://[fc00::1]/", "http://[fd12::1]/", "http://224.0.0.1/"})
     @DisplayName("addresses inside the deployment are refused")
     void refusesInternalAddresses(String url) {
-        assertThatThrownBy(() -> guard.check(url)).isInstanceOf(KnowledgeRuleException.class)
+        assertThatThrownBy(() -> guard.check(url)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inside the deployment");
     }
 
@@ -34,13 +33,13 @@ class SourceGuardTest {
     @ValueSource(strings = {"ftp://example.com/x", "file:///etc/passwd", "gopher://x/", "example.com/help", "", "http:///nohost"})
     @DisplayName("only http and https with a host are URLs an import takes")
     void refusesOtherSchemes(String url) {
-        assertThatThrownBy(() -> guard.check(url)).isInstanceOf(KnowledgeRuleException.class);
+        assertThatThrownBy(() -> guard.check(url)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     @DisplayName("credentials in a URL are refused before anything is resolved")
     void refusesUserInfo() {
-        assertThatThrownBy(() -> guard.check("https://user:secret@example.com/")).isInstanceOf(KnowledgeRuleException.class)
+        assertThatThrownBy(() -> guard.check("https://user:secret@example.com/")).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("credentials");
     }
 
@@ -48,21 +47,21 @@ class SourceGuardTest {
     @DisplayName("a public address passes; the private-network switch lets loopback through for a laptop or a test")
     void publicAndSwitched() throws Exception {
         assertThatCode(() -> guard.check("https://93.184.216.34/help")).doesNotThrowAnyException();
-        assertThat(SourceGuard.isPublic(InetAddress.getByName("93.184.216.34"))).isTrue();
-        assertThat(SourceGuard.isPublic(InetAddress.getByName("2606:2800:220:1:248:1893:25c8:1946"))).isTrue();
-        assertThat(SourceGuard.isPublic(InetAddress.getByName("192.0.0.8"))).isFalse();
-        assertThat(SourceGuard.isPublic(InetAddress.getByName("240.1.1.1"))).isFalse();
-        assertThatCode(() -> new SourceGuard(true).check("http://localhost:1234/page")).doesNotThrowAnyException();
+        assertThat(PublicUrlGuard.isPublic(InetAddress.getByName("93.184.216.34"))).isTrue();
+        assertThat(PublicUrlGuard.isPublic(InetAddress.getByName("2606:2800:220:1:248:1893:25c8:1946"))).isTrue();
+        assertThat(PublicUrlGuard.isPublic(InetAddress.getByName("192.0.0.8"))).isFalse();
+        assertThat(PublicUrlGuard.isPublic(InetAddress.getByName("240.1.1.1"))).isFalse();
+        assertThatCode(() -> new PublicUrlGuard(true).check("http://localhost:1234/page")).doesNotThrowAnyException();
     }
 
     @Test
     @DisplayName("the chunk language is Chinese when a fifth of the letters are; the entry id prefix is stable per source")
     void languageAndHash() {
-        assertThat(KnowledgeImporter.languageOf("退货有时间限制吗？ 30 天内可以退。")).isEqualTo("zh");
-        assertThat(KnowledgeImporter.languageOf("Returns are accepted within 30 days.")).isEqualTo("en");
-        assertThat(KnowledgeImporter.languageOf("Order ORD-1 (订单) shipped")).isEqualTo("en");
-        assertThat(KnowledgeImporter.hash8("https://example.com/help")).hasSize(8)
-                .isEqualTo(KnowledgeImporter.hash8("https://example.com/help"))
-                .isNotEqualTo(KnowledgeImporter.hash8("https://example.com/help2"));
+        assertThat(dev.merlionos.customerservice.rag.KnowledgeImporter.languageOf("退货有时间限制吗？ 30 天内可以退。")).isEqualTo("zh");
+        assertThat(dev.merlionos.customerservice.rag.KnowledgeImporter.languageOf("Returns are accepted within 30 days.")).isEqualTo("en");
+        assertThat(dev.merlionos.customerservice.rag.KnowledgeImporter.languageOf("Order ORD-1 (订单) shipped")).isEqualTo("en");
+        assertThat(dev.merlionos.customerservice.rag.KnowledgeImporter.hash8("https://example.com/help")).hasSize(8)
+                .isEqualTo(dev.merlionos.customerservice.rag.KnowledgeImporter.hash8("https://example.com/help"))
+                .isNotEqualTo(dev.merlionos.customerservice.rag.KnowledgeImporter.hash8("https://example.com/help2"));
     }
 }

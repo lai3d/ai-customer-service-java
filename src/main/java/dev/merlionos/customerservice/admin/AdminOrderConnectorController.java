@@ -3,6 +3,7 @@ package dev.merlionos.customerservice.admin;
 import dev.merlionos.customerservice.orders.OrderConnector;
 import dev.merlionos.customerservice.orders.OrderConnectors;
 import dev.merlionos.customerservice.orders.shopify.ShopifyOrderLookup;
+import dev.merlionos.customerservice.orders.xboard.XboardAccountLookup;
 import dev.merlionos.customerservice.tenancy.Tenants;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,12 +34,15 @@ class AdminOrderConnectorController {
 
     private final OrderConnectors connectors;
     private final ShopifyOrderLookup shopify;
+    private final XboardAccountLookup xboard;
     private final Tenants tenants;
     private final AdminAudit audit;
 
-    AdminOrderConnectorController(OrderConnectors connectors, ShopifyOrderLookup shopify, Tenants tenants, AdminAudit audit) {
+    AdminOrderConnectorController(OrderConnectors connectors, ShopifyOrderLookup shopify, XboardAccountLookup xboard, Tenants tenants,
+                                  AdminAudit audit) {
         this.connectors = connectors;
         this.shopify = shopify;
+        this.xboard = xboard;
         this.tenants = tenants;
         this.audit = audit;
     }
@@ -57,17 +61,24 @@ class AdminOrderConnectorController {
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
-    record ShopifyConfig(String kind, String shopDomain, String accessToken, String apiVersion) {
+    /**
+     * @param kind       {@code shopify} (the default) with {@code shopDomain} and {@code accessToken}, or
+     *                   {@code xboard} with {@code baseUrl} and an optional admin {@code accessToken}
+     */
+    record ConnectorConfig(String kind, String shopDomain, String baseUrl, String accessToken, String apiVersion) {
     }
 
     @PutMapping
-    OrderConnector put(@PathVariable String tenantId, @RequestBody ShopifyConfig config, Authentication auth) {
+    OrderConnector put(@PathVariable String tenantId, @RequestBody ConnectorConfig config, Authentication auth) {
         String id = scoped(tenantId, auth);
-        if (config.kind() != null && !config.kind().isBlank() && !OrderConnector.SHOPIFY.equalsIgnoreCase(config.kind().strip())) {
-            throw new IllegalArgumentException("the one connector kind today is shopify");
-        }
-        OrderConnector stored = connectors.configureShopify(id, config.shopDomain(), config.accessToken(), config.apiVersion(), auth.getName());
-        audit.record(auth.getName(), AdminAudit.Action.CONNECTOR_CHANGED, id, "shopify " + stored.shopDomain() + " " + stored.apiVersion());
+        String kind = config.kind() == null || config.kind().isBlank() ? OrderConnector.SHOPIFY : config.kind().strip().toLowerCase(java.util.Locale.ROOT);
+        OrderConnector stored = switch (kind) {
+            case OrderConnector.SHOPIFY -> connectors.configureShopify(id, config.shopDomain(), config.accessToken(), config.apiVersion(), auth.getName());
+            case OrderConnector.XBOARD -> connectors.configureXboard(id, config.baseUrl(), config.accessToken(), auth.getName());
+            default -> throw new IllegalArgumentException("a connector kind is shopify or xboard");
+        };
+        audit.record(auth.getName(), AdminAudit.Action.CONNECTOR_CHANGED, id, stored.kind() + " "
+                + (stored.shopDomain() != null ? stored.shopDomain() : stored.baseUrl()) + " " + stored.apiVersion());
         return stored.masked();
     }
 
@@ -87,11 +98,13 @@ class AdminOrderConnectorController {
     TestResult test(@PathVariable String tenantId, Authentication auth) {
         String id = scoped(tenantId, auth);
         OrderConnector connector = connectors.of(id).orElseThrow(() -> new NotFound("No connector for '" + id + "'"));
+        String where = connector.shopDomain() != null ? connector.shopDomain() : connector.baseUrl();
         try {
-            return new TestResult(true, connector.shopDomain(), shopify.shopName(connector), null);
+            String name = OrderConnector.XBOARD.equals(connector.kind()) ? xboard.panelName(connector) : shopify.shopName(connector);
+            return new TestResult(true, where, name, null);
         }
         catch (RuntimeException e) {
-            return new TestResult(false, connector.shopDomain(), null, e.getMessage());
+            return new TestResult(false, where, null, e.getMessage());
         }
     }
 

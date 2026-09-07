@@ -10,6 +10,7 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import dev.merlionos.customerservice.chat.RetrievalReportingAdvisor;
 import dev.merlionos.customerservice.rag.api.RagProperties;
+import dev.merlionos.customerservice.tools.AccountTools;
 import dev.merlionos.customerservice.tools.OrderTools;
 import dev.merlionos.customerservice.tools.SupportTicketTools;
 import org.slf4j.Logger;
@@ -78,7 +79,7 @@ class ChatClientConfig {
     @Bean
     ChatClient chatClient(ChatClient.Builder builder, ChatMemory chatMemory,
                           VectorStore vectorStore, RagProperties ragProperties,
-                          OrderTools orderTools, SupportTicketTools supportTicketTools,
+                          OrderTools orderTools, SupportTicketTools supportTicketTools, AccountTools accountTools,
                           RetrievalReportingAdvisor retrievalReporting) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .topK(ragProperties.topK())
@@ -91,7 +92,7 @@ class ChatClientConfig {
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         QuestionAnswerAdvisor.builder(vectorStore).searchRequest(searchRequest).build(),
                         retrievalReporting)
-                .defaultTools(orderTools, supportTicketTools)
+                .defaultTools(orderTools, supportTicketTools, accountTools)
                 .build();
     }
 

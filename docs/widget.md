@@ -20,6 +20,7 @@ page's origin.
 | `data-lang` | the browser's language | `en` or `zh`; the built-in text, and what the assistant is asked in |
 | `data-title`, `data-greeting` | per language | The panel's heading and first message |
 | `data-position` | `right` | `left` puts the bubble at the bottom left |
+| `data-customer-token`, `data-customer-token-key` | none | On a page where the customer is signed in to the tenant's panel: the customer's own panel token, or the localStorage key holding it, forwarded as `X-Customer-Token` so the assistant can read that customer's account ([connectors](connectors.md)) |
 
 The script is served by the application itself (`src/main/resources/static/widget.js`), so
 it is versioned with the API it speaks to. `widget-demo.html` is a stand-in shop page for

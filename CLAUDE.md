@@ -453,9 +453,9 @@ or PDF is read by Spring AI's jsoup and PDF readers, split into chunks of
 `<kind>-<8 hex of the source>-<n>`, so importing the same source again replaces its
 drafts and retires the entries beyond the new count instead of adding beside them. Nothing
 is published by an import. **A URL is fetched by the knowledge role from inside the
-deployment's network**, which is the shape of a server-side request forgery; `SourceGuard`
+deployment's network**, which is the shape of a server-side request forgery; `PublicUrlGuard`
 allows http and https only, no credentials, and every address the host resolves to must
-be public, checked again on every redirect hop (`SourceGuardTest` lists what is refused).
+be public, checked again on every redirect hop (`PublicUrlGuardTest` lists what is refused; the guard lives in `internal/`, shared with the connectors).
 `app.knowledge-import.allow-private-networks` switches that off for a laptop and for the
 tests, which serve their pages locally; never facing tenants. Known limit: the address is
 resolved by the guard and again by the client, so DNS rebinding between the two is not caught.
@@ -474,7 +474,14 @@ what each means; a refused or unreachable store is `unavailable`, never "not fou
 store token is sealed by `ConnectorSecrets` with `ORDER_CONNECTOR_KEY` (AES-GCM) or stored
 `plain:` with a startup warning. `SHOPIFY_BASE_URL` points every store at one address: the
 tests' `FakeShopify` and the demo's `scripts/fake-shopify.py`. Not there: proving the
-customer owns the order.
+customer owns the order. **The Xboard connector proves it differently**: `lookup_my_subscription`
+(`AccountTools`) has no parameters and reads the account of whoever is signed in, with the
+customer's own panel token, forwarded by the widget as `X-Customer-Token`, carried in the
+tool context (`AccountTools.CUSTOMER_TOKEN_KEY`) for one turn and never stored. Four outcomes
+(`found`, `not_signed_in`, `not_connected`, `unavailable`). `XBOARD_BASE_URL` and the tests'
+`FakeXboard` stand in for a panel; `scripts/fake-xboard.py` for a demo. A panel URL is checked
+public by `PublicUrlGuard` (`internal/`, shared with the knowledge import;
+`CONNECTOR_ALLOW_PRIVATE_NETWORKS` for a laptop).
 
 ### Evaluation and deflection
 

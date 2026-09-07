@@ -21,6 +21,9 @@ app:
   knowledge-import:
     # Tests serve the pages they import from a local server.
     allow-private-networks: true
+  connectors:
+    # And the panels they connect to.
+    allow-private-networks: true
   rag:
     # Off by default so unrelated tests do not pay for embedding the corpus. Tests that need
     # the corpus set app.rag.import-mode=startup; readiness is DOWN in every other context.
